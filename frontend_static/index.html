@@ -13,7 +13,8 @@
         }
       }
     </script>
-    <style>
+    <link rel="stylesheet" href="./flow_main.css" />
+    <!-- legacy inline style backup; active styles moved to flow_main.css
       :root{
         --bg0:#f7f8fb;
         --bg1:#ffffff;
@@ -44,6 +45,175 @@
         display:grid;
         grid-template-rows: 56px 1fr;
       }
+      .chatgptHome{
+        display:flex;
+        justify-content:center;
+        align-items:center;
+        padding: 20px;
+      }
+      .introStage{
+        width:min(900px, 92vw);
+      }
+      .homeHero{
+        text-align:center;
+        margin-bottom: 14px;
+      }
+      .homeHero .heroTitle{
+        font-size: 32px;
+        font-weight: 800;
+        letter-spacing: .2px;
+        margin-bottom: 6px;
+      }
+      .homeHero .heroSub{
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .homeComposer{
+        border:1px solid var(--border);
+        border-radius: 18px;
+        background: rgba(255,255,255,.94);
+        box-shadow: 0 18px 46px rgba(15,23,42,.10);
+        padding: 12px;
+      }
+      .homeTextarea{
+        border:none !important;
+        box-shadow:none !important;
+        background: transparent !important;
+        min-height: 110px;
+        font-size:15px;
+      }
+      .homeToolbar{
+        border-top:1px solid var(--border);
+        margin-top: 8px;
+        padding-top: 10px;
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+        gap:10px;
+      }
+      .uploadChip{
+        display:inline-flex;
+        align-items:center;
+        gap:8px;
+        padding: 8px 12px;
+        border:1px solid var(--border);
+        border-radius: 999px;
+        color: var(--muted);
+        background: #fff;
+        cursor:pointer;
+        font-size: 13px;
+      }
+      .runBtn{
+        min-width: 150px;
+        border-radius: 999px !important;
+      }
+      .orchestrateStage{
+        width:min(980px, 94vw);
+        margin: 12px auto 0;
+        border:1px solid var(--border);
+        border-radius: 24px;
+        background:
+          radial-gradient(900px 260px at 8% -6%, rgba(37,99,235,.14), transparent 58%),
+          radial-gradient(760px 300px at 96% 14%, rgba(16,185,129,.10), transparent 60%),
+          rgba(255,255,255,.90);
+        box-shadow: 0 24px 60px rgba(15,23,42,.12);
+        padding: 20px 20px 16px 20px;
+      }
+      .orchestrateHeader{
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        margin-bottom:12px;
+      }
+      .agentPulse{
+        width:10px;height:10px;border-radius:999px;background:#2b5df7;
+        box-shadow: 0 0 0 0 rgba(43,93,247,.45);
+        animation: pulse 1.8s ease infinite;
+      }
+      .rail{
+        border:1px solid var(--border);
+        background: rgba(255,255,255,.82);
+        border-radius: 16px;
+        padding: 12px;
+        margin-bottom: 12px;
+      }
+      .railLine{
+        display:grid;
+        grid-template-columns: minmax(120px,1fr) 36px minmax(120px,1fr) 36px minmax(120px,1fr) 36px minmax(120px,1fr);
+        gap: 8px;
+        align-items:center;
+      }
+      .railStop{
+        border:1px solid var(--border);
+        border-radius: 12px;
+        padding: 9px 12px;
+        font-size: 12px;
+        color: var(--muted);
+        background: rgba(255,255,255,.95);
+        transition: all .28s ease;
+      }
+      .railStop.active{
+        color:#1d4ed8;
+        border-color: rgba(43,93,247,.45);
+        background: rgba(43,93,247,.10);
+      }
+      .railStop.done{
+        color:#15803d;
+        border-color: rgba(22,163,74,.35);
+        background: rgba(22,163,74,.10);
+      }
+      .railConn{
+        height: 3px;
+        border-radius: 999px;
+        background: rgba(15,23,42,.12);
+        position:relative;
+        overflow:hidden;
+      }
+      .railConn::after{
+        content:"";
+        position:absolute;
+        inset:0;
+        transform: translateX(-100%);
+        background: linear-gradient(90deg, rgba(43,93,247,.55), rgba(16,185,129,.55));
+        transition: transform .42s ease;
+      }
+      .railConn.active::after{
+        transform: translateX(0);
+      }
+      .orchestrateStream{
+        border:1px solid var(--border);
+        background: rgba(255,255,255,.92);
+        border-radius: 16px;
+        min-height: 230px;
+        max-height: 360px;
+        overflow:auto;
+        padding: 14px;
+        font-family: var(--mono);
+        font-size: 12px;
+        white-space: pre-wrap;
+        line-height: 1.58;
+        position: relative;
+      }
+      .orchestrateStream::after{
+        content: "";
+        position:absolute;
+        right:10px;
+        bottom:10px;
+        width: 8px;
+        height: 16px;
+        border-radius: 2px;
+        background: rgba(43,93,247,.55);
+        animation: caretBlink 1s steps(1,end) infinite;
+      }
+      @keyframes pulse{
+        0%{ box-shadow: 0 0 0 0 rgba(43,93,247,.45);}
+        70%{ box-shadow: 0 0 0 10px rgba(43,93,247,0);}
+        100%{ box-shadow: 0 0 0 0 rgba(43,93,247,0);}
+      }
+      @keyframes caretBlink{
+        0%,50%{ opacity:1; }
+        51%,100%{ opacity:0; }
+      }
 
       .top{
         display:flex;
@@ -73,6 +243,11 @@
         border-radius:999px;
         background: rgba(255,255,255,.65);
       }
+      #flowStepper .chip{
+        pointer-events:none !important;
+        user-select:none;
+        cursor:default;
+      }
       .iconBtn{
         width:34px;height:34px;border-radius:10px;
         border:1px solid var(--border);
@@ -84,10 +259,29 @@
 
       .main{
         display:grid;
-        grid-template-columns: 520px 1fr;
-        gap: 14px;
+        grid-template-columns: 1fr;
+        gap: 0;
         padding: 14px;
         height: calc(100vh - 56px);
+      }
+      .introStage{
+        border:1px solid var(--border);
+        background: rgba(255,255,255,.82);
+        border-radius: 18px;
+        box-shadow: var(--shadow);
+        padding: 16px;
+      }
+      .orchestrateStream{
+        border:1px solid var(--border);
+        background: #fff;
+        border-radius: 14px;
+        min-height: 160px;
+        max-height: 280px;
+        overflow:auto;
+        padding: 12px;
+        font-family: var(--mono);
+        font-size: 12px;
+        white-space: pre-wrap;
       }
 
       .panel{
@@ -182,12 +376,102 @@
         overflow:auto;
         white-space: pre;
       }
+      .scanExplorer{
+        border:1px solid var(--border);
+        border-radius: 14px;
+        background: rgba(255,255,255,.92);
+        overflow:hidden;
+        min-height: 420px;
+        display:flex;
+        flex-direction:column;
+      }
+      .scanExplorerMeta{
+        padding: 10px 12px;
+        border-bottom:1px solid var(--border);
+        font-family: var(--mono);
+        font-size:12px;
+        line-height:1.5;
+        background: linear-gradient(180deg, rgba(37,99,235,.06), rgba(37,99,235,0));
+      }
+      .scanExplorerTree{
+        min-height: 0;
+        flex:1;
+        overflow:auto;
+        padding: 8px 10px 12px 10px;
+        font-family: var(--mono);
+        font-size:12px;
+      }
+      .scanRow{
+        padding: 4px 6px;
+        border-radius: 8px;
+        opacity:0;
+        transform: translateY(6px);
+        animation: scanReveal .26s ease forwards;
+      }
+      .scanRow:nth-child(odd){
+        background: rgba(15,23,42,.03);
+      }
+      .scanRow.inp{
+        border-left: 3px solid rgba(37,99,235,.45);
+      }
+      .scanRow.primary{
+        background: rgba(37,99,235,.12) !important;
+        border-left: 4px solid rgba(37,99,235,.95);
+        font-weight: 700;
+      }
+      .scanRow.load_case{
+        background: rgba(245,158,11,.10) !important;
+        border-left: 3px solid rgba(245,158,11,.75);
+      }
+      .scanRow.set_definition{
+        background: rgba(16,185,129,.10) !important;
+        border-left: 3px solid rgba(16,185,129,.78);
+      }
+      .scanRow.result_state,
+      .scanRow.result_frame{
+        background: rgba(99,102,241,.10) !important;
+        border-left: 3px solid rgba(99,102,241,.78);
+      }
+      .scanRow.other{
+        background: rgba(15,23,42,.04) !important;
+        border-left: 3px solid rgba(148,163,184,.75);
+      }
+      .scanRow.code_file{
+        background: rgba(37,99,235,.10) !important;
+        border-left: 3px solid rgba(37,99,235,.78);
+      }
+      .scanRow.log_file{
+        background: rgba(249,115,22,.10) !important;
+        border-left: 3px solid rgba(249,115,22,.78);
+      }
+      .scanRow.viz_file{
+        background: rgba(168,85,247,.10) !important;
+        border-left: 3px solid rgba(168,85,247,.78);
+      }
+      .scanIcon{
+        display:inline-block;
+        width: 16px;
+        margin-right: 6px;
+        text-align:center;
+        opacity:.92;
+      }
+      @keyframes scanReveal{
+        to{ opacity:1; transform: translateY(0); }
+      }
 
       .rightGrid{
         display:grid;
-        grid-template-rows: 260px 1fr 320px;
+        grid-template-rows: auto auto auto auto;
         gap: 14px;
         min-height:0;
+      }
+      #panelStep1{
+        min-height: calc(100vh - 170px);
+      }
+      #panelStep1 .panelBd:last-child{
+        flex:1;
+        display:flex;
+        flex-direction:column;
       }
       #vtk{ width:100%; height:100%; }
 
@@ -216,13 +500,320 @@
       }
       .imgCard img{ width:100%; height:100%; object-fit: contain; background: #fff; }
       .imgCard{ height: 220px; }
+      /* 指标曲线区：日志摘要悬浮窗 */
+      .metricsPreviewInner{
+        position: relative;
+        min-height: 220px;
+      }
+      .logFloatDock{
+        position: absolute;
+        right: 8px;
+        bottom: 8px;
+        z-index: 6;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0;
+        pointer-events: none;
+        max-width: min(100%, 440px);
+      }
+      .logFloatDock > *{
+        pointer-events: auto;
+      }
+      .logFloatToggle{
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 8px 14px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text);
+        background: rgba(255,255,255,.94);
+        box-shadow: 0 10px 28px rgba(15,23,42,.12);
+        cursor: pointer;
+        transition: transform .18s ease, box-shadow .18s ease;
+      }
+      .logFloatToggle:hover{
+        transform: translateY(-1px);
+        box-shadow: 0 14px 34px rgba(15,23,42,.14);
+      }
+      .logFloatDockPanel{
+        width: min(420px, calc(100vw - 48px));
+        border-radius: 16px;
+        border: 1px solid var(--border);
+        background: rgba(255,255,255,.96);
+        box-shadow: 0 18px 44px rgba(15,23,42,.14);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        max-height: min(340px, 52vh);
+      }
+      .logFloatDockHd{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 8px 10px;
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--muted);
+        border-bottom: 1px solid var(--border);
+        background: rgba(15,23,42,.03);
+      }
+      .logFloatDockMin{
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        font-size: 16px;
+        line-height: 1;
+        padding: 4px 8px;
+        border-radius: 8px;
+        color: var(--muted);
+      }
+      .logFloatDockMin:hover{
+        background: rgba(15,23,42,.06);
+        color: var(--text);
+      }
+      .logFloatDockBody{
+        overflow: auto;
+        max-height: min(280px, 46vh);
+        padding: 10px 12px;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      .logFloatDockBody pre,
+      .logFloatDockBody code{ font-size: 11px; }
+      .logFloatDock.minimized .logFloatDockPanel{
+        display: none;
+      }
+      .logFloatDock:not(.minimized) .logFloatToggle{
+        display: none;
+      }
       .hidden{ display:none !important; }
+      #panelStep2, #panelStep3A, #panelStep3B, #panelStep4, #flowStageRight { display:none; }
+
+      .stageVisible{
+        display:flex !important;
+        flex-direction:column;
+        animation: stageSlideIn .42s ease both;
+      }
+      .stageVisibleGrid{
+        display:grid !important;
+        animation: stageSlideIn .42s ease both;
+      }
+      @keyframes stageSlideIn{
+        from{ opacity:0; transform: translateY(22px); }
+        to{ opacity:1; transform: translateY(0); }
+      }
 
       @media (max-width: 1100px){
-        .main{ grid-template-columns: 1fr; }
-        .rightGrid{ grid-template-rows: 360px 320px 320px; }
+        .rightGrid{ grid-template-rows: auto auto auto auto; }
       }
-    </style>
+
+      /* Home page final overrides (avoid legacy style interference) */
+      #landingMain{
+        height: calc(100vh - 56px);
+        min-height: 0;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        padding: 14px;
+        position: relative;
+      }
+      #landingMain .taskSidebar{
+        position: fixed;
+        left: 10px;
+        top: 210px;
+        width: 300px;
+        z-index: 9;
+        border:1px solid var(--border);
+        border-radius: 18px;
+        background: rgba(255,255,255,.90);
+        box-shadow: 0 20px 48px rgba(15,23,42,.10);
+        display:flex;
+        flex-direction:column;
+        min-height:0;
+        transition: width .25s ease, opacity .2s ease, transform .25s ease;
+      }
+      #landingMain .taskSidebarHd{
+        padding: 12px;
+        border-bottom:1px solid var(--border);
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap: 8px;
+      }
+      #landingMain .taskList{
+        padding: 10px;
+        overflow:auto;
+        min-height:0;
+        max-height: 360px;
+        display:flex;
+        flex-direction:column;
+        gap:8px;
+      }
+      #landingMain.sidebarCollapsed .taskSidebar{
+        width: 48px;
+        overflow: hidden;
+      }
+      #landingMain.sidebarCollapsed .taskSidebar .title,
+      #landingMain.sidebarCollapsed .taskSidebar #refreshTasksBtn,
+      #landingMain.sidebarCollapsed .taskSidebar .taskList{
+        opacity: 0;
+        pointer-events: none;
+      }
+      #landingMain .sidebarToggle{
+        width: 30px;
+        height: 30px;
+        border-radius: 9px;
+        border:1px solid var(--border);
+        background:#fff;
+        cursor:pointer;
+        font-size: 12px;
+        color: #334155;
+      }
+      #landingMain .taskItem{
+        border:1px solid var(--border);
+        border-radius: 12px;
+        padding: 8px;
+        background: rgba(255,255,255,.86);
+        cursor:pointer;
+      }
+      #landingMain .taskItem.active{
+        border-color: rgba(43,93,247,.45);
+        background: rgba(43,93,247,.08);
+      }
+      #landingMain .taskItemTitle{
+        font-size: 13px;
+        font-weight: 700;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      #landingMain .taskItemMeta{
+        margin-top: 4px;
+        font-size: 11px;
+        color: var(--muted);
+        display:flex;
+        justify-content:space-between;
+      }
+      #landingMain .taskProgress{
+        margin-top: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(15,23,42,.10);
+        overflow:hidden;
+      }
+      #landingMain .taskProgress > span{
+        display:block;
+        height:100%;
+        background: linear-gradient(90deg, #2563eb, #10b981);
+      }
+      #landingMain .taskActions{
+        margin-top: 6px;
+        display:flex;
+        justify-content:flex-end;
+      }
+      #landingMain .taskDelete{
+        border:none;
+        background: transparent;
+        color:#ef4444;
+        cursor:pointer;
+        font-size: 12px;
+      }
+      #landingMain .introStage{
+        width:min(960px, 76vw);
+        height:min(720px, calc(100vh - 110px));
+        border:1px solid var(--border);
+        border-radius: 22px;
+        background: rgba(255,255,255,.90);
+        box-shadow: 0 20px 48px rgba(15,23,42,.10);
+        padding: 16px;
+        display:grid;
+        grid-template-rows: auto 1fr auto;
+        min-height:0;
+      }
+      #landingMain .homeHero{
+        margin-bottom: 18px;
+      }
+      #landingMain .homeComposer{
+        border-radius: 20px;
+      }
+      #landingMain #chatLanding{
+        min-height: 0;
+        overflow:auto;
+        padding: 8px;
+        border:1px solid var(--border);
+        border-radius: 14px;
+        background: rgba(248,250,252,.72);
+      }
+      #landingMain .card{
+        border-radius: 16px;
+        background: rgba(255,255,255,.72);
+      }
+      #landingMain .fieldLabel{
+        letter-spacing:.2px;
+      }
+      #landingMain #chatLanding .bubble{
+        max-width: 100%;
+        border-radius: 12px;
+        box-shadow:none;
+        border:1px solid rgba(15,23,42,.08);
+      }
+      #landingMain #chatLanding .bubble.user{
+        background: rgba(37,99,235,.10);
+      }
+      #landingMain #chatLanding .bubble.agent{
+        background:#fff;
+      }
+      #landingMain .homeComposer{
+        margin-top: 10px;
+        border-radius: 14px;
+        box-shadow: none;
+      }
+      #landingMain .homeTextarea{
+        min-height: 72px;
+        max-height: 140px;
+      }
+      @media (max-width: 980px){
+        #landingMain{
+          height: auto;
+          min-height: calc(100vh - 56px);
+          padding-left: 8px;
+          padding-right: 8px;
+        }
+        #landingMain .taskSidebar{
+          position: static;
+          width: 100%;
+          margin-bottom: 8px;
+        }
+        #landingMain .introStage{
+          width: 100%;
+          height: calc(100vh - 220px);
+        }
+      }
+      #orchestrateMain{
+        height: auto;
+        min-height: calc(100vh - 96px);
+        display:flex;
+        align-items:center;
+        justify-content:center;
+      }
+      .backHomeBtn{
+        border-radius: 999px !important;
+      }
+      .orchestrateActionBar{
+        margin-top: 12px;
+        border-top: 1px solid var(--border);
+        padding-top: 12px;
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+      }
+      .orchestrateHint{
+        font-size: 12px;
+        color: var(--muted);
+      }
+    -->
   </head>
   <body>
     <div class="app">
@@ -236,77 +827,191 @@
         </div>
       </div>
 
-      <div class="main">
-        <div class="panel">
+      <div class="panelHd hidden" id="flowStepper" style="margin:12px 14px 0;border-radius:14px;border:1px solid var(--border); justify-content:space-between;">
+        <button class="btn backHomeBtn" id="backHomeFloating">&lt; 返回主页</button>
+        <div class="btnRow" style="justify-content:flex-end;">
+          <span class="chip" id="flowStep1" tabindex="-1" aria-disabled="true">1 搜索文件</span>
+          <span class="chip" id="flowStep2" tabindex="-1" aria-disabled="true">2 生成代码</span>
+          <span class="chip" id="flowStep3" tabindex="-1" aria-disabled="true">3 预览指标</span>
+          <span class="chip" id="flowStep4" tabindex="-1" aria-disabled="true">4 文件汇总</span>
+        </div>
+      </div>
+
+      <div class="main chatgptHome" id="landingMain">
+        <div class="taskSidebar">
+          <div class="taskSidebarHd">
+            <div class="title">任务记录</div>
+            <div class="btnRow">
+              <button class="sidebarToggle" id="toggleSidebarBtn" title="折叠/展开任务栏">◀</button>
+              <button class="btn" id="refreshTasksBtn">刷新</button>
+            </div>
+          </div>
+          <div class="taskList" id="taskList"></div>
+        </div>
+
+        <div class="introStage panel">
+          <div class="homeHero">
+            <div class="heroTitle">BESO 智能体</div>
+            <div class="heroSub">上方查看会话，底部输入需求并开始任务。</div>
+          </div>
+
+          <div id="chatLanding" class="chat"></div>
+
+          <div class="homeComposer">
+            <div class="uploadPreview hidden" id="uploadPreviewCard">
+              <span class="uploadPreviewTag">已上传</span>
+              <span class="uploadPreviewName" id="uploadPreviewName">(暂无文件)</span>
+              <button class="uploadPreviewRemove" id="uploadPreviewRemove" title="移除上传文件">×</button>
+            </div>
+            <textarea class="homeTextarea" id="msgLanding" placeholder="例如：帮我对这个 inp 做拓扑优化，目标质量 0.4，每 10 次保存并实时展示演化过程。">帮我对这个 inp 做 topo 优化，每 10 次保存，并实时展示。</textarea>
+            <div class="homeToolbar">
+              <div class="btnRow">
+                <button class="uploadChip uploadChipStrong" id="pickBtnLanding">上传文件</button>
+                <input id="fileInputLanding" type="file" accept=".inp,.vtk,.obj,.py,.log" class="hidden" />
+                <span class="chip">任务与进度保存在 runs 目录</span>
+              </div>
+              <button class="btn btnPrimary runBtn" id="runAgentFlow">运行智能体流程</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="main hidden" id="orchestrateMain">
+        <div class="orchestrateStage">
+          <div class="orchestrateHeader">
+            <div>
+              <div class="title">智能体正在编排执行流程</div>
+              <div class="fieldLabel">系统正在构建可执行流程图，完成后由你确认启动任务。</div>
+            </div>
+            <span class="agentPulse" title="Agent planning"></span>
+          </div>
+          <div class="rail">
+            <div class="railLine">
+              <div class="railStop active" id="railStop1">1 搜索相关文件</div>
+              <div class="railConn" id="railConn1"></div>
+              <div class="railStop" id="railStop2">2 生成代码</div>
+              <div class="railConn" id="railConn2"></div>
+              <div class="railStop" id="railStop3">3 预览指标</div>
+              <div class="railConn" id="railConn3"></div>
+              <div class="railStop" id="railStop4">4 文件日志汇总</div>
+            </div>
+          </div>
+          <div id="orchestrateStream" class="orchestrateStream"></div>
+          <div class="orchestrateActionBar">
+            <span class="orchestrateHint">建议先阅读编排结果，再执行任务。</span>
+            <div class="btnRow">
+              <button class="btn backHomeBtn" id="backHomeFromOrchestrate">返回主页</button>
+              <button class="btn btnPrimary" id="executePlannedTask" disabled>执行任务</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="main hidden" id="flowMain">
+        <div class="panel" id="panelStep1">
           <div class="panelHd">
             <div class="title">对话与任务</div>
-            <div class="btnRow">
-              <button class="btn" id="pickBtn">选择文件</button>
-              <input id="fileInput" type="file" accept=".inp,.vtk,.obj" class="hidden" />
-            </div>
+            <span class="chip">子流程：搜索文件</span>
           </div>
           <div class="panelBd" style="border-bottom:1px solid var(--border);">
             <div class="fieldLabel">当前文件</div>
             <div class="previewBox" id="fileSummaryInline">(尚未选择文件)</div>
           </div>
 
-          <div class="panelBd chat" id="chat" style="flex:1;">
-            <div class="bubble agent">
-              选择一个 `.inp` 文件，然后用自然语言描述你想要的拓扑优化目标（参数可不写，智能体会解析）。
-              <div class="meta">提示：右上角⚙可查看/微调解析出的参数（默认折叠）</div>
-            </div>
-          </div>
-
-          <div class="panelBd" style="border-top:1px solid var(--border); max-height:220px;">
-            <div class="panelHd" style="padding:0 0 10px 0; border:none; background:transparent;">
-              <div class="title">任务日志（按任务分窗）</div>
-              <span class="chip">mcp的log</span>
-            </div>
-            <div id="jobLogs" class="chat" style="gap:8px;"></div>
-          </div>
+          <div class="panelBd chat hidden" id="chat" style="flex:1;"></div>
 
           <div class="panelBd" style="border-top:1px solid var(--border);">
-            <div class="fieldLabel">输入</div>
-            <input id="scanDir" type="text" placeholder="可选：扫描目录绝对路径（例如 D:\python_project\beso_ai\beso\wiki_files\example_2\input_and_results）" />
-            <textarea id="msg">帮我对这个 inp 做 topo 优化，目标质量 0.4，filter 2，每 10 次保存，并实时展示</textarea>
-            <div class="btnRow" style="margin-top:10px;">
+            <div class="fieldLabel">自动关联扫描</div>
+            <div class="scanExplorer">
+              <div class="scanExplorerMeta" id="autoScanInfo">(将根据主页上传文件目录自动搜索并返回关联文件)</div>
+              <div class="scanExplorerTree" id="autoScanTree"></div>
+            </div>
+            <input id="scanDir" type="text" class="hidden" />
+            <textarea id="msg" class="hidden"></textarea>
+            <div class="btnRow hidden">
               <button class="btn btnPrimary" id="startBtn">运行</button>
               <button class="btn" id="scanBtn">扫描目录</button>
               <button class="btn btnDanger" id="cancelBtn" disabled>取消</button>
               <span class="chip">最新产物：<a id="vtkLink" href="#" target="_blank">(暂无)</a></span>
             </div>
+            <div class="btnRow" style="margin-top:10px;">
+              <button class="btn btnPrimary" id="acceptStep1" disabled>接受智能体本步骤内容并进入下一步</button>
+            </div>
           </div>
         </div>
 
-        <div class="rightGrid">
-          <div class="panel">
+        <div class="rightGrid" id="flowStageRight">
+          <div class="panel" id="panelStep3A">
             <div class="panelHd">
               <div class="title">3D 预览</div>
-              <span class="chip">来源 vtk 帧序列</span>
+              <div class="btnRow">
+                <span class="chip">来源 vtk 帧序列</span>
+                <button class="spinToggleBtn on" id="spinToggleBtn" type="button" aria-pressed="true" title="切换自动旋转">
+                  <span class="dot"></span>
+                  <span class="label">旋转中</span>
+                </button>
+              </div>
             </div>
             <div class="panelBd noScroll">
               <div id="vtk"></div>
             </div>
           </div>
 
-          <div class="panel">
+          <div class="panel" id="panelStep3B">
             <div class="panelHd">
               <div class="title">指标曲线</div>
               <span class="chip">Mass / FI</span>
             </div>
             <div class="panelBd">
-              <div class="imgGrid" id="imgGrid"></div>
+              <div class="metricsPreviewInner">
+                <div class="imgGrid" id="imgGrid"></div>
+                <aside id="logFloatDock" class="logFloatDock minimized" aria-label="日志摘要">
+                  <button type="button" class="logFloatToggle" id="logFloatToggle">日志摘要</button>
+                  <div class="logFloatDockPanel">
+                    <div class="logFloatDockHd">
+                      <span class="logFloatDockTitle">日志摘要</span>
+                      <button type="button" class="logFloatDockMin" id="logFloatMin" title="最小化">─</button>
+                    </div>
+                    <div class="logFloatDockBody mdBox" id="logFloatBody"></div>
+                  </div>
+                </aside>
+              </div>
+              <div class="btnRow" style="margin-top:10px;">
+                <button class="btn btnPrimary" id="acceptStep3" disabled>接受智能体本步骤内容并进入下一步</button>
+              </div>
             </div>
           </div>
 
-          <div class="panel">
+          <div class="panel" id="panelStep4">
+            <div class="panelHd">
+              <div class="title">生成文件和日志汇总</div>
+              <span class="chip">summary</span>
+            </div>
+            <div class="panelBd">
+              <div class="fieldLabel">输入映射</div>
+              <div class="previewBox" id="mappingPreview">(暂无输入映射)</div>
+              <div class="fieldLabel" style="margin-top:10px;">产物与代码清单</div>
+              <div class="previewBox" id="artifactSummary">(暂无)</div>
+              <div class="fieldLabel" style="margin-top:10px;">日志摘要</div>
+              <div class="previewBox" id="logSummary">(暂无)</div>
+              <div class="btnRow" style="margin-top:10px;">
+                <button class="btn" id="restartFlow">开始新流程</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel" id="panelStep2">
             <div class="panelHd">
               <div class="title">生成代码</div>
-              <span class="chip">beso_conf.py / run_generated.py</span>
+              <span class="chip">generated / runtime / manifest</span>
             </div>
             <div class="panelBd">
               <div class="btnRow" id="codeTabs"></div>
               <div class="previewBox" id="codePreview" style="margin-top:10px; max-height:240px;">(尚未生成代码)</div>
+              <div id="codeStreamWrap" style="margin-top:10px;"></div>
+              <div class="btnRow" style="margin-top:10px;">
+                <button class="btn btnPrimary" id="acceptStep2" disabled>接受智能体本步骤内容并进入下一步</button>
+              </div>
             </div>
           </div>
         </div>
@@ -319,7 +1024,7 @@
         </div>
         <div class="panelBd">
           <div class="fieldLabel">后端地址</div>
-          <input id="baseUrl" type="text" value="http://127.0.0.1:8000" />
+          <input id="baseUrl" type="text" value="" placeholder="留空默认使用当前页面地址" />
           <div class="fieldLabel" style="margin-top:10px">阿里云 Qwen API（仅内存保存）</div>
           <input id="qwenBaseUrl" type="text" placeholder="base_url (默认兼容模式)" />
           <input id="qwenModel" type="text" placeholder="model (例如 qwen-plus)" style="margin-top:8px" />
@@ -342,7 +1047,7 @@
         </div>
       </div>
     </div>
-    <script type="module" src="./main.js"></script>
+    <script type="module" src="./flow_main.js"></script>
   </body>
 </html>
 
