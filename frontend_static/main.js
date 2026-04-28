@@ -1,0 +1,362 @@
+// Minimal UI without npm build (ESM via CDN).
+// Use three.js + OBJLoader to render latest.obj produced by backend.
+import * as THREE from "three";
+import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+
+const $ = (id) => document.getElementById(id);
+const chatEl = $("chat");
+const jobLogsEl = $("jobLogs");
+const vtkLink = $("vtkLink");
+const statusEl = $("status");
+const jobIdEl = $("jobId");
+const cancelBtn = $("cancelBtn");
+const fileInput = $("fileInput");
+const pickBtn = $("pickBtn");
+const settingsBtn = $("settingsBtn");
+const settingsPanel = $("settingsPanel");
+const settingsClose = $("settingsClose");
+const baseUrlInput = $("baseUrl");
+const baseUrlText = $("baseUrlText");
+const fileSummary = $("fileSummary");
+const fileSummaryInline = $("fileSummaryInline");
+const filePreview = $("filePreview");
+const imgGrid = $("imgGrid");
+const qwenBaseUrl = $("qwenBaseUrl");
+const qwenModel = $("qwenModel");
+const qwenKey = $("qwenKey");
+const qwenSave = $("qwenSave");
+const qwenStatus = $("qwenStatus");
+
+let currentFileId = null;
+let parsedParams = null;
+let currentJobLogBox = null;
+
+let ws = null;
+let jobId = null;
+let lastVtkUrl = null;
+
+const container = $("vtk");
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b1020);
+const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
+camera.position.set(0, 0, 3);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio || 1);
+container.appendChild(renderer.domElement);
+renderer.domElement.style.cursor = "grab";
+
+const light1 = new THREE.DirectionalLight(0xffffff, 1.0);
+light1.position.set(2, 2, 2);
+scene.add(light1);
+scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.enablePan = true;
+controls.enableZoom = true;
+controls.zoomSpeed = 1.1;
+controls.rotateSpeed = 0.8;
+controls.target.set(0, 0, 0);
+controls.update();
+
+let currentObj = null;
+const loader = new OBJLoader();
+
+function resize() {
+  const r = container.getBoundingClientRect();
+  const w = Math.max(1, Math.floor(r.width));
+  const h = Math.max(1, Math.floor(r.height));
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h, false);
+}
+
+// Ensure 3D canvas always matches container
+new ResizeObserver(() => resize()).observe(container);
+
+function animate() {
+  requestAnimationFrame(animate);
+  if (currentObj) currentObj.rotation.y += 0.0015;
+  controls.update();
+  renderer.render(scene, camera);
+}
+resize();
+animate();
+
+function appendLog(line) {
+  if (!currentJobLogBox) {
+    // fallback
+    addBubble("agent", line, true);
+    return;
+  }
+  currentJobLogBox.textContent += line + "\n";
+  currentJobLogBox.scrollTop = currentJobLogBox.scrollHeight;
+}
+
+function addBubble(role, text, isLog = false) {
+  const b = document.createElement("div");
+  b.className = `bubble ${role}`;
+  b.textContent = text;
+  if (isLog) {
+    const m = document.createElement("div");
+    m.className = "meta";
+    m.textContent = "log";
+    b.appendChild(m);
+  }
+  chatEl.appendChild(b);
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+async function loadMesh(url) {
+  try {
+    const full = `${baseUrlInput.value}${url}`;
+    const resp = await fetch(full, { cache: "no-store" });
+    const text = await resp.text();
+    const obj = loader.parse(text);
+    // center to origin so rotation/camera is stable
+    const box0 = new THREE.Box3().setFromObject(obj);
+    const center0 = new THREE.Vector3();
+    box0.getCenter(center0);
+    obj.position.sub(center0);
+    obj.traverse((c) => {
+      if (c.isMesh) {
+        c.material = new THREE.MeshStandardMaterial({
+          color: 0x93c5fd,
+          metalness: 0.05,
+          roughness: 0.55,
+          side: THREE.DoubleSide,
+        });
+      }
+    });
+    if (currentObj) scene.remove(currentObj);
+    currentObj = obj;
+    scene.add(obj);
+
+    // auto fit camera
+    const box = new THREE.Box3().setFromObject(obj);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+    const dist = maxDim * 1.8;
+    camera.position.set(0, 0, dist);
+    camera.lookAt(0, 0, 0);
+    controls.target.set(0, 0, 0);
+    controls.update();
+  } catch (e) {
+    appendLog(`[UI] 网格渲染失败：${e}`);
+  }
+}
+
+function upsertImage(name, url) {
+  let card = document.querySelector(`[data-img='${name}']`);
+  if (!card) {
+    card = document.createElement("div");
+    card.className = "imgCard";
+    card.dataset.img = name;
+    card.innerHTML = `
+      <div class="imgCardHd"><span>${name}</span><a target="_blank">打开</a></div>
+      <img />
+    `;
+    imgGrid.appendChild(card);
+  }
+  const a = card.querySelector("a");
+  const img = card.querySelector("img");
+  const full = `${baseUrlInput.value}${url}`;
+  a.href = full;
+  // bust cache
+  img.src = `${full}?t=${Date.now()}`;
+}
+
+function connectWs() {
+  const base = baseUrlInput.value.replace(/^http/, "ws");
+  ws = new WebSocket(`${base}/ws/jobs/${jobId}`);
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === "snapshot") {
+      statusEl.textContent = msg.job.status;
+      jobIdEl.textContent = msg.job.id;
+      if (msg.job.latest_vtk_url) {
+        lastVtkUrl = msg.job.latest_vtk_url;
+        vtkLink.href = `${baseUrlInput.value}${lastVtkUrl}`;
+        vtkLink.textContent = lastVtkUrl;
+        loadMesh(lastVtkUrl);
+      }
+      return;
+    }
+    if (msg.type === "log") appendLog(msg.line);
+    if (msg.type === "status") statusEl.textContent = msg.status;
+    if (msg.type === "vtk") {
+      lastVtkUrl = msg.url;
+      vtkLink.href = `${baseUrlInput.value}${lastVtkUrl}`;
+      vtkLink.textContent = lastVtkUrl;
+      loadMesh(lastVtkUrl);
+    }
+    if (msg.type === "artifact") {
+      if (msg.kind === "mesh") {
+        // show source vtk if provided
+        const label = (msg.meta && msg.meta.source_vtk) ? msg.meta.source_vtk : msg.name;
+        vtkLink.href = `${baseUrlInput.value}${msg.url}`;
+        vtkLink.textContent = label;
+        loadMesh(msg.url);
+      } else if (msg.kind === "image") {
+        upsertImage(msg.name, msg.url);
+      }
+    }
+  };
+  ws.onclose = () => {
+    appendLog("[UI] WebSocket 已断开");
+  };
+}
+
+async function uploadSelectedFile(file) {
+  const base = baseUrlInput.value;
+  const fd = new FormData();
+  fd.append("file", file);
+  const resp = await fetch(`${base}/api/files/upload`, { method: "POST", body: fd });
+  const data = await resp.json();
+  currentFileId = data.file_id;
+  addBubble("agent", `已选择文件：${data.name}`);
+
+  const p = await (await fetch(`${base}/api/files/${currentFileId}/preview`)).json();
+  if (p.ext === ".inp") {
+    const elsets = (p.preview.elsets || []).join(", ") || "(未识别)";
+    fileSummary.textContent = `文件：${p.name}\nELSET：${elsets}`;
+    fileSummaryInline.textContent = fileSummary.textContent;
+    filePreview.textContent = (p.preview.lines || []).join("\n");
+  } else {
+    fileSummary.textContent = `文件：${p.name}\n类型：${p.ext}`;
+    fileSummaryInline.textContent = fileSummary.textContent;
+    filePreview.textContent = "";
+  }
+}
+
+async function createAndRun() {
+  addBubble("user", $("msg").value);
+  statusEl.textContent = "-";
+  jobIdEl.textContent = "(启动中...)";
+
+  const base = baseUrlInput.value;
+  const body = { message: $("msg").value, auto_start: true };
+
+  if (currentFileId) body.file_id = currentFileId;
+
+  // optional manual overrides (settings panel)
+  const mg = $("massGoal").value.trim();
+  const fr = $("filterR").value.trim();
+  const se = $("saveEvery").value.trim();
+  if (mg) body.mass_goal_ratio = Number(mg);
+  if (fr) body.filter_radius = Number(fr);
+  if (se) body.save_every = Number(se);
+
+  const resp = await fetch(`${base}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await resp.json();
+  jobId = data.job_id;
+  // create a dedicated log window per job
+  const wrap = document.createElement("div");
+  wrap.className = "imgCard"; // reuse card style
+  wrap.style.height = "200px";
+  wrap.innerHTML = `
+    <div class="imgCardHd"><span>Job ${jobId.slice(0, 8)}</span><a target="_blank">打开目录</a></div>
+    <pre class="previewBox" style="margin:10px; height:140px; max-height:none; overflow:auto;"></pre>
+  `;
+  const pre = wrap.querySelector("pre");
+  const a = wrap.querySelector("a");
+  a.href = `${baseUrlInput.value}/runs/${jobId}/`;
+  jobLogsEl.prepend(wrap);
+  currentJobLogBox = pre;
+
+  parsedParams = data.parsed_params || null;
+  if (parsedParams) {
+    $("massGoal").value = String(parsedParams.mass_goal_ratio ?? "");
+    $("filterR").value = String(parsedParams.filter_radius ?? "");
+    $("saveEvery").value = String(parsedParams.save_every ?? "");
+  }
+  if (data.reasoning_summary) addBubble("agent", `参数解析：${data.reasoning_summary}`);
+  cancelBtn.disabled = false;
+  connectWs();
+}
+
+async function cancel() {
+  if (!jobId) return;
+  const base = baseUrlInput.value;
+  await fetch(`${base}/api/jobs/${jobId}/cancel`, { method: "POST" });
+  appendLog("[UI] 已请求取消");
+}
+
+$("startBtn").addEventListener("click", createAndRun);
+cancelBtn.addEventListener("click", cancel);
+
+window.addEventListener("resize", resize);
+
+pickBtn.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", async (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  await uploadSelectedFile(f);
+});
+
+settingsBtn.addEventListener("click", () => settingsPanel.classList.remove("hidden"));
+settingsClose.addEventListener("click", () => settingsPanel.classList.add("hidden"));
+baseUrlInput.addEventListener("input", () => {
+  try {
+    baseUrlText.textContent = baseUrlInput.value.replace(/^https?:\/\//, "");
+  } catch {}
+});
+
+// init base url text
+baseUrlText.textContent = baseUrlInput.value.replace(/^https?:\/\//, "");
+
+async function refreshQwenStatus() {
+  try {
+    const base = baseUrlInput.value;
+    const data = await (await fetch(`${base}/api/config/qwen`)).json();
+    qwenStatus.textContent = data.configured ? "已配置" : "未配置";
+    if (data.base_url) qwenBaseUrl.value = data.base_url;
+    if (data.model) qwenModel.value = data.model;
+  } catch {
+    qwenStatus.textContent = "不可用";
+  }
+}
+
+qwenSave.addEventListener("click", async () => {
+  const base = baseUrlInput.value;
+  const body = {
+    api_key: qwenKey.value.trim() || null,
+    base_url: qwenBaseUrl.value.trim() || null,
+    model: qwenModel.value.trim() || null,
+  };
+  const resp = await fetch(`${base}/api/config/qwen`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await resp.json();
+  qwenStatus.textContent = data.configured ? "已配置" : "未配置";
+  // Persist for convenience on this machine/browser.
+  localStorage.setItem("qwen_base_url", qwenBaseUrl.value || "");
+  localStorage.setItem("qwen_model", qwenModel.value || "");
+  localStorage.setItem("qwen_api_key", qwenKey.value || "");
+  addBubble("agent", data.configured ? "已启用 Qwen 参数解析。" : "Qwen 未启用。");
+});
+
+refreshQwenStatus();
+
+// Restore locally-saved Qwen settings (never sent unless user clicks save)
+try {
+  const lsBase = localStorage.getItem("qwen_base_url");
+  const lsModel = localStorage.getItem("qwen_model");
+  const lsKey = localStorage.getItem("qwen_api_key");
+  if (lsBase && !qwenBaseUrl.value) qwenBaseUrl.value = lsBase;
+  if (lsModel && !qwenModel.value) qwenModel.value = lsModel;
+  if (lsKey && !qwenKey.value) qwenKey.value = lsKey;
+} catch {}
+

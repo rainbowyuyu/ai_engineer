@@ -1,0 +1,59 @@
+
+---------------------------------------------------
+file_name = D:\python_project\beso_ai\runs\77aa1ea4063a4daabc4bb4686e121064\file057_state1.inp
+Start at    Tue Apr 28 19:52:10 2026
+
+elset_name              = all_available
+domain_optimized        = True
+domain_density          = [1e-06, 1]
+domain_thickness        = [1.0, 1.0]
+domain_offset           = 0.0
+domain_orientation      = []
+domain_FI               = [[('stress_von_Mises', 450000000.0)], [('stress_von_Mises', 450.0)]]
+domain_material         = ['*ELASTIC \n210000e-6,  0.3', '*ELASTIC \n210000,  0.3']
+domain_same_state       = False
+
+mass_goal_ratio         = 0.4
+continue_from           = 
+filter_list             = [['simple', 2.0]]
+optimization_base       = stiffness
+cpu_cores               = 24
+FI_violated_tolerance   = 1
+decay_coefficient       = -0.2
+shells_as_composite     = False
+reference_points        = integration points
+reference_value         = max
+mass_addition_ratio     = 0.01
+mass_removal_ratio      = 0.03
+ratio_type              = relative
+compensate_state_filter = False
+sensitivity_averaging   = False
+steps_superposition     = []
+iterations_limit        = auto
+tolerance               = 0.001
+displacement_graph      = []
+save_iteration_results  = 10
+save_solver_files       = 
+save_resulting_format   = inp vtk
+
+domains: 1
+nodes  : 16569
+TRIA3  : 0
+TRIA6  : 0
+QUAD4  : 0
+QUAD8  : 0
+TETRA4 : 61880
+TETRA10: 0
+HEXA8  : 0
+HEXA20 : 0
+PENTA6 : 0
+PENTA15: 0
+
+iterations_limit        = 71
+
+domain order: 
+0) all_available
+
+   i              mass    ener_dens_mean FI_violated_0)          FI_mean    _without_state0         FI_max_0)
+
+ERROR: CalculiX results not found, check CalculiX for errors.

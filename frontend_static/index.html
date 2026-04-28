@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BESO 智能体（本机）</title>
+    <link rel="icon" href="data:;base64,iVBORw0KGgo=" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
+          "three/examples/jsm/": "https://unpkg.com/three@0.165.0/examples/jsm/"
+        }
+      }
+    </script>
+    <style>
+      :root{
+        --bg0:#f7f8fb;
+        --bg1:#ffffff;
+        --card:#ffffff;
+        --muted:#6b7280;
+        --text:#0f172a;
+        --border:rgba(15,23,42,.10);
+        --shadow: 0 14px 40px rgba(15,23,42,.08);
+        --shadow2: 0 10px 26px rgba(15,23,42,.10);
+        --accent:#2563eb;
+        --accent2:#10b981;
+        --danger:#ef4444;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New";
+      }
+      *{ box-sizing:border-box; }
+      body{
+        margin:0;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial;
+        color:var(--text);
+        background:
+          radial-gradient(900px 600px at 15% 10%, rgba(37,99,235,.12), transparent 60%),
+          radial-gradient(900px 700px at 85% 15%, rgba(16,185,129,.10), transparent 55%),
+          linear-gradient(180deg, var(--bg0), var(--bg1));
+      }
+
+      .app{
+        height:100vh;
+        display:grid;
+        grid-template-rows: 56px 1fr;
+      }
+
+      .top{
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        padding: 0 18px;
+        border-bottom: 1px solid var(--border);
+        background: rgba(255,255,255,.72);
+        backdrop-filter: blur(10px);
+      }
+      .brand{
+        display:flex;
+        gap:10px;
+        align-items:center;
+        font-weight:800;
+        letter-spacing:.2px;
+      }
+      .dot{
+        width:12px;height:12px;border-radius:999px;background: linear-gradient(180deg, var(--accent), #60a5fa);
+        box-shadow: 0 6px 18px rgba(37,99,235,.35);
+      }
+      .topRight{ display:flex; gap:10px; align-items:center; }
+      .chip{
+        font-size:12px;
+        padding: 6px 10px;
+        border: 1px solid var(--border);
+        border-radius:999px;
+        background: rgba(255,255,255,.65);
+      }
+      .iconBtn{
+        width:34px;height:34px;border-radius:10px;
+        border:1px solid var(--border);
+        background: rgba(255,255,255,.85);
+        cursor:pointer;
+        box-shadow: var(--shadow2);
+      }
+      .iconBtn:active{ transform: translateY(1px); }
+
+      .main{
+        display:grid;
+        grid-template-columns: 520px 1fr;
+        gap: 14px;
+        padding: 14px;
+        height: calc(100vh - 56px);
+      }
+
+      .panel{
+        border:1px solid var(--border);
+        background: rgba(255,255,255,.75);
+        border-radius: 18px;
+        box-shadow: var(--shadow);
+        overflow:hidden;
+        display:flex;
+        flex-direction:column;
+        min-height:0;
+      }
+
+      .panelHd{
+        padding: 12px 14px;
+        border-bottom:1px solid var(--border);
+        display:flex;
+        gap:10px;
+        align-items:center;
+        justify-content:space-between;
+        background: rgba(255,255,255,.7);
+      }
+      .panelHd .title{ font-weight:800; }
+      .panelBd{ padding: 12px 14px; min-height:0; overflow:auto; }
+      .panelBd.noScroll{ overflow:hidden; padding:0; }
+
+      .fieldLabel{ font-size:12px; color:var(--muted); margin-bottom:6px; }
+      input[type="text"], textarea{
+        width:100%;
+        border:1px solid var(--border);
+        border-radius: 14px;
+        padding: 10px 12px;
+        background: rgba(255,255,255,.95);
+        outline:none;
+      }
+      input[type="text"]:focus, textarea:focus{
+        border-color: rgba(37,99,235,.35);
+        box-shadow: 0 0 0 4px rgba(37,99,235,.10);
+      }
+      textarea{ height: 120px; resize: vertical; }
+
+      .btnRow{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+      .btn{
+        border:1px solid var(--border);
+        background: linear-gradient(180deg, #ffffff, #f3f4f6);
+        color: var(--text);
+        font-weight:800;
+        border-radius: 14px;
+        padding: 10px 12px;
+        cursor:pointer;
+      }
+      .btnPrimary{
+        border-color: rgba(37,99,235,.25);
+        background: linear-gradient(180deg, rgba(37,99,235,.95), rgba(29,78,216,.90));
+        color: #fff;
+        box-shadow: 0 10px 24px rgba(37,99,235,.18);
+      }
+      .btnDanger{
+        border-color: rgba(239,68,68,.25);
+        background: linear-gradient(180deg, rgba(239,68,68,.92), rgba(220,38,38,.92));
+        color: #fff;
+      }
+      .btn:disabled{ opacity:.55; cursor:not-allowed; }
+
+      .chat{
+        display:flex;
+        flex-direction:column;
+        gap:10px;
+        min-height:0;
+      }
+      .bubble{
+        max-width: 92%;
+        padding: 10px 12px;
+        border-radius: 16px;
+        border: 1px solid var(--border);
+        background: rgba(255,255,255,.92);
+        box-shadow: 0 10px 22px rgba(15,23,42,.06);
+        line-height:1.35;
+      }
+      .bubble.user{ margin-left:auto; border-color: rgba(37,99,235,.20); background: rgba(37,99,235,.08); }
+      .bubble.agent{ margin-right:auto; }
+      .bubble .meta{ font-size:11px; color: var(--muted); margin-top:6px; }
+
+      .previewBox{
+        font-family: var(--mono);
+        font-size: 12px;
+        border: 1px solid var(--border);
+        background: rgba(248,250,252,.9);
+        border-radius: 14px;
+        padding: 10px 12px;
+        max-height: 220px;
+        overflow:auto;
+        white-space: pre;
+      }
+
+      .rightGrid{
+        display:grid;
+        grid-template-rows: 280px 1fr;
+        gap: 14px;
+        min-height:0;
+      }
+      #vtk{ width:100%; height:100%; }
+
+      .imgGrid{
+        display:grid;
+        grid-template-columns: repeat(2, minmax(0,1fr));
+        gap: 10px;
+      }
+      .imgCard{
+        border:1px solid var(--border);
+        border-radius: 16px;
+        background: rgba(255,255,255,.92);
+        overflow:hidden;
+        box-shadow: 0 12px 26px rgba(15,23,42,.06);
+        display:flex;
+        flex-direction:column;
+      }
+      .imgCardHd{
+        padding: 8px 10px;
+        font-size:12px;
+        color: var(--muted);
+        border-bottom:1px solid var(--border);
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+      }
+      .imgCard img{ width:100%; height:100%; object-fit: contain; background: #fff; }
+      .imgCard{ height: 220px; }
+      .hidden{ display:none !important; }
+
+      @media (max-width: 1100px){
+        .main{ grid-template-columns: 1fr; }
+        .rightGrid{ grid-template-rows: 420px 320px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <div class="top">
+        <div class="brand"><span class="dot"></span> BESO 智能体 （rainbow鱼搭建）</div>
+        <div class="topRight">
+          <span class="chip">后端：<span id="baseUrlText">127.0.0.1:8000</span></span>
+          <span class="chip">Job：<span id="jobId">(未启动)</span></span>
+          <span class="chip">状态：<span id="status">-</span></span>
+          <button class="iconBtn" id="settingsBtn" title="设置">⚙</button>
+        </div>
+      </div>
+
+      <div class="main">
+        <div class="panel">
+          <div class="panelHd">
+            <div class="title">对话与任务</div>
+            <div class="btnRow">
+              <button class="btn" id="pickBtn">选择文件</button>
+              <input id="fileInput" type="file" accept=".inp,.vtk,.obj" class="hidden" />
+            </div>
+          </div>
+          <div class="panelBd" style="border-bottom:1px solid var(--border);">
+            <div class="fieldLabel">当前文件</div>
+            <div class="previewBox" id="fileSummaryInline">(尚未选择文件)</div>
+          </div>
+
+          <div class="panelBd chat" id="chat" style="flex:1;">
+            <div class="bubble agent">
+              选择一个 `.inp` 文件，然后用自然语言描述你想要的拓扑优化目标（参数可不写，智能体会解析）。
+              <div class="meta">提示：右上角⚙可查看/微调解析出的参数（默认折叠）</div>
+            </div>
+          </div>
+
+          <div class="panelBd" style="border-top:1px solid var(--border); max-height:220px;">
+            <div class="panelHd" style="padding:0 0 10px 0; border:none; background:transparent;">
+              <div class="title">任务日志（按任务分窗）</div>
+              <span class="chip">mcp的log</span>
+            </div>
+            <div id="jobLogs" class="chat" style="gap:8px;"></div>
+          </div>
+
+          <div class="panelBd" style="border-top:1px solid var(--border);">
+            <div class="fieldLabel">输入</div>
+            <textarea id="msg">帮我对这个 inp 做 topo 优化，目标质量 0.4，filter 2，每 10 次保存，并实时展示</textarea>
+            <div class="btnRow" style="margin-top:10px;">
+              <button class="btn btnPrimary" id="startBtn">运行</button>
+              <button class="btn btnDanger" id="cancelBtn" disabled>取消</button>
+              <span class="chip">最新产物：<a id="vtkLink" href="#" target="_blank">(暂无)</a></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="rightGrid">
+          <div class="panel">
+            <div class="panelHd">
+              <div class="title">3D 预览</div>
+              <span class="chip">来源 vtk 帧序列</span>
+            </div>
+            <div class="panelBd noScroll">
+              <div id="vtk"></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panelHd">
+              <div class="title">指标曲线</div>
+              <span class="chip">Mass / FI</span>
+            </div>
+            <div class="panelBd">
+              <div class="imgGrid" id="imgGrid"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel hidden" id="settingsPanel" style="position:fixed; right:16px; top:70px; width:360px; z-index:10;">
+        <div class="panelHd">
+          <div class="title">设置</div>
+          <button class="iconBtn" id="settingsClose" title="关闭">✕</button>
+        </div>
+        <div class="panelBd">
+          <div class="fieldLabel">后端地址</div>
+          <input id="baseUrl" type="text" value="http://127.0.0.1:8000" />
+          <div class="fieldLabel" style="margin-top:10px">阿里云 Qwen API（仅内存保存）</div>
+          <input id="qwenBaseUrl" type="text" placeholder="base_url (默认兼容模式)" />
+          <input id="qwenModel" type="text" placeholder="model (例如 qwen-plus)" style="margin-top:8px" />
+          <input id="qwenKey" type="text" placeholder="api_key（不会写入磁盘）" style="margin-top:8px" />
+          <div class="fieldLabel" style="margin-top:6px">建议：首次填入后点“保存并启用”，浏览器会本地记住，下次自动带出。</div>
+          <div class="btnRow" style="margin-top:8px">
+            <button class="btn btnPrimary" id="qwenSave">保存并启用</button>
+            <span class="chip">状态：<span id="qwenStatus">未配置</span></span>
+          </div>
+          <div class="fieldLabel" style="margin-top:10px">解析参数（可覆盖）</div>
+          <div class="btnRow">
+            <input id="massGoal" type="text" placeholder="mass_goal_ratio" />
+            <input id="filterR" type="text" placeholder="filter_radius" />
+            <input id="saveEvery" type="text" placeholder="save_every" />
+          </div>
+          <div class="fieldLabel" style="margin-top:10px">文件</div>
+          <div class="previewBox" id="fileSummary">(尚未选择文件)</div>
+          <div class="fieldLabel" style="margin-top:10px">.inp 预览（前 200 行）</div>
+          <div class="previewBox" id="filePreview"></div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
+
