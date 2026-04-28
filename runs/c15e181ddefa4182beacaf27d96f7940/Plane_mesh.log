@@ -1,0 +1,70 @@
+
+---------------------------------------------------
+file_name = D:\python_project\beso_ai\runs\c15e181ddefa4182beacaf27d96f7940\Plane_mesh.inp
+Start at    Wed Apr 29 00:14:26 2026
+
+elset_name              = SolidMaterialElementGeometry2D
+domain_optimized        = True
+domain_density          = [1e-06, 1]
+domain_thickness        = [1.0, 1.0]
+domain_offset           = 0.0
+domain_orientation      = []
+domain_FI               = [[('stress_von_Mises', 450000000.0)], [('stress_von_Mises', 450.0)]]
+domain_material         = ['*ELASTIC \n210000e-6,  0.3', '*ELASTIC \n210000,  0.3']
+domain_same_state       = False
+
+mass_goal_ratio         = 0.4
+continue_from           = 
+filter_list             = [['simple', 2.0]]
+optimization_base       = stiffness
+cpu_cores               = 24
+FI_violated_tolerance   = 1
+decay_coefficient       = -0.2
+shells_as_composite     = False
+reference_points        = integration points
+reference_value         = max
+mass_addition_ratio     = 0.01
+mass_removal_ratio      = 0.03
+ratio_type              = relative
+compensate_state_filter = False
+sensitivity_averaging   = False
+steps_superposition     = []
+iterations_limit        = auto
+tolerance               = 0.001
+displacement_graph      = []
+save_iteration_results  = 10
+save_solver_files       = 
+save_resulting_format   = inp vtk
+
+domains: 1
+nodes  : 3131
+TRIA3  : 0
+TRIA6  : 0
+QUAD4  : 3000
+QUAD8  : 0
+TETRA4 : 0
+TETRA10: 0
+HEXA8  : 0
+HEXA20 : 0
+PENTA6 : 0
+PENTA15: 0
+
+iterations_limit        = 71
+
+domain order: 
+0) SolidMaterialElementGeometry2D
+
+   i              mass    ener_dens_mean FI_violated_0)          FI_mean    _without_state0         FI_max_0)
+   0 2999.999999999999  0.0013411084781757695            0 0.044862498135823846 0.044862498135823846 0.5226172995188745
+   1 2909.0000909999885  0.0013852545649543696            0 0.046226236371211954 0.04622623781727143 0.5226107057070486
+   2 2851.000148999994  0.0014206661207345284            0 0.04727640035239309 0.04727640282316945 0.5226100078792666
+   3 2794.000205999992  0.0014635170776662527            0 0.04838528166223716 0.04838528522965585 0.5226206646484001
+   4 2738.000261999992  0.0014943991263266427            0 0.04927752031905382 0.049277525034433715 0.5226217587994287
+   5 2683.0003169999973  0.0015608124921439068            0 0.0508508245598526 0.05085083056794477 0.5226242592885245
+   6 2629.0003709998696  0.0015859408939136873            0 0.05159437486995467 0.051594382150864745 0.5226372887510716
+   7  2577.00042299918  0.00163061382550867            0 0.05275120960950762 0.05275121826832062 0.522641479831699
+   8 2525.000474997109  0.0016749158408167703            0 0.053825983598904864 0.05382599372458471 0.5226087473809807
+   9 2475.000524994946  0.0017439574522122767            0 0.055158926367005916 0.055158938067384033 0.522674172683057
+  10 2425.000574994191  0.001774778545664279            0 0.056097029766830266 0.05609704306818755 0.5226448690606742
+  11 2377.000622993435  0.0018267744520552962            0 0.05720738575969864 0.057207400753472616 0.5226604584700381
+  12 2329.000670961637  0.0018801969906832145            0 0.05836361639001426 0.05836363320495041 0.5226371682631245

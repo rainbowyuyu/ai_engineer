@@ -185,7 +185,7 @@
 
       .rightGrid{
         display:grid;
-        grid-template-rows: 280px 1fr;
+        grid-template-rows: 260px 1fr 320px;
         gap: 14px;
         min-height:0;
       }
@@ -220,7 +220,7 @@
 
       @media (max-width: 1100px){
         .main{ grid-template-columns: 1fr; }
-        .rightGrid{ grid-template-rows: 420px 320px; }
+        .rightGrid{ grid-template-rows: 360px 320px 320px; }
       }
     </style>
   </head>
@@ -267,9 +267,11 @@
 
           <div class="panelBd" style="border-top:1px solid var(--border);">
             <div class="fieldLabel">输入</div>
+            <input id="scanDir" type="text" placeholder="可选：扫描目录绝对路径（例如 D:\python_project\beso_ai\beso\wiki_files\example_2\input_and_results）" />
             <textarea id="msg">帮我对这个 inp 做 topo 优化，目标质量 0.4，filter 2，每 10 次保存，并实时展示</textarea>
             <div class="btnRow" style="margin-top:10px;">
               <button class="btn btnPrimary" id="startBtn">运行</button>
+              <button class="btn" id="scanBtn">扫描目录</button>
               <button class="btn btnDanger" id="cancelBtn" disabled>取消</button>
               <span class="chip">最新产物：<a id="vtkLink" href="#" target="_blank">(暂无)</a></span>
             </div>
@@ -294,6 +296,17 @@
             </div>
             <div class="panelBd">
               <div class="imgGrid" id="imgGrid"></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panelHd">
+              <div class="title">生成代码</div>
+              <span class="chip">beso_conf.py / run_generated.py</span>
+            </div>
+            <div class="panelBd">
+              <div class="btnRow" id="codeTabs"></div>
+              <div class="previewBox" id="codePreview" style="margin-top:10px; max-height:240px;">(尚未生成代码)</div>
             </div>
           </div>
         </div>

@@ -9,6 +9,8 @@ class ChatRequest(BaseModel):
     file_id: str | None = Field(default=None, description="Uploaded file id returned by /api/files/upload")
     # fallback: absolute path (legacy mode)
     inp_path: str | None = Field(default=None, description="Absolute path to inp file on disk (legacy)")
+    # new mode: scan a directory to auto-discover inputs
+    scan_dir: str | None = Field(default=None, description="Absolute directory path for auto scan mode")
 
     # optional overrides; if omitted, can be filled by LLM
     mass_goal_ratio: float | None = None
@@ -22,4 +24,5 @@ class ChatResponse(BaseModel):
     job_id: str
     parsed_params: dict | None = None
     reasoning_summary: str | None = None
+    generated_code: list[dict] | None = None
 

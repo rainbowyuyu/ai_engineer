@@ -85,6 +85,14 @@ def run_beso_job(
     # Copy inp into run directory
     inp_dst = run_dir / inp_src.name
     shutil.copy2(inp_src, inp_dst)
+    # Copy sibling inp files as well (example_2 often references multiple inp fragments).
+    sibling_inps = list(inp_src.parent.glob("*.inp"))
+    for sib in sibling_inps:
+        dst = run_dir / sib.name
+        if dst.resolve() == inp_dst.resolve():
+            continue
+        if not dst.exists():
+            shutil.copy2(sib, dst)
 
     # Ensure we don't inherit FreeCAD/Python environment variables that can break subprocess resolution
     os.environ.pop("PYTHONHOME", None)
@@ -99,19 +107,20 @@ def run_beso_job(
     if not ccx_path.exists():
         raise FileNotFoundError(f"ccx not found: {ccx_path}")
 
-    # Write a job-local beso_conf.py
     conf_path = run_dir / "beso_conf.py"
-    _write_beso_conf(
-        conf_path,
-        work_dir=run_dir,
-        ccx_path=ccx_path,
-        file_name=inp_dst.name,
-        elset_name=elset_name,
-        mass_goal_ratio=mass_goal_ratio,
-        filter_radius=filter_radius,
-        optimization_base=optimization_base,
-        save_every=save_every,
-    )
+    # Respect generated config if pre-created by generator.
+    if not conf_path.exists():
+        _write_beso_conf(
+            conf_path,
+            work_dir=run_dir,
+            ccx_path=ccx_path,
+            file_name=inp_dst.name,
+            elset_name=elset_name,
+            mass_goal_ratio=mass_goal_ratio,
+            filter_radius=filter_radius,
+            optimization_base=optimization_base,
+            save_every=save_every,
+        )
 
     # Run beso_main.py, ensuring it loads our config (same dir). We do that by copying beso sources in.
     beso_src = (workspace_root / "beso").resolve()
@@ -129,11 +138,15 @@ def run_beso_job(
     for f in required:
         shutil.copy2(beso_src / f, run_dir / f)
 
-    cmd = [
-        os.environ.get("PYTHON_EXE", "python"),
-        str(run_dir / "beso_main.py"),
-        str(inp_dst),
-    ]
+    run_generated = run_dir / "run_generated.py"
+    if run_generated.exists():
+        cmd = [os.environ.get("PYTHON_EXE", "python"), str(run_generated)]
+    else:
+        cmd = [
+            os.environ.get("PYTHON_EXE", "python"),
+            str(run_dir / "beso_main.py"),
+            str(inp_dst),
+        ]
     on_log(f"[CMD] {' '.join(cmd)}")
 
     env = os.environ.copy()

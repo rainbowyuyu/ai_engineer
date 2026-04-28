@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel
 
@@ -30,5 +30,6 @@ class Job(BaseModel):
     run_dir: str
     logs: List[str]
     latest_vtk_url: Optional[str]
-    artifacts: List[str]
+    artifacts: List[dict[str, Any]]
+    generated_code_files: List[str]
 

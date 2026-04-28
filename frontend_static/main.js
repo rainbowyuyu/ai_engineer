@@ -27,14 +27,26 @@ const qwenModel = $("qwenModel");
 const qwenKey = $("qwenKey");
 const qwenSave = $("qwenSave");
 const qwenStatus = $("qwenStatus");
+const codeTabs = $("codeTabs");
+const codePreview = $("codePreview");
+const scanDirInput = $("scanDir");
+const scanBtn = $("scanBtn");
 
 let currentFileId = null;
 let parsedParams = null;
 let currentJobLogBox = null;
+let generatedCodeMap = new Map();
 
 let ws = null;
 let jobId = null;
 let lastVtkUrl = null;
+
+function normalizedBaseUrl() {
+  let base = (baseUrlInput.value || "").trim();
+  if (!base) return window.location.origin;
+  if (!/^https?:\/\//i.test(base)) base = `http://${base}`;
+  return base.replace(/\/+$/, "");
+}
 
 const container = $("vtk");
 const scene = new THREE.Scene();
@@ -96,6 +108,35 @@ function appendLog(line) {
   currentJobLogBox.scrollTop = currentJobLogBox.scrollHeight;
 }
 
+async function showCodeFile(name, url) {
+  try {
+    const full = `${normalizedBaseUrl()}${url}`;
+    const text = await (await fetch(full, { cache: "no-store" })).text();
+    codePreview.textContent = text;
+    [...codeTabs.querySelectorAll("button")].forEach((b) => {
+      b.classList.toggle("btnPrimary", b.dataset.codeName === name);
+    });
+  } catch (e) {
+    codePreview.textContent = `读取代码失败: ${e}`;
+  }
+}
+
+function upsertCode(name, url) {
+  generatedCodeMap.set(name, url);
+  let tab = codeTabs.querySelector(`button[data-code-name="${name}"]`);
+  if (!tab) {
+    tab = document.createElement("button");
+    tab.className = "btn";
+    tab.dataset.codeName = name;
+    tab.textContent = name;
+    tab.addEventListener("click", () => showCodeFile(name, generatedCodeMap.get(name)));
+    codeTabs.appendChild(tab);
+  }
+  if (generatedCodeMap.size === 1) {
+    showCodeFile(name, url);
+  }
+}
+
 function addBubble(role, text, isLog = false) {
   const b = document.createElement("div");
   b.className = `bubble ${role}`;
@@ -112,7 +153,7 @@ function addBubble(role, text, isLog = false) {
 
 async function loadMesh(url) {
   try {
-    const full = `${baseUrlInput.value}${url}`;
+    const full = `${normalizedBaseUrl()}${url}`;
     const resp = await fetch(full, { cache: "no-store" });
     const text = await resp.text();
     const obj = loader.parse(text);
@@ -166,23 +207,28 @@ function upsertImage(name, url) {
   }
   const a = card.querySelector("a");
   const img = card.querySelector("img");
-  const full = `${baseUrlInput.value}${url}`;
+  const full = `${normalizedBaseUrl()}${url}`;
   a.href = full;
   // bust cache
   img.src = `${full}?t=${Date.now()}`;
 }
 
 function connectWs() {
-  const base = baseUrlInput.value.replace(/^http/, "ws");
+  const base = normalizedBaseUrl().replace(/^http/i, "ws");
   ws = new WebSocket(`${base}/ws/jobs/${jobId}`);
   ws.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
     if (msg.type === "snapshot") {
       statusEl.textContent = msg.job.status;
       jobIdEl.textContent = msg.job.id;
+      if (Array.isArray(msg.job.artifacts)) {
+        msg.job.artifacts.forEach((evt) => {
+          if (evt.kind === "code") upsertCode(evt.name, evt.url);
+        });
+      }
       if (msg.job.latest_vtk_url) {
         lastVtkUrl = msg.job.latest_vtk_url;
-        vtkLink.href = `${baseUrlInput.value}${lastVtkUrl}`;
+        vtkLink.href = `${normalizedBaseUrl()}${lastVtkUrl}`;
         vtkLink.textContent = lastVtkUrl;
         loadMesh(lastVtkUrl);
       }
@@ -192,7 +238,7 @@ function connectWs() {
     if (msg.type === "status") statusEl.textContent = msg.status;
     if (msg.type === "vtk") {
       lastVtkUrl = msg.url;
-      vtkLink.href = `${baseUrlInput.value}${lastVtkUrl}`;
+      vtkLink.href = `${normalizedBaseUrl()}${lastVtkUrl}`;
       vtkLink.textContent = lastVtkUrl;
       loadMesh(lastVtkUrl);
     }
@@ -200,11 +246,13 @@ function connectWs() {
       if (msg.kind === "mesh") {
         // show source vtk if provided
         const label = (msg.meta && msg.meta.source_vtk) ? msg.meta.source_vtk : msg.name;
-        vtkLink.href = `${baseUrlInput.value}${msg.url}`;
+        vtkLink.href = `${normalizedBaseUrl()}${msg.url}`;
         vtkLink.textContent = label;
         loadMesh(msg.url);
       } else if (msg.kind === "image") {
         upsertImage(msg.name, msg.url);
+      } else if (msg.kind === "code") {
+        upsertCode(msg.name, msg.url);
       }
     }
   };
@@ -214,7 +262,7 @@ function connectWs() {
 }
 
 async function uploadSelectedFile(file) {
-  const base = baseUrlInput.value;
+  const base = normalizedBaseUrl();
   const fd = new FormData();
   fd.append("file", file);
   const resp = await fetch(`${base}/api/files/upload`, { method: "POST", body: fd });
@@ -233,6 +281,14 @@ async function uploadSelectedFile(file) {
     fileSummaryInline.textContent = fileSummary.textContent;
     filePreview.textContent = "";
   }
+
+  // 在桌面运行时（如 Electron/WebView）通常可拿到 file.path，自动同步扫描目录，避免手动输入。
+  const rawPath = file && typeof file.path === "string" ? file.path : "";
+  if (rawPath) {
+    const normalized = rawPath.replace(/\//g, "\\");
+    const idx = normalized.lastIndexOf("\\");
+    if (idx > 0) scanDirInput.value = normalized.slice(0, idx);
+  }
 }
 
 async function createAndRun() {
@@ -240,8 +296,10 @@ async function createAndRun() {
   statusEl.textContent = "-";
   jobIdEl.textContent = "(启动中...)";
 
-  const base = baseUrlInput.value;
+  const base = normalizedBaseUrl();
   const body = { message: $("msg").value, auto_start: true };
+  const scanDir = scanDirInput.value.trim();
+  if (scanDir) body.scan_dir = scanDir;
 
   if (currentFileId) body.file_id = currentFileId;
 
@@ -259,7 +317,14 @@ async function createAndRun() {
     body: JSON.stringify(body),
   });
   const data = await resp.json();
+  if (!resp.ok) {
+    addBubble("agent", `启动失败：${data.detail || JSON.stringify(data)}`);
+    return;
+  }
   jobId = data.job_id;
+  generatedCodeMap = new Map();
+  codeTabs.innerHTML = "";
+  codePreview.textContent = "(尚未生成代码)";
   // create a dedicated log window per job
   const wrap = document.createElement("div");
   wrap.className = "imgCard"; // reuse card style
@@ -270,7 +335,7 @@ async function createAndRun() {
   `;
   const pre = wrap.querySelector("pre");
   const a = wrap.querySelector("a");
-  a.href = `${baseUrlInput.value}/runs/${jobId}/`;
+  a.href = `${normalizedBaseUrl()}/runs/${jobId}/`;
   jobLogsEl.prepend(wrap);
   currentJobLogBox = pre;
 
@@ -280,19 +345,43 @@ async function createAndRun() {
     $("filterR").value = String(parsedParams.filter_radius ?? "");
     $("saveEvery").value = String(parsedParams.save_every ?? "");
   }
+  if (Array.isArray(data.generated_code)) {
+    data.generated_code.forEach((f) => upsertCode(f.name, f.url));
+  }
   if (data.reasoning_summary) addBubble("agent", `参数解析：${data.reasoning_summary}`);
   cancelBtn.disabled = false;
   connectWs();
 }
 
+async function scanDirectory() {
+  const scanDir = scanDirInput.value.trim();
+  if (!scanDir) {
+    addBubble("agent", "请先输入扫描目录绝对路径。");
+    return;
+  }
+  const base = normalizedBaseUrl();
+  const url = `${base}/api/scan-directory?scan_dir=${encodeURIComponent(scanDir)}`;
+  const resp = await fetch(url);
+  const data = await resp.json();
+  if (!resp.ok) {
+    addBubble("agent", `扫描失败：${data.detail || JSON.stringify(data)}`);
+    return;
+  }
+  const files = (data.files || []).slice(0, 12).map((x) => `- ${x.name} [${x.role}]`).join("\n");
+  const notes = (data.notes || []).join("；") || "无";
+  addBubble("agent", `扫描完成，主输入：${data.primary_inp || "(未识别)"}\n${files}\n备注：${notes}`);
+  fileSummaryInline.textContent = `扫描目录：${data.scan_dir}\n主输入：${data.primary_inp || "(未识别)"}`;
+}
+
 async function cancel() {
   if (!jobId) return;
-  const base = baseUrlInput.value;
+  const base = normalizedBaseUrl();
   await fetch(`${base}/api/jobs/${jobId}/cancel`, { method: "POST" });
   appendLog("[UI] 已请求取消");
 }
 
 $("startBtn").addEventListener("click", createAndRun);
+scanBtn.addEventListener("click", scanDirectory);
 cancelBtn.addEventListener("click", cancel);
 
 window.addEventListener("resize", resize);
@@ -317,7 +406,7 @@ baseUrlText.textContent = baseUrlInput.value.replace(/^https?:\/\//, "");
 
 async function refreshQwenStatus() {
   try {
-    const base = baseUrlInput.value;
+    const base = normalizedBaseUrl();
     const data = await (await fetch(`${base}/api/config/qwen`)).json();
     qwenStatus.textContent = data.configured ? "已配置" : "未配置";
     if (data.base_url) qwenBaseUrl.value = data.base_url;
@@ -328,7 +417,7 @@ async function refreshQwenStatus() {
 }
 
 qwenSave.addEventListener("click", async () => {
-  const base = baseUrlInput.value;
+  const base = normalizedBaseUrl();
   const body = {
     api_key: qwenKey.value.trim() || null,
     base_url: qwenBaseUrl.value.trim() || null,

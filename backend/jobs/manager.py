@@ -27,6 +27,7 @@ class JobManager:
         filter_radius: float,
         optimization_base: str,
         save_every: int,
+        generated_code_files: Optional[list[str]] = None,
     ) -> Job:
         job_id = uuid.uuid4().hex
         job_dir = (self._runs_root / job_id).resolve()
@@ -46,6 +47,7 @@ class JobManager:
             logs=[],
             latest_vtk_url=None,
             artifacts=[],
+            generated_code_files=generated_code_files or [],
         )
         with self._lock:
             self._jobs[job_id] = job
@@ -79,6 +81,11 @@ class JobManager:
         if flag:
             flag.set()
         self._emit(job_id, {"type": "status", "status": "cancelling"})
+
+    def set_generated_code_files(self, job_id: str, files: list[str]) -> None:
+        with self._lock:
+            job = self._jobs[job_id]
+            self._jobs[job_id] = job.model_copy(update={"generated_code_files": files})
 
     async def subscribe(self, job_id: str) -> AsyncIterator[Dict[str, Any]]:
         q: asyncio.Queue = asyncio.Queue(maxsize=2000)
@@ -123,6 +130,11 @@ class JobManager:
         evt = {"type": "artifact", "kind": kind, "url": url, "name": name}
         if meta:
             evt["meta"] = meta
+        with self._lock:
+            job = self._jobs[job_id]
+            artifacts = list(job.artifacts)
+            artifacts.append(evt)
+            self._jobs[job_id] = job.model_copy(update={"artifacts": artifacts})
         self._emit(job_id, evt)
 
     def _set_status(self, job_id: str, status: JobStatus) -> None:
@@ -155,6 +167,11 @@ class JobManager:
             self._emit_artifact(job_id, kind, url, name, payload.get("meta"))
 
         try:
+            for code_name in job.generated_code_files:
+                p = run_dir / code_name
+                if p.exists():
+                    self._emit_artifact(job_id, "code", f"/runs/{job_id}/{code_name}", code_name)
+
             run_beso_job(
                 workspace_root=self._runs_root.parent,
                 run_dir=run_dir,

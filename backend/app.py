@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from backend.agent import decide_params
+from backend.generator import scan_input_directory, build_generated_code
 from backend.jobs.manager import jobs
 from backend.models import ChatRequest, ChatResponse
 from backend.qwen_runtime_config import get_qwen_config, set_qwen_config
@@ -56,9 +57,13 @@ def health():
 def chat(req: ChatRequest):
     # Resolve inp path: prefer uploaded file_id
     inp_path = req.inp_path
+    bundle = None
     if req.file_id:
         sf = resolve_file(WORKSPACE_ROOT, req.file_id)
         inp_path = str(sf.path)
+    elif req.scan_dir:
+        bundle = scan_input_directory(req.scan_dir)
+        inp_path = bundle.primary_inp
 
     # LLM parse (only if API key set). User may still override specific fields.
     parsed = decide_params(req.message)
@@ -67,6 +72,9 @@ def chat(req: ChatRequest):
     optimization_base = req.optimization_base if req.optimization_base is not None else parsed.optimization_base
     save_every = req.save_every if req.save_every is not None else parsed.save_every
 
+    generated_bundle = None
+    generated_code_meta: list[dict] = []
+
     job = jobs.create_job(
         user_message=req.message,
         inp_path=inp_path,
@@ -74,7 +82,28 @@ def chat(req: ChatRequest):
         filter_radius=filter_radius,
         optimization_base=optimization_base,
         save_every=save_every,
+        generated_code_files=[],
     )
+
+    if bundle is not None:
+        if not inp_path:
+            raise HTTPException(status_code=400, detail="扫描目录中未找到可用 inp 文件")
+        ccx_path = Path(os.environ.get("CCX_PATH", r"D:\freecad\bin\ccx.exe")).resolve()
+        generated_bundle = build_generated_code(
+            bundle=bundle,
+            run_dir=Path(job.run_dir),
+            ccx_path=ccx_path,
+            mass_goal_ratio=mass_goal_ratio,
+            filter_radius=filter_radius,
+            optimization_base=optimization_base,
+            save_every=save_every,
+        )
+        for name, content in generated_bundle.files.items():
+            p = Path(job.run_dir) / name
+            p.write_text(content, encoding="utf-8")
+            generated_code_meta.append({"name": name, "url": f"/runs/{job.id}/{name}"})
+        jobs.set_generated_code_files(job.id, list(generated_bundle.files.keys()))
+
     if req.auto_start:
         jobs.start_job(job.id)
     return ChatResponse(
@@ -86,8 +115,24 @@ def chat(req: ChatRequest):
             "optimization_base": optimization_base,
             "save_every": save_every,
         },
-        reasoning_summary=parsed.reasoning_summary,
+        reasoning_summary=(generated_bundle.reasoning_summary if generated_bundle else parsed.reasoning_summary),
+        generated_code=generated_code_meta or None,
     )
+
+
+@app.get("/api/scan-directory")
+def scan_directory(scan_dir: str):
+    try:
+        bundle = scan_input_directory(scan_dir)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return bundle.as_dict()
+
+
+@app.get("/api/scan_directory")
+def scan_directory_legacy(scan_dir: str):
+    # Backward-compatible alias for clients using underscore style.
+    return scan_directory(scan_dir)
 
 
 @app.post("/api/files/upload")
