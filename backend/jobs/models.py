@@ -32,4 +32,5 @@ class Job(BaseModel):
     latest_vtk_url: Optional[str]
     artifacts: List[dict[str, Any]]
     generated_code_files: List[str]
+    selected_inputs: dict[str, Any] | None = None
 

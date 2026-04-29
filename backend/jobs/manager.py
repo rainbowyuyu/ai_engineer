@@ -28,6 +28,7 @@ class JobManager:
         optimization_base: str,
         save_every: int,
         generated_code_files: Optional[list[str]] = None,
+        selected_inputs: Optional[dict[str, Any]] = None,
     ) -> Job:
         job_id = uuid.uuid4().hex
         job_dir = (self._runs_root / job_id).resolve()
@@ -48,6 +49,7 @@ class JobManager:
             latest_vtk_url=None,
             artifacts=[],
             generated_code_files=generated_code_files or [],
+            selected_inputs=selected_inputs,
         )
         with self._lock:
             self._jobs[job_id] = job
@@ -86,6 +88,11 @@ class JobManager:
         with self._lock:
             job = self._jobs[job_id]
             self._jobs[job_id] = job.model_copy(update={"generated_code_files": files})
+
+    def set_selected_inputs(self, job_id: str, selected_inputs: dict[str, Any]) -> None:
+        with self._lock:
+            job = self._jobs[job_id]
+            self._jobs[job_id] = job.model_copy(update={"selected_inputs": selected_inputs})
 
     async def subscribe(self, job_id: str) -> AsyncIterator[Dict[str, Any]]:
         q: asyncio.Queue = asyncio.Queue(maxsize=2000)
@@ -170,7 +177,24 @@ class JobManager:
             for code_name in job.generated_code_files:
                 p = run_dir / code_name
                 if p.exists():
-                    self._emit_artifact(job_id, "code", f"/runs/{job_id}/{code_name}", code_name)
+                    kind = "manifest" if code_name.endswith(".json") else "code"
+                    self._emit_artifact(
+                        job_id,
+                        kind,
+                        f"/runs/{job_id}/{code_name}",
+                        code_name,
+                        {"group": "generated"},
+                    )
+
+            runtime_py = sorted([p for p in run_dir.glob("*.py") if p.name not in set(job.generated_code_files)])
+            for p in runtime_py:
+                self._emit_artifact(
+                    job_id,
+                    "code",
+                    f"/runs/{job_id}/{p.name}",
+                    p.name,
+                    {"group": "runtime"},
+                )
 
             run_beso_job(
                 workspace_root=self._runs_root.parent,

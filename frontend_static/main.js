@@ -31,6 +31,7 @@ const codeTabs = $("codeTabs");
 const codePreview = $("codePreview");
 const scanDirInput = $("scanDir");
 const scanBtn = $("scanBtn");
+const mappingPreview = $("mappingPreview");
 
 let currentFileId = null;
 let parsedParams = null;
@@ -108,6 +109,23 @@ function appendLog(line) {
   currentJobLogBox.scrollTop = currentJobLogBox.scrollHeight;
 }
 
+function renderSelectedInputs(selected) {
+  if (!selected) {
+    mappingPreview.textContent = "(暂无输入映射)";
+    return;
+  }
+  const primary = selected.primary_inp || "(未识别)";
+  const aux = selected.aux_inps || {};
+  const loadCase = (aux.load_case || []).join(", ") || "(none)";
+  const setDef = (aux.set_definition || []).join(", ") || "(none)";
+  const other = (aux.other_inp || []).join(", ") || "(none)";
+  const step = selected.step_mapping || {};
+  const stepLines = Object.keys(step).length
+    ? Object.entries(step).map(([k, v]) => `${k} -> step ${v}`).join("\n")
+    : "(none)";
+  mappingPreview.textContent = `primary: ${primary}\nload_case: ${loadCase}\nset_definition: ${setDef}\nother_inp: ${other}\nstep_mapping:\n${stepLines}`;
+}
+
 async function showCodeFile(name, url) {
   try {
     const full = `${normalizedBaseUrl()}${url}`;
@@ -121,16 +139,21 @@ async function showCodeFile(name, url) {
   }
 }
 
-function upsertCode(name, url) {
-  generatedCodeMap.set(name, url);
+function upsertCode(name, url, group = "generated") {
+  generatedCodeMap.set(name, { url, group });
   let tab = codeTabs.querySelector(`button[data-code-name="${name}"]`);
   if (!tab) {
     tab = document.createElement("button");
     tab.className = "btn";
     tab.dataset.codeName = name;
-    tab.textContent = name;
-    tab.addEventListener("click", () => showCodeFile(name, generatedCodeMap.get(name)));
+    tab.textContent = `[${group}] ${name}`;
+    tab.addEventListener("click", () => {
+      const item = generatedCodeMap.get(name);
+      showCodeFile(name, item && item.url ? item.url : url);
+    });
     codeTabs.appendChild(tab);
+  } else {
+    tab.textContent = `[${group}] ${name}`;
   }
   if (generatedCodeMap.size === 1) {
     showCodeFile(name, url);
@@ -223,9 +246,10 @@ function connectWs() {
       jobIdEl.textContent = msg.job.id;
       if (Array.isArray(msg.job.artifacts)) {
         msg.job.artifacts.forEach((evt) => {
-          if (evt.kind === "code") upsertCode(evt.name, evt.url);
+          if (evt.kind === "code" || evt.kind === "manifest") upsertCode(evt.name, evt.url, (evt.meta && evt.meta.group) || evt.kind);
         });
       }
+      renderSelectedInputs(msg.job.selected_inputs || null);
       if (msg.job.latest_vtk_url) {
         lastVtkUrl = msg.job.latest_vtk_url;
         vtkLink.href = `${normalizedBaseUrl()}${lastVtkUrl}`;
@@ -251,8 +275,8 @@ function connectWs() {
         loadMesh(msg.url);
       } else if (msg.kind === "image") {
         upsertImage(msg.name, msg.url);
-      } else if (msg.kind === "code") {
-        upsertCode(msg.name, msg.url);
+      } else if (msg.kind === "code" || msg.kind === "manifest") {
+        upsertCode(msg.name, msg.url, (msg.meta && msg.meta.group) || msg.kind);
       }
     }
   };
@@ -325,6 +349,7 @@ async function createAndRun() {
   generatedCodeMap = new Map();
   codeTabs.innerHTML = "";
   codePreview.textContent = "(尚未生成代码)";
+  mappingPreview.textContent = "(暂无输入映射)";
   // create a dedicated log window per job
   const wrap = document.createElement("div");
   wrap.className = "imgCard"; // reuse card style
@@ -346,8 +371,9 @@ async function createAndRun() {
     $("saveEvery").value = String(parsedParams.save_every ?? "");
   }
   if (Array.isArray(data.generated_code)) {
-    data.generated_code.forEach((f) => upsertCode(f.name, f.url));
+    data.generated_code.forEach((f) => upsertCode(f.name, f.url, f.group || "generated"));
   }
+  renderSelectedInputs(data.selected_inputs || null);
   if (data.reasoning_summary) addBubble("agent", `参数解析：${data.reasoning_summary}`);
   cancelBtn.disabled = false;
   connectWs();

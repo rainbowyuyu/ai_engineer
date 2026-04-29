@@ -25,4 +25,5 @@ class ChatResponse(BaseModel):
     parsed_params: dict | None = None
     reasoning_summary: str | None = None
     generated_code: list[dict] | None = None
+    selected_inputs: dict | None = None
 

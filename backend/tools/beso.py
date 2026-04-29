@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+import json
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -11,6 +13,29 @@ from typing import Any, Callable, Optional
 
 import meshio
 import numpy as np
+
+
+def _choose_beso_source_dir(workspace_root: Path, manifest: dict[str, Any], inp_src: Path) -> Path:
+    """
+    Pick runtime BESO source directory.
+    - example_2 multi-file tasks should use files under wiki_files/example_2/input_and_results
+    - otherwise fallback to default workspace_root/beso
+    """
+    default_dir = (workspace_root / "beso").resolve()
+    ex2_dir = (workspace_root / "beso" / "wiki_files" / "example_2" / "input_and_results").resolve()
+
+    scan_dir = str(manifest.get("scan_dir", "")).lower()
+    primary_inp = str(manifest.get("primary_inp", "")).lower()
+    aux = manifest.get("aux_inps", {}) if isinstance(manifest, dict) else {}
+    has_multi_load = bool(aux.get("load_case")) if isinstance(aux, dict) else False
+    is_example2_like = ("example_2" in scan_dir) or has_multi_load or ("femmeshgmsh" in primary_inp)
+
+    if is_example2_like and ex2_dir.exists():
+        required = ["beso_main.py", "beso_lib.py", "beso_filters.py", "beso_separate.py", "beso_conf.py"]
+        if all((ex2_dir / f).exists() for f in required):
+            return ex2_dir
+    # fallback
+    return default_dir
 
 def _scan_elsets(inp_path: Path) -> list[str]:
     elsets: list[str] = []
@@ -21,6 +46,119 @@ def _scan_elsets(inp_path: Path) -> list[str]:
             if m:
                 elsets.append(m.group(1))
     return elsets
+
+
+def _scan_includes(inp_path: Path) -> list[str]:
+    includes: list[str] = []
+    pat = re.compile(r"^\*INCLUDE\s*,\s*INPUT\s*=\s*([^\r\n,]+)", re.IGNORECASE)
+    with inp_path.open("r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            m = pat.match(line.strip())
+            if m:
+                includes.append(m.group(1).strip().strip('"').strip("'"))
+    return includes
+
+
+def _normalize_include_lines(inp_path: Path) -> None:
+    pat = re.compile(r"^(\*INCLUDE\s*,\s*INPUT\s*=\s*)([^\r\n,]+)(.*)$", re.IGNORECASE)
+    changed = False
+    out_lines: list[str] = []
+    with inp_path.open("r", encoding="utf-8", errors="ignore") as f:
+        for raw in f:
+            line = raw.rstrip("\n")
+            m = pat.match(line.strip())
+            if m:
+                fixed = f"{m.group(1)}{m.group(2).strip()}{m.group(3)}"
+                out_lines.append(fixed)
+                changed = True
+            else:
+                out_lines.append(line)
+    if changed:
+        inp_path.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
+
+
+def _norm_name_token(name: str) -> str:
+    base = Path(name).name.lower()
+    return re.sub(r"[^a-z0-9]+", "", base)
+
+
+def _resolve_include_source(
+    include_name: str,
+    inp_src: Path,
+    run_dir: Path,
+    workspace_root: Path,
+) -> Path | None:
+    """
+    Resolve missing *INCLUDE file with robust fallbacks for example_2 naming variants.
+    """
+    inc_base = Path(include_name).name
+    src_dir = inp_src.parent
+
+    # 0) already copied under another compatible name in run_dir
+    run_siblings = list(run_dir.glob("*.inp"))
+    if run_siblings:
+        inc_tok = _norm_name_token(inc_base)
+        for p in run_siblings:
+            tok = _norm_name_token(p.name)
+            if tok == inc_tok:
+                return p
+
+    # 1) exact in source directory
+    exact = src_dir / inc_base
+    if exact.exists():
+        return exact
+
+    # 2) common variant mapping: Node_Elem_sets <-> Node_sets
+    variants = {
+        inc_base,
+        inc_base.replace("_Elem_sets", "_sets"),
+        inc_base.replace("_elem_sets", "_sets"),
+        inc_base.replace("Node_Elem_sets", "Node_sets"),
+        inc_base.replace("node_elem_sets", "node_sets"),
+    }
+    for v in variants:
+        p = src_dir / v
+        if p.exists():
+            return p
+
+    # 3) fuzzy match in source directory by token similarity
+    cand = [p for p in src_dir.glob("*.inp") if p.is_file()]
+    if cand:
+        inc_tok = _norm_name_token(inc_base)
+        ranked = sorted(
+            cand,
+            key=lambda p: (
+                0 if _norm_name_token(p.name) == inc_tok else 1,
+                0 if "nodesets" in _norm_name_token(p.name) and "nodeelemsets" in inc_tok else 1,
+                len(_norm_name_token(p.name)),
+            ),
+        )
+        if ranked:
+            top = ranked[0]
+            top_tok = _norm_name_token(top.name)
+            if top_tok == inc_tok or ("nodeelemsets" in inc_tok and "nodesets" in top_tok):
+                return top
+
+    # 4) workspace fallback (existing behavior, but token-aware)
+    matches = list(workspace_root.glob(f"**/{inc_base}"))
+    if matches:
+        return matches[0]
+    ws_inps = [p for p in workspace_root.glob("**/*.inp") if p.is_file()]
+    if ws_inps:
+        inc_tok = _norm_name_token(inc_base)
+        ranked = sorted(
+            ws_inps,
+            key=lambda p: (
+                0 if _norm_name_token(p.name) == inc_tok else 1,
+                0 if "example_2" in str(p).lower() else 1,
+                len(_norm_name_token(p.name)),
+            ),
+        )
+        top = ranked[0]
+        top_tok = _norm_name_token(top.name)
+        if top_tok == inc_tok or ("nodeelemsets" in inc_tok and "nodesets" in top_tok):
+            return top
+    return None
 
 
 def _write_beso_conf(
@@ -82,17 +220,63 @@ def run_beso_job(
     if not inp_src.exists():
         raise FileNotFoundError(inp_src)
 
+    manifest_path = run_dir / "task_manifest.json"
+    manifest: dict[str, Any] = {}
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            manifest = {}
+
     # Copy inp into run directory
     inp_dst = run_dir / inp_src.name
     shutil.copy2(inp_src, inp_dst)
-    # Copy sibling inp files as well (example_2 often references multiple inp fragments).
-    sibling_inps = list(inp_src.parent.glob("*.inp"))
-    for sib in sibling_inps:
-        dst = run_dir / sib.name
-        if dst.resolve() == inp_dst.resolve():
+    _normalize_include_lines(inp_dst)
+    selected_aux: set[str] = set()
+    if manifest:
+        aux = manifest.get("aux_inps", {})
+        for group in ("load_case", "set_definition", "other_inp"):
+            for name in aux.get(group, []):
+                if isinstance(name, str) and name:
+                    selected_aux.add(name)
+    # Copy auxiliary inp files according to manifest; fallback to sibling mode for legacy behavior.
+    if selected_aux:
+        for name in sorted(selected_aux):
+            sib = inp_src.parent / name
+            if not sib.exists():
+                on_log(f"[WARN] auxiliary inp missing: {name}")
+                continue
+            dst = run_dir / sib.name
+            if not dst.exists():
+                shutil.copy2(sib, dst)
+    else:
+        sibling_inps = list(inp_src.parent.glob("*.inp"))
+        for sib in sibling_inps:
+            dst = run_dir / sib.name
+            if dst.resolve() == inp_dst.resolve():
+                continue
+            if not dst.exists():
+                shutil.copy2(sib, dst)
+
+    # Auto-heal INCLUDE dependencies for single-file uploads or missing auxiliary pieces.
+    includes = _scan_includes(inp_dst)
+    for inc in includes:
+        inc_name = Path(inc).name
+        dst = run_dir / inc_name
+        if dst.exists():
             continue
-        if not dst.exists():
-            shutil.copy2(sib, dst)
+        src_resolved = _resolve_include_source(inc_name, inp_src=inp_src, run_dir=run_dir, workspace_root=workspace_root)
+        if src_resolved is not None:
+            try:
+                shutil.copy2(src_resolved, dst)
+                if src_resolved.name != inc_name:
+                    on_log(f"[INFO] include alias resolved: {inc_name} <= {src_resolved.name}")
+                else:
+                    on_log(f"[INFO] recovered include file: {inc_name}")
+                continue
+            except Exception:
+                pass
+        on_log(f"[WARN] include file not found: {inc_name}")
 
     # Ensure we don't inherit FreeCAD/Python environment variables that can break subprocess resolution
     os.environ.pop("PYTHONHOME", None)
@@ -122,34 +306,49 @@ def run_beso_job(
             save_every=save_every,
         )
 
-    # Run beso_main.py, ensuring it loads our config (same dir). We do that by copying beso sources in.
-    beso_src = (workspace_root / "beso").resolve()
+    # Run beso_main.py, ensuring it loads our config (same dir). Pick source set by task type.
+    beso_src = _choose_beso_source_dir(workspace_root, manifest, inp_src)
     if not beso_src.exists():
         raise FileNotFoundError(f"beso source folder missing: {beso_src}")
+    on_log(f"[INFO] runtime source selected: {beso_src}")
 
     # Minimal set of files needed
     required = [
         "beso_main.py",
         "beso_lib.py",
         "beso_filters.py",
-        "beso_plots.py",
         "beso_separate.py",
     ]
+    # default source has beso_plots.py; example_2 source usually does not need it
+    if (beso_src / "beso_plots.py").exists():
+        required.append("beso_plots.py")
     for f in required:
         shutil.copy2(beso_src / f, run_dir / f)
+        if on_artifact:
+            on_artifact({"kind": "code", "path": f, "name": f, "meta": {"group": "runtime"}})
 
+    # Always use the same interpreter as the backend process, to avoid
+    # accidentally picking FreeCAD's python from PATH on Windows.
+    py_exe = Path(os.environ.get("PYTHON_EXE", sys.executable)).resolve()
+    if not py_exe.exists():
+        py_exe = Path(sys.executable).resolve()
+
+    use_native_runner = bool(manifest.get("use_native_runner"))
     run_generated = run_dir / "run_generated.py"
-    if run_generated.exists():
-        cmd = [os.environ.get("PYTHON_EXE", "python"), str(run_generated)]
+    if run_generated.exists() and not use_native_runner:
+        cmd = [str(py_exe), str(run_generated)]
     else:
         cmd = [
-            os.environ.get("PYTHON_EXE", "python"),
+            str(py_exe),
             str(run_dir / "beso_main.py"),
             str(inp_dst),
         ]
+    if use_native_runner:
+        on_log("[INFO] using native beso_main.py runner for compatibility.")
     on_log(f"[CMD] {' '.join(cmd)}")
 
     env = os.environ.copy()
+    env["PYTHON_EXE"] = str(py_exe)
     # Force non-GUI rendering so Windows won't pop up plot windows.
     env.setdefault("MPLBACKEND", "Agg")
 
@@ -167,6 +366,10 @@ def run_beso_job(
     last_iter_seen: int = -1
     last_mesh_token: str | None = None
     last_img_mtime: dict[str, float] = {}
+    last_resulting_states_mtime: float = 0.0
+    beso_log_path = run_dir / f"{inp_dst.stem}.log"
+    last_beso_log_pos: int = 0
+    proc_exit_code: int | None = None
     try:
         while True:
             if cancel_flag.is_set():
@@ -181,6 +384,24 @@ def run_beso_job(
             line = proc.stdout.readline() if proc.stdout else ""
             if line:
                 on_log(line.rstrip("\n"))
+
+            # Tail BESO log file to expose real optimization progress in UI/log stream.
+            if beso_log_path.exists():
+                try:
+                    with beso_log_path.open("r", encoding="utf-8", errors="ignore") as f_log:
+                        f_log.seek(last_beso_log_pos)
+                        chunk = f_log.read()
+                        last_beso_log_pos = f_log.tell()
+                    if chunk:
+                        for ln in chunk.splitlines():
+                            s = ln.strip()
+                            if not s:
+                                continue
+                            # keep stream concise but meaningful
+                            if re.match(r"^\d+\s+", s) or s.startswith("i") or "iterations_limit" in s or "ERROR" in s or "FI_" in s:
+                                on_log(f"[BESO] {s}")
+                except Exception:
+                    pass
 
             # watcher: images
             if on_artifact:
@@ -224,8 +445,11 @@ def run_beso_job(
                 if best_vtk is None:
                     rs = run_dir / "resulting_states.vtk"
                     if rs.exists():
-                        best_vtk = rs
-                        best_iter = last_iter_seen + 1
+                        rs_mtime = rs.stat().st_mtime
+                        if rs_mtime > last_resulting_states_mtime:
+                            last_resulting_states_mtime = rs_mtime
+                            best_vtk = rs
+                            best_iter = last_iter_seen + 1
                 if best_vtk is not None:
                     best_mesh_src = best_vtk
                     source_vtk_name = best_vtk.name if best_vtk.suffix.lower() == ".vtk" else None
@@ -276,6 +500,7 @@ def run_beso_job(
                         )
 
             if proc.poll() is not None:
+                proc_exit_code = proc.returncode
                 # drain remaining
                 if proc.stdout:
                     for rest in proc.stdout:
@@ -289,6 +514,10 @@ def run_beso_job(
                 proc.kill()
         except Exception:
             pass
+    if proc_exit_code is None:
+        proc_exit_code = proc.returncode
+    if proc_exit_code not in (0, None):
+        raise RuntimeError(f"beso_main exited with code {proc_exit_code}")
 
 
 def _filter_mesh_by_latest_state(mesh: meshio.Mesh) -> meshio.Mesh:
@@ -327,9 +556,88 @@ def _filter_mesh_by_latest_state(mesh: meshio.Mesh) -> meshio.Mesh:
 
 def _strip_to_geometry(mesh: meshio.Mesh) -> meshio.Mesh:
     """
-    Drop all cell/point data before writing OBJ to avoid incompatibilities
-    from mismatched metadata lengths across iterations.
+    Convert mesh into OBJ-compatible surface cells (triangle/quad only),
+    and drop all metadata to avoid incompatibilities across iterations.
     """
-    cells = [(c.type, c.data) for c in mesh.cells]
-    return meshio.Mesh(points=mesh.points, cells=cells)
+    allowed = {"triangle", "quad"}
+    surface_cells: list[tuple[str, np.ndarray]] = []
+    volume_blocks: list[tuple[str, np.ndarray]] = []
+
+    for c in mesh.cells:
+        if c.type in allowed:
+            surface_cells.append((c.type, c.data))
+        elif c.type in {"tetra", "hexahedron", "wedge", "pyramid"}:
+            volume_blocks.append((c.type, c.data))
+
+    if not surface_cells and volume_blocks:
+        tri_faces: list[tuple[int, int, int]] = []
+        quad_faces: list[tuple[int, int, int, int]] = []
+
+        # Keep only boundary faces: face appears exactly once.
+        face_counter: dict[tuple[int, ...], tuple[int, ...]] = {}
+        face_hits: dict[tuple[int, ...], int] = {}
+
+        def add_face(face: tuple[int, ...]) -> None:
+            key = tuple(sorted(face))
+            face_hits[key] = face_hits.get(key, 0) + 1
+            if key not in face_counter:
+                face_counter[key] = face
+
+        for ctype, data in volume_blocks:
+            for row in data:
+                n = [int(x) for x in row.tolist()]
+                if ctype == "tetra":
+                    faces = [
+                        (n[0], n[1], n[2]),
+                        (n[0], n[1], n[3]),
+                        (n[0], n[2], n[3]),
+                        (n[1], n[2], n[3]),
+                    ]
+                elif ctype == "hexahedron":
+                    faces = [
+                        (n[0], n[1], n[2], n[3]),
+                        (n[4], n[5], n[6], n[7]),
+                        (n[0], n[1], n[5], n[4]),
+                        (n[1], n[2], n[6], n[5]),
+                        (n[2], n[3], n[7], n[6]),
+                        (n[3], n[0], n[4], n[7]),
+                    ]
+                elif ctype == "wedge":
+                    faces = [
+                        (n[0], n[1], n[2]),
+                        (n[3], n[4], n[5]),
+                        (n[0], n[1], n[4], n[3]),
+                        (n[1], n[2], n[5], n[4]),
+                        (n[2], n[0], n[3], n[5]),
+                    ]
+                else:  # pyramid
+                    faces = [
+                        (n[0], n[1], n[2], n[3]),
+                        (n[0], n[1], n[4]),
+                        (n[1], n[2], n[4]),
+                        (n[2], n[3], n[4]),
+                        (n[3], n[0], n[4]),
+                    ]
+                for f in faces:
+                    add_face(f)
+
+        for key, count in face_hits.items():
+            if count != 1:
+                continue
+            f = face_counter[key]
+            if len(f) == 3:
+                tri_faces.append((f[0], f[1], f[2]))
+            elif len(f) == 4:
+                quad_faces.append((f[0], f[1], f[2], f[3]))
+
+        if tri_faces:
+            surface_cells.append(("triangle", np.asarray(tri_faces, dtype=np.int64)))
+        if quad_faces:
+            surface_cells.append(("quad", np.asarray(quad_faces, dtype=np.int64)))
+
+    # Final fallback: keep whatever mesh has, but this may still fail for OBJ.
+    if not surface_cells:
+        surface_cells = [(c.type, c.data) for c in mesh.cells]
+
+    return meshio.Mesh(points=mesh.points, cells=surface_cells)
 
