@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from backend.jobs.models import Job, JobStatus
+from backend.pydantic_compat import model_copy_update, model_to_dict
 from backend.tools.beso import run_beso_job
 
 
@@ -73,7 +74,7 @@ class JobManager:
 
         t = threading.Thread(target=self._run_job_thread, args=(job_id,), daemon=True)
         with self._lock:
-            self._jobs[job_id] = job.model_copy(update={"status": JobStatus.running})
+            self._jobs[job_id] = model_copy_update(job, {"status": JobStatus.running})
         t.start()
         self._emit(job_id, {"type": "status", "status": "running"})
 
@@ -87,12 +88,12 @@ class JobManager:
     def set_generated_code_files(self, job_id: str, files: list[str]) -> None:
         with self._lock:
             job = self._jobs[job_id]
-            self._jobs[job_id] = job.model_copy(update={"generated_code_files": files})
+            self._jobs[job_id] = model_copy_update(job, {"generated_code_files": files})
 
     def set_selected_inputs(self, job_id: str, selected_inputs: dict[str, Any]) -> None:
         with self._lock:
             job = self._jobs[job_id]
-            self._jobs[job_id] = job.model_copy(update={"selected_inputs": selected_inputs})
+            self._jobs[job_id] = model_copy_update(job, {"selected_inputs": selected_inputs})
 
     async def subscribe(self, job_id: str) -> AsyncIterator[Dict[str, Any]]:
         q: asyncio.Queue = asyncio.Queue(maxsize=2000)
@@ -100,7 +101,7 @@ class JobManager:
             self._subscribers.setdefault(job_id, []).append(q)
             job = self._jobs.get(job_id)
         if job:
-            yield {"type": "snapshot", "job": job.model_dump()}
+            yield {"type": "snapshot", "job": model_to_dict(job)}
         try:
             while True:
                 event = await q.get()
@@ -124,13 +125,13 @@ class JobManager:
             job = self._jobs[job_id]
             logs = list(job.logs)
             logs.append(line)
-            self._jobs[job_id] = job.model_copy(update={"logs": logs})
+            self._jobs[job_id] = model_copy_update(job, {"logs": logs})
         self._emit(job_id, {"type": "log", "line": line})
 
     def _update_vtk(self, job_id: str, vtk_url: str) -> None:
         with self._lock:
             job = self._jobs[job_id]
-            self._jobs[job_id] = job.model_copy(update={"latest_vtk_url": vtk_url})
+            self._jobs[job_id] = model_copy_update(job, {"latest_vtk_url": vtk_url})
         self._emit(job_id, {"type": "vtk", "url": vtk_url})
 
     def _emit_artifact(self, job_id: str, kind: str, url: str, name: str, meta: dict | None = None) -> None:
@@ -141,13 +142,13 @@ class JobManager:
             job = self._jobs[job_id]
             artifacts = list(job.artifacts)
             artifacts.append(evt)
-            self._jobs[job_id] = job.model_copy(update={"artifacts": artifacts})
+            self._jobs[job_id] = model_copy_update(job, {"artifacts": artifacts})
         self._emit(job_id, evt)
 
     def _set_status(self, job_id: str, status: JobStatus) -> None:
         with self._lock:
             job = self._jobs[job_id]
-            self._jobs[job_id] = job.model_copy(update={"status": status})
+            self._jobs[job_id] = model_copy_update(job, {"status": status})
         self._emit(job_id, {"type": "status", "status": status.value})
 
     def _run_job_thread(self, job_id: str) -> None:

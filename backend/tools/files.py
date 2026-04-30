@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import uuid
 from dataclasses import dataclass
@@ -7,8 +8,18 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 
-ALLOWED_EXTS = {".inp", ".vtk", ".obj"}
-MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50MB
+ALLOWED_EXTS = {".inp", ".vtk", ".obj", ".igs", ".iges"}
+_DEFAULT_MAX_UPLOAD_BYTES = 256 * 1024 * 1024  # 256MB（Gmsh 生成的大 INP 常超过 50MB）
+
+
+def max_upload_bytes() -> int:
+    raw = (os.environ.get("MAX_UPLOAD_BYTES") or "").strip()
+    if raw:
+        try:
+            return max(1024 * 1024, int(raw))
+        except ValueError:
+            pass
+    return _DEFAULT_MAX_UPLOAD_BYTES
 
 
 @dataclass(frozen=True)
@@ -27,8 +38,9 @@ def store_upload(workspace_root: Path, filename: str, content: bytes) -> StoredF
     ext = Path(filename).suffix.lower()
     if ext not in ALLOWED_EXTS:
         raise ValueError(f"unsupported extension: {ext}")
-    if len(content) > MAX_UPLOAD_BYTES:
-        raise ValueError("file too large")
+    cap = max_upload_bytes()
+    if len(content) > cap:
+        raise ValueError(f"file too large（>{cap // (1024 * 1024)}MB），可用环境变量 MAX_UPLOAD_BYTES 提高上限")
 
     file_id = uuid.uuid4().hex
     root = uploads_root(workspace_root)

@@ -207,12 +207,30 @@ def import_inp(file_name, domains_from_config, domain_optimized, shells_as_compo
         elif elset_generate is True:
             line_split_comma = line.split(",")
             try:
-                if line_split_comma[3]:
-                    en_generated = list(range(int(line_split_comma[0]), int(line_split_comma[1]) + 1,
-                                              int(line_split_comma[2])))
-            except IndexError:
-                en_generated = list(range(int(line_split_comma[0]), int(line_split_comma[1]) + 1))
-            domains[current_elset].update(en_generated)
+                i0 = int(line_split_comma[0].strip())
+                i1 = int(line_split_comma[1].strip())
+                if len(line_split_comma) > 2 and line_split_comma[2].strip():
+                    step = int(line_split_comma[2].strip())
+                    if step == 0:
+                        step = 1
+                    span = max(0, (i1 - i0) // step + 1) if i1 >= i0 else 0
+                else:
+                    step = 1
+                    span = max(0, i1 - i0 + 1) if i1 >= i0 else 0
+                if span > 50_000_000:
+                    msg = "\nERROR: *ELSET GENERATE range too large (>{:.0e} elements), refusing to expand in memory.\n".format(
+                        5e7
+                    )
+                    print(msg)
+                    write_to_log(file_name, msg)
+                    raise Exception(msg)
+                if len(line_split_comma) > 2 and line_split_comma[2].strip():
+                    domains[current_elset].update(range(i0, i1 + 1, step))
+                else:
+                    domains[current_elset].update(range(i0, i1 + 1))
+            except (IndexError, ValueError):
+                pass
+            elset_generate = False
 
         elif line[:5].upper() == "*STEP":
             model_definition = False

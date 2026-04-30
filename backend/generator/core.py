@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Any
 
 from backend.qwen_client import QwenClient
+from backend.tools.inp_beso_compat import check_inp_beso_compat_error
+from backend.tools.inp_elset import pick_usable_elset_name, template_elsets_match_primary
+from backend.tools.inp_mesh_scan import auto_scale_filter_radius
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 BASE_CONF = WORKSPACE_ROOT / "beso" / "beso_conf.py"
@@ -72,6 +75,8 @@ def _classify_file(path: Path) -> str:
         return "log_file"
     if ext == ".vtk":
         return "viz_file"
+    if ext in {".igs", ".iges"}:
+        return "cad_geometry"
     if ext != ".inp":
         return "other"
     if re.search(r"file\d+_state\d+\.inp$", name):
@@ -92,6 +97,7 @@ def _pick_primary_inp(items: list[InputFileItem]) -> str | None:
         return None
     preferred = [
         "femmeshgmsh.inp",
+        "from_cad_gmsh.inp",
         "analysis-1.inp",
         "plane_mesh.inp",
     ]
@@ -119,11 +125,7 @@ def _scan_domain_mapping(primary_inp: Path) -> dict[str, str]:
     mapping: dict[str, str] = {}
     if not domains:
         return mapping
-    preferred = "SolidMaterialElementGeometry2D"
-    if preferred in domains:
-        mapping["default_design_domain"] = preferred
-    else:
-        mapping["default_design_domain"] = domains[0]
+    mapping["default_design_domain"] = pick_usable_elset_name(domains)
     # Add extra candidates for UI inspection.
     for d in domains[:10]:
         mapping[d] = d
@@ -140,7 +142,7 @@ def scan_input_directory(scan_dir: str) -> InputBundle:
         if not p.is_file():
             continue
         ext = p.suffix.lower()
-        if ext not in {".inp", ".py", ".vtk", ".log", ".obj", ".step", ".stp"}:
+        if ext not in {".inp", ".py", ".vtk", ".log", ".obj", ".step", ".stp", ".igs", ".iges"}:
             continue
         files.append(
             InputFileItem(
@@ -183,6 +185,13 @@ def scan_input_directory(scan_dir: str) -> InputBundle:
     domain_mapping_candidates: dict[str, str] = {}
     if primary_inp:
         domain_mapping_candidates = _scan_domain_mapping(Path(primary_inp))
+        if Path(primary_inp).name.lower() == "from_cad_gmsh.inp":
+            err = check_inp_beso_compat_error(Path(primary_inp))
+            if err:
+                notes.append(
+                    "from_cad_gmsh.inp 与 BESO 智能体不兼容（需壳/实体单元如 C3D4、C3D8、S4 等）。"
+                    f" 摘要：{err}"
+                )
 
     return InputBundle(
         scan_dir=str(root),
@@ -259,15 +268,13 @@ def build_generated_code(
 
     primary_name = Path(primary_inp).name
     elsets = _scan_elsets(Path(primary_inp))
-    if "SolidMaterialElementGeometry2D" in elsets:
-        elset_name = "SolidMaterialElementGeometry2D"
+    elset_name = pick_usable_elset_name(elsets)
+    if elset_name == "SolidMaterialElementGeometry2D":
         elset_source = "rule"
-    elif elsets:
-        elset_name = elsets[0]
-        elset_source = "rule"
+    elif elset_name == "all_available":
+        elset_source = "default" if not elsets else "default_ignore_gmsh_boundary"
     else:
-        elset_name = "all_available"
-        elset_source = "default"
+        elset_source = "rule"
 
     load_case_names = [Path(p).name for p in bundle.aux_inps.get("load_case", [])]
     set_definition_names = [Path(p).name for p in bundle.aux_inps.get("set_definition", [])]
@@ -275,13 +282,16 @@ def build_generated_code(
     all_aux_names = load_case_names + set_definition_names + other_inp_names
     extra_comment = ", ".join(all_aux_names) if all_aux_names else "(none)"
 
+    filter_radius_used, filter_radius_note = auto_scale_filter_radius(Path(primary_inp), float(filter_radius))
+
     conf_text = _build_conf_from_examples(
         bundle=bundle,
         run_dir=run_dir,
         ccx_path=ccx_path,
         primary_name=primary_name,
+        primary_elsets=elsets,
         mass_goal_ratio=mass_goal_ratio,
-        filter_radius=filter_radius,
+        filter_radius=filter_radius_used,
         optimization_base=optimization_base,
         save_every=save_every,
         fallback_elset=elset_name,
@@ -291,7 +301,8 @@ def build_generated_code(
     manifest = {
         "scan_dir": bundle.scan_dir,
         "primary_inp": primary_name,
-        "use_native_runner": ("example_1" in bundle.scan_dir.lower() or "plane_mesh" in primary_name.lower()),
+        # 直接跑 beso_main：避免 run_generated 子进程包一层后 stdout 块缓冲，日志在 [CMD] 后长时间空白。
+        "use_native_runner": True,
         "aux_inps": {
             "load_case": load_case_names,
             "set_definition": set_definition_names,
@@ -301,7 +312,7 @@ def build_generated_code(
         "domain_mapping_candidates": bundle.domain_mapping_candidates,
         "params": {
             "mass_goal_ratio": mass_goal_ratio,
-            "filter_radius": filter_radius,
+            "filter_radius": filter_radius_used,
             "optimization_base": optimization_base,
             "save_every": save_every,
         },
@@ -373,10 +384,22 @@ from strategy import load_strategy
 run_dir = Path(__file__).resolve().parent
 inp, aux = resolve_inputs(run_dir)
 strategy = load_strategy(run_dir)
-print(f"[RUNNER] primary={{inp.name}} aux_count={{len(aux)}} load_cases={{len(strategy.load_cases)}}")
-cmd = [os.environ.get("PYTHON_EXE", sys.executable), str(run_dir / "beso_main.py"), str(inp)]
-raise SystemExit(subprocess.call(cmd, cwd=str(run_dir), env=os.environ.copy()))
+print(
+    f"[RUNNER] primary={{inp.name}} aux_count={{len(aux)}} load_cases={{len(strategy.load_cases)}}",
+    flush=True,
+)
+py = os.environ.get("PYTHON_EXE", sys.executable)
+cmd = [py, "-u", str(run_dir / "beso_main.py"), str(inp)]
+raise SystemExit(
+    subprocess.call(cmd, cwd=str(run_dir), env=os.environ.copy(), stdout=sys.stdout, stderr=sys.stderr)
+)
 """
+
+    reasoning_summary = (
+        f"Detected primary input {primary_name}, merged auxiliary inp files, and generated full runnable pipeline files."
+    )
+    if filter_radius_note:
+        reasoning_summary += " " + filter_radius_note
 
     return GeneratedCodeBundle(
         files={
@@ -386,7 +409,7 @@ raise SystemExit(subprocess.call(cmd, cwd=str(run_dir), env=os.environ.copy()))
             "beso_conf.py": conf_text,
             "run_generated.py": run_script,
         },
-        reasoning_summary=f"Detected primary input {primary_name}, merged auxiliary inp files, and generated full runnable pipeline files.",
+        reasoning_summary=reasoning_summary,
         field_sources={
             "primary_inp": "rule_or_llm",
             "elset_name": elset_source,
@@ -405,14 +428,27 @@ raise SystemExit(subprocess.call(cmd, cwd=str(run_dir), env=os.environ.copy()))
 
 
 def _choose_conf_template(bundle: InputBundle, primary_name: str) -> Path:
+    """
+    仅在与目录/文件名明显对应时再选用各示例的 beso_conf；
+    其它「无模板」单文件（如 CAD 生成的 from_cad_gmsh.inp）走 **example_1 的 BASE_CONF**，
+    避免原先无条件优先 example_2 导致 ELSET 不匹配、落到极简兜底配置。
+    """
     scan_s = bundle.scan_dir.lower()
     p = primary_name.lower()
+    looks_example2 = "example_2" in scan_s or any(
+        "force_lc" in x.name.lower() for x in bundle.files if x.ext == ".inp"
+    )
+
     if "example_1" in scan_s or "plane_mesh" in p:
         if BASE_CONF.exists():
             return BASE_CONF
-    if "example_3" in scan_s or "analysis-1" in p:
+    if "example_3" in scan_s or "analysis-1" in p or "analysis_1" in p:
         if EXAMPLE3_CONF.exists():
             return EXAMPLE3_CONF
+    if looks_example2 and EXAMPLE2_CONF.exists():
+        return EXAMPLE2_CONF
+    if BASE_CONF.exists():
+        return BASE_CONF
     if EXAMPLE2_CONF.exists():
         return EXAMPLE2_CONF
     if EXAMPLE3_CONF.exists():
@@ -432,6 +468,7 @@ def _build_conf_from_examples(
     run_dir: Path,
     ccx_path: Path,
     primary_name: str,
+    primary_elsets: list[str],
     mass_goal_ratio: float,
     filter_radius: float,
     optimization_base: str,
@@ -440,7 +477,7 @@ def _build_conf_from_examples(
     extra_comment: str,
 ) -> str:
     tpl_path = _choose_conf_template(bundle, primary_name)
-    if tpl_path.exists():
+    if tpl_path.exists() and template_elsets_match_primary(tpl_path, primary_elsets, EXAMPLE2_CONF, EXAMPLE3_CONF):
         conf = tpl_path.read_text(encoding="utf-8", errors="ignore")
     else:
         conf = ""
@@ -465,6 +502,8 @@ def _build_conf_from_examples(
     conf = _replace_assignment(conf, "path", f'r"{run_dir}"')
     conf = _replace_assignment(conf, "path_calculix", f'r"{ccx_path}"')
     conf = _replace_assignment(conf, "file_name", f'"{primary_name}"')
+    # BASE / 示例模板里的 elset_name 需与主 INP 中实际 ELSET（如 EALL）一致；domain_*[elset_name] 依赖该变量。
+    conf = _replace_assignment(conf, "elset_name", f'"{fallback_elset}"')
     conf = _replace_assignment(conf, "mass_goal_ratio", str(float(mass_goal_ratio)))
     conf = _replace_assignment(conf, "filter_list", f'[["simple", {float(filter_radius)}]]')
     conf = _replace_assignment(conf, "optimization_base", f'"{optimization_base}"')

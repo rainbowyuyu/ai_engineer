@@ -867,7 +867,7 @@
             <div class="homeToolbar">
               <div class="btnRow">
                 <button class="uploadChip uploadChipStrong" id="pickBtnLanding">上传文件</button>
-                <input id="fileInputLanding" type="file" accept=".inp,.vtk,.obj,.py,.log" class="hidden" />
+                <input id="fileInputLanding" type="file" accept=".inp,.vtk,.obj,.py,.log,.igs,.iges,.stp,.step" class="hidden" />
                 <span class="chip">任务与进度保存在 runs 目录</span>
               </div>
               <button class="btn btnPrimary runBtn" id="runAgentFlow">运行智能体流程</button>
@@ -1047,6 +1047,19 @@
         </div>
       </div>
     </div>
+
+    <div id="cadConvertModal" class="cadConvertModal hidden" aria-hidden="true">
+      <div class="cadConvertModalBackdrop"></div>
+      <div class="cadConvertModalCard" role="dialog" aria-labelledby="cadConvertModalTitle">
+        <div class="cadConvertModalTitle" id="cadConvertModalTitle">CAD → INP</div>
+        <p class="cadConvertModalDesc" id="cadConvertModalDesc"></p>
+        <div class="cadConvertBarTrack" aria-hidden="true">
+          <div class="cadConvertBarFill" id="cadConvertBarFill"></div>
+        </div>
+        <div class="cadConvertStage" id="cadConvertStage"></div>
+      </div>
+    </div>
+
     <script type="module" src="./flow_main.js"></script>
   </body>
 </html>

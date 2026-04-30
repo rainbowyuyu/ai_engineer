@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import json
+import queue
 import re
 import shutil
 import subprocess
@@ -12,6 +13,10 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 import meshio
+
+from backend.tools.inp_beso_compat import assert_inp_supported_by_beso
+from backend.tools.inp_mesh_scan import assert_inp_mesh_size_reasonable, auto_scale_filter_radius
+from backend.tools.inp_elset import pick_usable_elset_name
 import numpy as np
 
 
@@ -197,6 +202,23 @@ save_resulting_format = \"inp vtk\"
     target_path.write_text(conf, encoding="utf-8")
 
 
+_RE_FIRST_SIMPLE_FILTER = re.compile(r'(\[\[\s*"simple"\s*,\s*)([\d.eE+-]+)', re.IGNORECASE)
+
+
+def _parse_first_simple_filter_radius(conf_text: str) -> float | None:
+    m = _RE_FIRST_SIMPLE_FILTER.search(conf_text)
+    if not m:
+        return None
+    try:
+        return float(m.group(2))
+    except ValueError:
+        return None
+
+
+def _patch_first_simple_filter_radius(conf_text: str, new_r: float) -> str:
+    return _RE_FIRST_SIMPLE_FILTER.sub(lambda m: f"{m.group(1)}{new_r}", conf_text, count=1)
+
+
 def run_beso_job(
     workspace_root: Path,
     run_dir: Path,
@@ -278,13 +300,16 @@ def run_beso_job(
                 pass
         on_log(f"[WARN] include file not found: {inc_name}")
 
+    assert_inp_supported_by_beso(inp_dst)
+    assert_inp_mesh_size_reasonable(inp_dst)
+
     # Ensure we don't inherit FreeCAD/Python environment variables that can break subprocess resolution
     os.environ.pop("PYTHONHOME", None)
     os.environ.pop("PYTHONPATH", None)
 
-    # Derive elset name
+    # Derive elset name（与 generator 一致，避免 meshio/Gmsh INP 误用 example_2 的 SolidMaterial*）
     elsets = _scan_elsets(inp_dst)
-    elset_name = "SolidMaterialElementGeometry2D" if "SolidMaterialElementGeometry2D" in elsets else (elsets[0] if elsets else "all_available")
+    elset_name = pick_usable_elset_name(elsets)
 
     # Locate ccx
     ccx_path = Path(os.environ.get("CCX_PATH", r"D:\freecad\bin\ccx.exe")).resolve()
@@ -292,7 +317,32 @@ def run_beso_job(
         raise FileNotFoundError(f"ccx not found: {ccx_path}")
 
     conf_path = run_dir / "beso_conf.py"
-    # Respect generated config if pre-created by generator.
+    # 实际生效半径：优先读已有 beso_conf 里第一条 "simple" 滤波（旧任务常为 2.0），否则 manifest / 入参。
+    r_req = float(filter_radius)
+    try:
+        mp = manifest.get("params") if isinstance(manifest.get("params"), dict) else {}
+        if mp and mp.get("filter_radius") is not None:
+            r_req = float(mp["filter_radius"])
+    except Exception:
+        r_req = float(filter_radius)
+
+    conf_text_existing: str | None = None
+    if conf_path.exists():
+        try:
+            conf_text_existing = conf_path.read_text(encoding="utf-8", errors="replace")
+            rf = _parse_first_simple_filter_radius(conf_text_existing)
+            if rf is not None:
+                r_req = rf
+        except Exception:
+            pass
+
+    try:
+        fr_use, fr_note = auto_scale_filter_radius(inp_dst, r_req)
+        if fr_note:
+            on_log(f"[INFO] {fr_note}")
+    except Exception:
+        fr_use = float(r_req)
+
     if not conf_path.exists():
         _write_beso_conf(
             conf_path,
@@ -301,10 +351,18 @@ def run_beso_job(
             file_name=inp_dst.name,
             elset_name=elset_name,
             mass_goal_ratio=mass_goal_ratio,
-            filter_radius=filter_radius,
+            filter_radius=fr_use,
             optimization_base=optimization_base,
             save_every=save_every,
         )
+    elif conf_text_existing is not None:
+        rf0 = _parse_first_simple_filter_radius(conf_text_existing)
+        if rf0 is not None and abs(fr_use - rf0) > max(1e-9, 1e-6 * abs(rf0)):
+            conf_path.write_text(
+                _patch_first_simple_filter_radius(conf_text_existing, fr_use),
+                encoding="utf-8",
+            )
+            on_log(f"[INFO] 已回写 {conf_path.name}：simple 滤波半径 {rf0:g} -> {fr_use:g}")
 
     # Run beso_main.py, ensuring it loads our config (same dir). Pick source set by task type.
     beso_src = _choose_beso_source_dir(workspace_root, manifest, inp_src)
@@ -336,19 +394,16 @@ def run_beso_job(
     use_native_runner = bool(manifest.get("use_native_runner"))
     run_generated = run_dir / "run_generated.py"
     if run_generated.exists() and not use_native_runner:
-        cmd = [str(py_exe), str(run_generated)]
+        cmd = [str(py_exe), "-u", str(run_generated)]
     else:
-        cmd = [
-            str(py_exe),
-            str(run_dir / "beso_main.py"),
-            str(inp_dst),
-        ]
+        cmd = [str(py_exe), "-u", str(run_dir / "beso_main.py"), str(inp_dst)]
     if use_native_runner:
         on_log("[INFO] using native beso_main.py runner for compatibility.")
     on_log(f"[CMD] {' '.join(cmd)}")
 
     env = os.environ.copy()
     env["PYTHON_EXE"] = str(py_exe)
+    env.setdefault("PYTHONUNBUFFERED", "1")
     # Force non-GUI rendering so Windows won't pop up plot windows.
     env.setdefault("MPLBACKEND", "Agg")
 
@@ -362,6 +417,35 @@ def run_beso_job(
         bufsize=1,
         universal_newlines=True,
     )
+
+    # 后台线程持续读 stdout，避免子进程大量输出填满 PIPE 导致与主线程 readline 死锁（表现为优化“卡住”）。
+    out_q: queue.Queue[str | None] = queue.Queue()
+
+    def _drain_child_stdout() -> None:
+        if not proc.stdout:
+            out_q.put(None)
+            return
+        try:
+            for line in iter(proc.stdout.readline, ""):
+                out_q.put(line)
+        finally:
+            out_q.put(None)
+            try:
+                proc.stdout.close()
+            except Exception:
+                pass
+
+    threading.Thread(target=_drain_child_stdout, name="beso-stdout-drain", daemon=True).start()
+
+    def _drain_stdout_queue_nonblocking() -> None:
+        while True:
+            try:
+                line = out_q.get_nowait()
+            except queue.Empty:
+                return
+            if line is None:
+                return
+            on_log(line.rstrip("\n"))
 
     last_iter_seen: int = -1
     last_mesh_token: str | None = None
@@ -381,9 +465,7 @@ def run_beso_job(
                     proc.kill()
                 break
 
-            line = proc.stdout.readline() if proc.stdout else ""
-            if line:
-                on_log(line.rstrip("\n"))
+            _drain_stdout_queue_nonblocking()
 
             # Tail BESO log file to expose real optimization progress in UI/log stream.
             if beso_log_path.exists():
@@ -501,10 +583,14 @@ def run_beso_job(
 
             if proc.poll() is not None:
                 proc_exit_code = proc.returncode
-                # drain remaining
-                if proc.stdout:
-                    for rest in proc.stdout:
-                        on_log(rest.rstrip("\n"))
+                while True:
+                    try:
+                        line = out_q.get(timeout=0.3)
+                    except queue.Empty:
+                        break
+                    if line is None:
+                        break
+                    on_log(line.rstrip("\n"))
                 break
 
             time.sleep(0.05)

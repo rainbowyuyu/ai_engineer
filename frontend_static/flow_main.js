@@ -86,6 +86,10 @@ const refs = {
   massGoal: $("massGoal"),
   filterR: $("filterR"),
   saveEvery: $("saveEvery"),
+  cadConvertModal: $("cadConvertModal"),
+  cadConvertModalDesc: $("cadConvertModalDesc"),
+  cadConvertBarFill: $("cadConvertBarFill"),
+  cadConvertStage: $("cadConvertStage"),
 };
 
 const state = {
@@ -115,11 +119,46 @@ const state = {
   activeTaskKey: "",
 };
 
+function _defaultPortForProtocol(proto) {
+  return proto === "https:" ? "443" : "80";
+}
+
+/** 页面与 API 基址若仅为 localhost ↔ 127.0.0.1 差异，改为与当前页同源，避免浏览器按跨域处理。 */
+function migrateCrossHostBaseUrl() {
+  if (typeof window === "undefined" || !refs.baseUrlInput) return;
+  const raw = String(refs.baseUrlInput.value || "").trim();
+  if (!raw) return;
+  const page = window.location;
+  try {
+    const api = new URL(/^https?:\/\//i.test(raw) ? raw : `${page.protocol}//${raw}`);
+    const sameScheme = api.protocol === page.protocol;
+    const pPort = page.port || _defaultPortForProtocol(page.protocol);
+    const aPort = api.port || _defaultPortForProtocol(api.protocol);
+    if (!sameScheme || aPort !== pPort) return;
+    const cross =
+      (page.hostname === "localhost" && api.hostname === "127.0.0.1") ||
+      (page.hostname === "127.0.0.1" && api.hostname === "localhost");
+    if (cross) {
+      refs.baseUrlInput.value = page.origin;
+      localStorage.setItem("beso.settings.baseUrl", page.origin);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 function normalizedBaseUrl() {
-  const v = String(refs.baseUrlInput?.value || "").trim();
-  if (v) return v;
-  if (typeof window !== "undefined" && window.location?.origin) return window.location.origin;
-  return "http://localhost:8000";
+  let u = String(refs.baseUrlInput?.value || "").trim();
+  if (!u && typeof window !== "undefined" && window.location?.origin) {
+    u = window.location.origin;
+  }
+  if (!u) u = "http://127.0.0.1:8000";
+  try {
+    const parsed = new URL(u);
+    return (parsed.origin + (parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/$/, ""))).replace(/\/$/, "");
+  } catch {
+    return u.replace(/\/$/, "");
+  }
 }
 refs.baseUrlText && (refs.baseUrlText.textContent = normalizedBaseUrl().replace(/^https?:\/\//, ""));
 
@@ -249,6 +288,7 @@ function resetTaskRuntimeView() {
   updateLogDockVisibility();
   state.imageCount = 0;
   state.meshReady = false;
+  viewer.resetPreviewState?.();
   refs.codeTabs && (refs.codeTabs.innerHTML = "");
   refs.codePreview && (refs.codePreview.innerHTML = '<div class="codePreviewHead">生成代码</div><pre class="codePreviewBody"><code>(等待代码生成)</code></pre>');
   refs.codeStreamWrap && (refs.codeStreamWrap.innerHTML = "");
@@ -360,7 +400,19 @@ function updateStepperClickableState() {
 async function uploadSelectedFile(file) {
   const fd = new FormData();
   fd.append("file", file);
-  const data = await (await fetch(`${normalizedBaseUrl()}/api/files/upload`, { method: "POST", body: fd })).json();
+  const resp = await fetch(`${normalizedBaseUrl()}/api/files/upload`, { method: "POST", body: fd });
+  const raw = await resp.text();
+  let data = {};
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch {
+    data = { detail: raw.slice(0, 400) };
+  }
+  if (!resp.ok) {
+    const msg = typeof data.detail === "string" ? data.detail : Array.isArray(data.detail) ? JSON.stringify(data.detail) : raw.slice(0, 300);
+    layout.addBubble("agent", `上传失败（${resp.status}）：${msg || "未知错误"}`);
+    throw new Error(msg || `HTTP ${resp.status}`);
+  }
   state.currentFileId = data.file_id;
   state.currentFileName = data.name || file?.name || "";
   layout.addBubble("agent", `已上传文件：${data.name}`);
@@ -384,20 +436,135 @@ async function uploadSelectedFile(file) {
   await taskManager.loadTasks();
 }
 
-async function scanDirectory() {
-  const dir = (state.uploadedSourceDir || refs.scanDirInput?.value || "").trim();
-  if (!dir) return layout.addBubble("agent", "未获取到上传文件目录，暂无法自动扫描。");
-  const resp = await fetch(`${normalizedBaseUrl()}/api/scan-directory?scan_dir=${encodeURIComponent(dir)}`);
-  const data = await resp.json();
-  if (!resp.ok) return layout.addBubble("agent", `扫描失败：${data.detail || JSON.stringify(data)}`);
-  const selected = { primary_inp: data.primary_inp ? data.primary_inp.split(/[\\/]/).pop() : null, aux_inps: data.aux_inps || {}, step_mapping: data.step_mapping || {} };
+function firstIgesNameFromScan(data) {
+  const files = data.files || [];
+  const hit = files.find((x) => /\.(igs|iges)$/i.test(String(x.name || "")));
+  return hit ? String(hit.name) : null;
+}
+
+function scanNeedsCadConversion(data) {
+  if (data.primary_inp) return false;
+  return Boolean(firstIgesNameFromScan(data));
+}
+
+function setCadConvertBar(pct) {
+  if (refs.cadConvertBarFill) refs.cadConvertBarFill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+}
+
+function showCadConvertModal() {
+  if (!refs.cadConvertModal) return;
+  refs.cadConvertModal.classList.remove("hidden");
+  refs.cadConvertModal.setAttribute("aria-hidden", "false");
+  setCadConvertBar(4);
+}
+
+function hideCadConvertModal() {
+  if (!refs.cadConvertModal) return;
+  refs.cadConvertModal.classList.add("hidden");
+  refs.cadConvertModal.setAttribute("aria-hidden", "true");
+  setCadConvertBar(0);
+}
+
+async function runCadConvertWithModal(scanDir, data) {
+  const igesName = firstIgesNameFromScan(data);
+  if (!igesName) return;
+  showCadConvertModal();
+  if (refs.cadConvertModalDesc) {
+    refs.cadConvertModalDesc.textContent =
+      "已识别 IGES 几何，当前目录尚无主 INP。后端默认用 Open CASCADE 做曲面三角化（快，生成 S3 壳网格），失败时再回退 Gmsh+meshio；输出仍为 from_cad_gmsh.inp。可用环境变量 CAD_IGES_BACKEND=occ|gmsh|auto 控制。完成后会自动重新扫描目录。";
+  }
+  if (refs.cadConvertStage) refs.cadConvertStage.textContent = "正在提交转换任务…";
+  setCadConvertBar(8);
+  let taskId = "";
+  try {
+    const resp = await fetch(`${normalizedBaseUrl()}/api/cad/convert-iges`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scan_dir: scanDir, iges_name: igesName }),
+    });
+    const raw = await resp.text();
+    let body = {};
+    try {
+      body = raw ? JSON.parse(raw) : {};
+    } catch {
+      body = { detail: raw.slice(0, 400) };
+    }
+    if (!resp.ok) {
+      hideCadConvertModal();
+      layout.addBubble("agent", `CAD 转换启动失败：${body.detail || JSON.stringify(body)}`);
+      return;
+    }
+    taskId = body.task_id || "";
+    if (!taskId) {
+      hideCadConvertModal();
+      layout.addBubble("agent", "CAD 转换启动失败：未返回 task_id。");
+      return;
+    }
+    const deadline = Date.now() + 55 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 450));
+      const stResp = await fetch(`${normalizedBaseUrl()}/api/cad/convert-iges/${encodeURIComponent(taskId)}`, { cache: "no-store" });
+      const stRaw = await stResp.text();
+      let st = {};
+      try {
+        st = stRaw ? JSON.parse(stRaw) : {};
+      } catch {
+        st = { error: stRaw.slice(0, 200) };
+      }
+      if (!stResp.ok) {
+        hideCadConvertModal();
+        layout.addBubble("agent", `转换状态查询失败：${st.detail || stRaw.slice(0, 200)}`);
+        return;
+      }
+      const p = Number(st.progress) || 0;
+      setCadConvertBar(Math.max(8, p));
+      if (refs.cadConvertStage) refs.cadConvertStage.textContent = String(st.stage || "处理中…");
+      if (st.done) {
+        if (st.error) {
+          hideCadConvertModal();
+          layout.addBubble("agent", `IGES 转换失败：${st.error}`);
+          return;
+        }
+        setCadConvertBar(100);
+        if (refs.cadConvertStage) refs.cadConvertStage.textContent = "完成，正在刷新扫描结果…";
+        await new Promise((r) => setTimeout(r, 280));
+        hideCadConvertModal();
+        return;
+      }
+    }
+    hideCadConvertModal();
+    layout.addBubble("agent", "CAD 转换等待超时，请检查是否已 pip install cadquery-ocp（OCC）与 gmsh、或 IGES 复杂度与 CAD_IGES_BACKEND，稍后重试扫描。");
+  } catch (e) {
+    hideCadConvertModal();
+    layout.addBubble("agent", `CAD 转换异常：${e && e.message ? e.message : String(e)}`);
+  }
+}
+
+function applyScanDirectoryUI(data) {
+  const selected = {
+    primary_inp: data.primary_inp ? data.primary_inp.split(/[\\/]/).pop() : null,
+    aux_inps: data.aux_inps || {},
+    step_mapping: data.step_mapping || {},
+  };
   layout.renderSelectedInputs(selected);
   if (refs.autoScanInfo) refs.autoScanInfo.textContent = `扫描目录：${data.scan_dir}\n主文件：${selected.primary_inp || "(none)"}\n状态：正在探索文件结构...`;
   if (refs.autoScanTree) {
     if (state.scanRevealTimer) clearInterval(state.scanRevealTimer);
     refs.autoScanTree.innerHTML = "";
     const rowMeta = (data.files || []).slice(0, 60).map((x) => ({ name: x.name, role: x.role, text: `${x.name} [${x.role}]` }));
-    const iconByRole = { primary_candidate: "⭐", load_case: "⚡", set_definition: "🧩", inp_candidate: "📄", result_state: "🧪", result_frame: "🧱", code_file: "💻", log_file: "📝", viz_file: "🧊", other: "📦" };
+    const iconByRole = {
+      primary_candidate: "⭐",
+      load_case: "⚡",
+      set_definition: "🧩",
+      inp_candidate: "📄",
+      result_state: "🧪",
+      result_frame: "🧱",
+      code_file: "💻",
+      log_file: "📝",
+      viz_file: "🧊",
+      cad_geometry: "📐",
+      other: "📦",
+    };
     let idx = 0;
     state.scanRevealTimer = setInterval(() => {
       if (idx >= rowMeta.length) {
@@ -420,7 +587,24 @@ async function scanDirectory() {
     }, 95);
   }
   state.step1Ready = Boolean(data.primary_inp);
-  refs.acceptStep1 && (refs.acceptStep1.disabled = !state.step1Ready);
+  if (refs.acceptStep1) refs.acceptStep1.disabled = !state.step1Ready;
+}
+
+async function scanDirectory() {
+  const dir = (state.uploadedSourceDir || refs.scanDirInput?.value || "").trim();
+  if (!dir) return layout.addBubble("agent", "未获取到上传文件目录，暂无法自动扫描。");
+  let resp = await fetch(`${normalizedBaseUrl()}/api/scan-directory?scan_dir=${encodeURIComponent(dir)}`);
+  let data = await resp.json();
+  if (!resp.ok) return layout.addBubble("agent", `扫描失败：${data.detail || JSON.stringify(data)}`);
+
+  if (scanNeedsCadConversion(data)) {
+    await runCadConvertWithModal(dir, data);
+    resp = await fetch(`${normalizedBaseUrl()}/api/scan-directory?scan_dir=${encodeURIComponent(dir)}`);
+    data = await resp.json();
+    if (!resp.ok) return layout.addBubble("agent", `转换后扫描失败：${data.detail || JSON.stringify(data)}`);
+  }
+
+  applyScanDirectoryUI(data);
   layout.addBubble("agent", state.step1Ready ? "文件搜索完成，可进入下一步。" : "未识别到主文件。");
 }
 
@@ -900,7 +1084,13 @@ async function createAndRun() {
   if (Number.isFinite(fr) && fr > 0) body.filter_radius = fr;
   if (Number.isFinite(se) && se > 0) body.save_every = Math.floor(se);
   const resp = await fetch(`${normalizedBaseUrl()}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  const data = await resp.json();
+  const rawText = await resp.text();
+  let data = {};
+  try {
+    data = rawText ? JSON.parse(rawText) : {};
+  } catch {
+    data = { detail: rawText ? rawText.slice(0, 400) : "(空响应)" };
+  }
   if (!resp.ok) return layout.addBubble("agent", `任务启动失败：${data.detail || JSON.stringify(data)}`);
   state.jobId = data.job_id;
   refs.jobIdEl && (refs.jobIdEl.textContent = state.jobId);
@@ -917,6 +1107,7 @@ async function createAndRun() {
   clearMetricsEmptyState();
   state.imageCount = 0;
   state.meshReady = false;
+  viewer.resetPreviewState?.();
   state.currentTaskStatus = "running";
   checkStep3Ready();
   state.logs = [];
@@ -1127,7 +1318,12 @@ layout.showStage("landing");
 updateLogDockVisibility();
 layout.addLandingBubble("agent", "先聊天并上传文件，点击“运行智能体流程”后开始流式编排。");
 try {
-  if (refs.baseUrlInput) refs.baseUrlInput.value = localStorage.getItem("beso.settings.baseUrl") || refs.baseUrlInput.value || (window.location?.origin || "http://localhost:8000");
+  if (refs.baseUrlInput) {
+    const stored = localStorage.getItem("beso.settings.baseUrl") || "";
+    refs.baseUrlInput.value =
+      stored || refs.baseUrlInput.value || (window.location?.origin || "http://127.0.0.1:8000");
+    migrateCrossHostBaseUrl();
+  }
   if (refs.qwenBaseUrl) refs.qwenBaseUrl.value = localStorage.getItem("beso.settings.qwenBaseUrl") || refs.qwenBaseUrl.value || "";
   if (refs.qwenModel) refs.qwenModel.value = localStorage.getItem("beso.settings.qwenModel") || refs.qwenModel.value || "";
   refs.baseUrlText && (refs.baseUrlText.textContent = normalizedBaseUrl().replace(/^https?:\/\//, ""));

@@ -27,11 +27,26 @@ export function createTaskManager(deps) {
       job_id: patch.job_id ?? (state.jobId || undefined),
       scan_dir: patch.scan_dir ?? (state.uploadedSourceDir || undefined),
     };
-    await fetch(`${normalizedBaseUrl()}/api/tasks/upsert`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    try {
+      const resp = await fetch(`${normalizedBaseUrl()}/api/tasks/upsert`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        const t = await resp.text();
+        let detail = t;
+        try {
+          const j = JSON.parse(t);
+          if (j && j.detail != null) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+        } catch {
+          /* keep t */
+        }
+        console.error("tasks/upsert failed", resp.status, detail);
+      }
+    } catch (e) {
+      console.error("tasks/upsert fetch error", e);
+    }
   }
 
   async function removeTask(taskId) {
@@ -48,11 +63,19 @@ export function createTaskManager(deps) {
   async function renameTask(taskId, title) {
     const clean = String(title || "").trim();
     if (!clean) return;
-    await fetch(`${normalizedBaseUrl()}/api/tasks/upsert`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ task_id: taskId, title: clean }),
-    });
+    try {
+      const resp = await fetch(`${normalizedBaseUrl()}/api/tasks/upsert`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task_id: taskId, title: clean }),
+      });
+      if (!resp.ok) {
+        const t = await resp.text();
+        console.error("tasks/upsert (rename) failed", resp.status, t.slice(0, 500));
+      }
+    } catch (e) {
+      console.error("tasks/upsert (rename) fetch error", e);
+    }
   }
 
   function renderTaskList(items) {

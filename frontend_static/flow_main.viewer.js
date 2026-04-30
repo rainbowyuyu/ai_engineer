@@ -11,6 +11,7 @@ export function createViewer(deps) {
       upsertImage: () => {},
       setAutoRotate: () => {},
       getAutoRotate: () => false,
+      resetPreviewState: () => {},
     };
   }
 
@@ -24,6 +25,8 @@ export function createViewer(deps) {
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   let hasAutoFittedOnce = false;
+  /** 首次适配后锁定网格根节点世界坐标，避免每次 OBJ 更新因包围盒中心漂移导致画面抽动 */
+  let frozenMeshRootPosition = null;
   scene.add(new THREE.AmbientLight(0xffffff, 0.35));
   const d = new THREE.DirectionalLight(0xffffff, 1);
   d.position.set(2, 2, 2);
@@ -62,14 +65,6 @@ export function createViewer(deps) {
   function animate() {
     requestAnimationFrame(animate);
     if (spinEnabled && currentObj) currentObj.quaternion.multiply(spinStep);
-    if (currentObj && currentObj.userData.pendingCenter) {
-      const t = currentObj.userData.pendingCenter;
-      currentObj.position.lerp(t, 0.22);
-      if (currentObj.position.distanceToSquared(t) < 1e-8) {
-        currentObj.position.copy(t);
-        delete currentObj.userData.pendingCenter;
-      }
-    }
     controls.update();
     renderer.render(scene, camera);
   }
@@ -78,7 +73,6 @@ export function createViewer(deps) {
 
   function applyMeshSwap(obj) {
     const prev = currentObj;
-    const prevPos = prev ? prev.position.clone() : null;
     const prevQuat = prev ? prev.quaternion.clone() : null;
     obj.traverse((c) => {
       if (c.isMesh) {
@@ -102,14 +96,13 @@ export function createViewer(deps) {
     const radius = Math.max(size.x, size.y, size.z, 1e-6) * 0.5;
     const centered = center.clone().negate();
 
-    if (prevPos && hasAutoFittedOnce) {
-      obj.position.copy(prevPos);
-      obj.userData.pendingCenter = centered;
+    if (hasAutoFittedOnce && frozenMeshRootPosition) {
+      obj.position.copy(frozenMeshRootPosition);
     } else {
       obj.position.copy(centered);
     }
 
-    // 首次加载时适配相机；后续迭代仅平滑更新网格，避免每次刷新重算视角造成抽搐
+    // 首次加载时适配相机；后续迭代不再改相机与网格根位置，仅换几何，避免包围盒中心变化引起抽动
     if (!hasAutoFittedOnce) {
       const fov = (camera.fov * Math.PI) / 180;
       const distance = Math.max(radius / Math.sin(fov / 2), 1.8);
@@ -122,6 +115,7 @@ export function createViewer(deps) {
       controls.target.set(0, 0, 0);
       controls.update();
       hasAutoFittedOnce = true;
+      frozenMeshRootPosition = obj.position.clone();
     }
     resize();
     state.meshReady = true;
@@ -188,10 +182,33 @@ export function createViewer(deps) {
     return spinEnabled;
   }
 
+  function resetPreviewState() {
+    hasAutoFittedOnce = false;
+    frozenMeshRootPosition = null;
+    lastMeshUrl = "";
+    lastMeshLoadAt = 0;
+    pendingMeshUrl = "";
+    loadSeq += 1;
+    if (debounceMeshTimer) {
+      clearTimeout(debounceMeshTimer);
+      debounceMeshTimer = null;
+    }
+    if (currentObj) {
+      scene.remove(currentObj);
+      currentObj.traverse((c) => {
+        if (c.isMesh && c.material && c.material.dispose) c.material.dispose();
+      });
+      currentObj = null;
+    }
+    state.meshReady = false;
+    checkStep3Ready();
+  }
+
   return {
     loadMesh,
     upsertImage,
     setAutoRotate,
     getAutoRotate,
+    resetPreviewState,
   };
 }

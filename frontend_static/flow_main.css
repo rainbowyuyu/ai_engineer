@@ -1229,3 +1229,85 @@ textarea{ height: 120px; resize: vertical; }
     min-height: 520px;
   }
 }
+
+/* IGES → INP 转换全屏提示 */
+.cadConvertModal{
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.35s ease;
+}
+.cadConvertModal:not(.hidden){
+  opacity: 1;
+  pointer-events: auto;
+  display: flex;
+}
+.cadConvertModal.hidden{
+  display: none;
+}
+.cadConvertModalBackdrop{
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.38);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.cadConvertModalCard{
+  position: relative;
+  width: min(440px, 94vw);
+  padding: 28px 28px 26px;
+  border-radius: 18px;
+  background: linear-gradient(165deg, rgba(255,255,255,.97), rgba(248,250,252,.94));
+  border: 1px solid rgba(15,23,42,.08);
+  box-shadow: 0 28px 70px rgba(15,23,42,.18), 0 0 0 1px rgba(255,255,255,.6) inset;
+  animation: cadModalIn 0.45s cubic-bezier(.22,1,.36,1) both;
+}
+@keyframes cadModalIn{
+  from{ opacity:0; transform: translateY(16px) scale(.96); }
+  to{ opacity:1; transform: translateY(0) scale(1); }
+}
+.cadConvertModalTitle{
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: .02em;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+.cadConvertModalDesc{
+  margin: 0 0 18px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+.cadConvertBarTrack{
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(37,99,235,.12);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.cadConvertBarFill{
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), #60a5fa 45%, var(--accent2));
+  background-size: 180% 100%;
+  animation: cadBarShimmer 2.2s ease-in-out infinite;
+  transition: width 0.45s cubic-bezier(.22,1,.36,1);
+}
+@keyframes cadBarShimmer{
+  0%{ background-position: 0% 50%; }
+  100%{ background-position: 100% 50%; }
+}
+.cadConvertStage{
+  font-size: 13px;
+  color: var(--text);
+  min-height: 1.4em;
+  font-family: var(--mono);
+}
