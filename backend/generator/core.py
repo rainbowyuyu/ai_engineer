@@ -260,9 +260,10 @@ def build_generated_code(
     filter_radius: float,
     optimization_base: str,
     save_every: int,
+    primary_inp_override: str | None = None,
 ) -> GeneratedCodeBundle:
     optimization_base = optimization_base if optimization_base in {"failure_index", "stiffness"} else "failure_index"
-    primary_inp = bundle.primary_inp or _llm_choose_primary(bundle)
+    primary_inp = primary_inp_override or bundle.primary_inp or _llm_choose_primary(bundle)
     if not primary_inp:
         raise ValueError("No usable primary inp file was detected")
 

@@ -10,6 +10,10 @@ websockets==14.2
 python-multipart==0.0.20
 python-dotenv==1.0.1
 requests==2.32.3
+numpy==2.3.4
+networkx==3.6.1
 meshio==5.3.5
 gmsh==4.15.2
 cadquery-ocp==7.9.3.1
+# pythonocc-core 目前在部分 Python 版本（如 3.13）无可用轮子，按版本条件安装。
+pythonocc-core; python_version < "3.13"

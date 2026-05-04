@@ -201,20 +201,71 @@ def _sanitize_optimization_base(v: str | None) -> str:
     return "failure_index"
 
 
+def _iges_to_inp_for_job(iges_path: Path) -> str:
+    if not _path_under_workspace(iges_path):
+        raise HTTPException(status_code=400, detail="IGES 路径必须位于工作区 WORKSPACE_ROOT 内")
+    prep = TASKS_ROOT / uuid.uuid4().hex
+    prep.mkdir(parents=True, exist_ok=True)
+    dest = prep / OUTPUT_INP_NAME
+    try:
+        run_cad_iges_to_inp(iges_path.resolve(), dest)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"IGES→INP 转换失败: {e}") from e
+    return str(dest.resolve())
+
+
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
     # Resolve inp path: prefer scan_dir for multi-inp merged mode.
-    inp_path = req.inp_path
+    source_path: str | None = req.inp_path
     bundle = None
     if req.scan_dir:
         try:
             bundle = scan_input_directory(req.scan_dir)
         except FileNotFoundError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
-        inp_path = bundle.primary_inp
+        source_path = bundle.primary_inp
+        if not source_path:
+            cads = sorted(
+                [x.path for x in bundle.files if x.ext in {".igs", ".iges"}],
+                key=lambda p: Path(p).name.lower(),
+            )
+            if req.iges_name:
+                cand = (Path(bundle.scan_dir) / req.iges_name).resolve()
+                if (
+                    not cand.is_file()
+                    or cand.suffix.lower() not in {".igs", ".iges"}
+                    or not _path_under_workspace(cand)
+                ):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"找不到有效的 IGES 文件（相对于扫描目录）: {req.iges_name}",
+                    )
+                source_path = str(cand)
+            elif len(cads) == 1:
+                source_path = cads[0]
+            elif len(cads) > 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail="扫描目录中存在多个 IGES，请在请求中设置 iges_name 指定其一",
+                )
     elif req.file_id:
         sf = resolve_file(WORKSPACE_ROOT, req.file_id)
-        inp_path = str(sf.path)
+        source_path = str(sf.path)
+
+    inp_path = source_path
+    cad_source_iges: str | None = None
+    if source_path:
+        sp = Path(source_path)
+        if not sp.exists():
+            raise HTTPException(status_code=400, detail=f"输入文件不存在: {source_path}")
+        if sp.suffix.lower() in {".igs", ".iges"}:
+            cad_source_iges = str(sp.resolve())
+            inp_path = _iges_to_inp_for_job(sp)
+
+    primary_inp_override: str | None = None
+    if bundle is not None and bundle.primary_inp is None and inp_path:
+        primary_inp_override = inp_path
 
     # LLM parse (only if API key set). User may still override specific fields.
     parsed = decide_params(req.message)
@@ -238,6 +289,15 @@ def chat(req: ChatRequest):
     generated_code_meta: list[dict] = []
     selected_inputs: dict | None = None
 
+    if bundle is not None:
+        if not inp_path:
+            raise HTTPException(status_code=400, detail="扫描目录中未找到可用的 inp 或 IGES 文件")
+    elif not inp_path:
+        raise HTTPException(
+            status_code=400,
+            detail="请提供 inp_path（可为 .inp 或 .igs）、file_id 或 scan_dir（内含 inp 或 IGES）",
+        )
+
     job = jobs.create_job(
         user_message=req.message,
         inp_path=inp_path,
@@ -250,8 +310,6 @@ def chat(req: ChatRequest):
     )
 
     if bundle is not None:
-        if not inp_path:
-            raise HTTPException(status_code=400, detail="扫描目录中未找到可用 inp 文件")
         ccx_path = Path(os.environ.get("CCX_PATH", r"D:\freecad\bin\ccx.exe")).resolve()
         generated_bundle = build_generated_code(
             bundle=bundle,
@@ -261,6 +319,7 @@ def chat(req: ChatRequest):
             filter_radius=filter_radius,
             optimization_base=optimization_base,
             save_every=save_every,
+            primary_inp_override=primary_inp_override,
         )
         for name, content in generated_bundle.files.items():
             p = Path(job.run_dir) / name
@@ -282,6 +341,7 @@ def chat(req: ChatRequest):
         job_id=job.id,
         parsed_params={
             "inp_path": inp_path,
+            **({"cad_source_iges": cad_source_iges} if cad_source_iges else {}),
             "mass_goal_ratio": mass_goal_ratio,
             "filter_radius": filter_radius,
             "optimization_base": optimization_base,
