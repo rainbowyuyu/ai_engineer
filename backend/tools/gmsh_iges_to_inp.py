@@ -153,6 +153,42 @@ def default_gmsh_timeout_s() -> float:
     return 600.0
 
 
+_VOL_CELL_TYPES = frozenset({"tetra", "tetra10", "hexahedron", "hexahedron20", "pyramid", "wedge"})
+
+
+def _mesh_keep_dim3_only(mesh: Mesh) -> Mesh:
+    """去掉 Gmsh 常见的 R3D3 等辅助单元，仅保留体单元块（优先 dim==3，否则按 cell.type）。"""
+    keep = [i for i, cb in enumerate(mesh.cells) if getattr(cb, "dim", 0) == 3]
+    if not keep:
+        keep = [i for i, cb in enumerate(mesh.cells) if cb.type in _VOL_CELL_TYPES]
+    if len(keep) == len(mesh.cells):
+        return mesh
+    if not keep:
+        types = sorted({cb.type for cb in mesh.cells})
+        raise ValueError(
+            "Gmsh .msh 中未识别到体单元块（无 dim==3 且 type 不在 tetra/hexa 等）。"
+            f" 当前 cell 类型: {types}。请确认几何为封闭实体或调整 GMSH_CHAR_LENGTH_MAX。"
+        )
+    new_cells = [mesh.cells[i] for i in keep]
+    new_cell_data: dict = {}
+    for key, blocks in mesh.cell_data.items():
+        new_cell_data[key] = [blocks[i] for i in keep]
+    new_cell_sets: dict = {}
+    for key, blocks in mesh.cell_sets.items():
+        new_cell_sets[key] = [blocks[i] for i in keep]
+    return Mesh(
+        mesh.points,
+        new_cells,
+        point_data=mesh.point_data,
+        cell_data=new_cell_data,
+        field_data=mesh.field_data,
+        point_sets=mesh.point_sets,
+        cell_sets=new_cell_sets,
+        gmsh_periodic=getattr(mesh, "gmsh_periodic", None),
+        info=mesh.info,
+    )
+
+
 def write_gmsh_msh_to_beso_inp(msh_path: Path, dest_inp: Path) -> Path:
     """
     读取 ``.msh``，经 meshio 过滤与 BESO 校验后写入 ``dest_inp``。
@@ -167,6 +203,7 @@ def write_gmsh_msh_to_beso_inp(msh_path: Path, dest_inp: Path) -> Path:
     mesh = meshio.read(msh_path, file_format="gmsh")
     if not mesh.cells:
         raise ValueError("Gmsh 产出空网格")
+    mesh = _mesh_keep_dim3_only(mesh)
     mesh_fd = _mesh_drop_cells_below_dim(mesh, 2)
     if mesh_fd is None or not mesh_fd.cells:
         raise ValueError(

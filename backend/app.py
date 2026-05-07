@@ -7,6 +7,17 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
+
+from dotenv import load_dotenv
+
+# 本地开发：从仓库根目录或 WORKSPACE_ROOT 下的 .env 注入 QWEN_*（不覆盖已在环境中的变量）
+_backend_dir = Path(__file__).resolve().parent
+_repo_root = _backend_dir.parent
+for _root in (_repo_root, Path(os.environ.get("WORKSPACE_ROOT", _repo_root)).resolve()):
+    _dotenv_file = _root / ".env"
+    if _dotenv_file.is_file():
+        load_dotenv(_dotenv_file, override=False)
 
 from fastapi import FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import RedirectResponse
@@ -24,11 +35,11 @@ from backend.pydantic_compat import model_to_dict
 from backend.tools.files import preview_inp, resolve_file, store_upload, uploads_root
 from backend.tools.cad_iges_to_inp import (
     OUTPUT_INP_NAME,
-    cad_iges_backend,
     list_iges_in_dir,
     run_cad_iges_to_inp,
     suggest_char_length_max,
 )
+from backend.routes.oc4_design_domain_api import router as oc4_design_domain_router
 
 
 WORKSPACE_ROOT = Path(os.environ.get("WORKSPACE_ROOT", r"D:\python_project\beso_ai")).resolve()
@@ -42,7 +53,11 @@ UPLOADS_ROOT.mkdir(parents=True, exist_ok=True)
 CAD_CONVERT_ROOT = RUNS_ROOT / "_cad_convert"
 CAD_CONVERT_ROOT.mkdir(parents=True, exist_ok=True)
 
+_cad_convert_registry: dict[str, dict] = {}
+_cad_convert_registry_lock = threading.Lock()
+
 app = FastAPI(title="BESO Agent Web")
+app.include_router(oc4_design_domain_router, prefix="/api/oc4/design-domain")
 
 app.add_middleware(
     CORSMiddleware,
@@ -72,8 +87,10 @@ def _write_cad_status(task_dir: Path, payload: dict) -> None:
     p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _cad_convert_worker(task_id: str, scan_dir: str, iges_name: str | None) -> None:
+def _cad_convert_worker(task_id: str, scan_dir: str, iges_name: str | None, mesh: dict) -> None:
     task_dir = CAD_CONVERT_ROOT / task_id
+    cancel_ev = threading.Event()
+    proc_holder: list = [None]
 
     def push(progress: int, stage: str, **extra: object) -> None:
         data = {
@@ -82,11 +99,14 @@ def _cad_convert_worker(task_id: str, scan_dir: str, iges_name: str | None) -> N
             "stage": stage,
             "done": bool(extra.get("done", False)),
             "error": extra.get("error"),
+            "cancelled": bool(extra.get("cancelled", False)),
             "output_inp": extra.get("output_inp"),
             "output_name": OUTPUT_INP_NAME,
         }
         _write_cad_status(task_dir, data)
 
+    with _cad_convert_registry_lock:
+        _cad_convert_registry[task_id] = {"cancel": cancel_ev, "proc": proc_holder}
     try:
         push(5, "校验扫描目录…")
         root = Path(scan_dir).resolve()
@@ -114,21 +134,22 @@ def _cad_convert_worker(task_id: str, scan_dir: str, iges_name: str | None) -> N
         if not _path_under_workspace(out_inp):
             raise ValueError("输出路径非法")
 
-        cm = suggest_char_length_max(pick)
-        be = cad_iges_backend()
-        if be == "gmsh":
-            push(22, f"IGES→INP（Gmsh，尺度约 {cm:g}；可用 GMSH_CHAR_LENGTH_MAX 覆盖）…")
-        elif be == "occ":
-            push(22, "IGES→INP（Open CASCADE 曲面三角化，通常较快；可调 OCC_LINEAR_DEFLECTION）…")
-        else:
-            push(22, f"IGES→INP（默认先 OCC，失败再 Gmsh；尺度约 {cm:g}）…")
-        push(28, "正在生成网格（Gmsh 体网格可能较慢；OCC 壳网格一般较快）…")
+        cm = float(mesh.get("char_length_max", suggest_char_length_max(pick)))
+        push(22, f"IGES→INP（FreeCAD + Gmsh，CharacteristicLengthMax≈{cm:g} mm）…")
+        push(28, "正在调用 FreeCAD 生成网格（体网格可能较慢）…")
         done = threading.Event()
         err_box: list[Exception | None] = [None]
 
         def _cad_runner() -> None:
             try:
-                run_cad_iges_to_inp(pick, out_inp)
+                # IGES→INP：cad_iges_to_inp → backend.tools.freecad_iges_to_inp（FreeCAD+Gmsh）
+                run_cad_iges_to_inp(
+                    pick,
+                    out_inp,
+                    cancel_event=cancel_ev,
+                    proc_box=proc_holder,
+                    **mesh,
+                )
             except Exception as e:
                 err_box[0] = e
             finally:
@@ -139,17 +160,31 @@ def _cad_convert_worker(task_id: str, scan_dir: str, iges_name: str | None) -> N
         prog = 28
         t0 = time.monotonic()
         while True:
+            if cancel_ev.is_set():
+                p = proc_holder[0] if proc_holder else None
+                if p is not None and p.poll() is None:
+                    try:
+                        p.kill()
+                    except Exception:
+                        pass
             if done.wait(timeout=2.5):
                 break
             elapsed = int(time.monotonic() - t0)
             prog = min(88, prog + 2)
-            push(prog, f"正在转换 IGES…（已等待 {elapsed}s；Gmsh 体网格可能较慢）")
+            push(prog, f"正在转换 IGES…（已等待 {elapsed}s；FreeCAD/Gmsh 体网格可能较慢）")
         th.join(timeout=5.0)
         if err_box[0] is not None:
-            raise err_box[0]
+            err = err_box[0]
+            if isinstance(err, RuntimeError) and "转换已取消" in str(err):
+                push(100, "已中止", done=True, cancelled=True)
+                return
+            raise err
         push(100, "已生成 CalculiX INP，可继续流程。", done=True, output_inp=str(out_inp))
     except Exception as e:
         push(100, "转换失败", done=True, error=str(e))
+    finally:
+        with _cad_convert_registry_lock:
+            _cad_convert_registry.pop(task_id, None)
 
 
 def _suggest_scan_dir_by_filename(filename: str) -> str | None:
@@ -165,6 +200,10 @@ def _suggest_scan_dir_by_filename(filename: str) -> str | None:
     def score(p: Path) -> tuple[int, int]:
         s = str(p).lower()
         bonus = 0
+        if "examples" in s and "base" in s:
+            bonus += 28
+        if name.lower() == "beso2-femmeshgmsh.inp" and "examples" in s and "base" in s:
+            bonus += 55
         if "wiki_files" in s:
             bonus += 30
         if "example_2" in s or "example_3" in s or "example_1" in s:
@@ -268,16 +307,15 @@ def chat(req: ChatRequest):
         primary_inp_override = inp_path
 
     # LLM parse (only if API key set). User may still override specific fields.
-    parsed = decide_params(req.message)
-    is_example2_mode = bool(req.scan_dir and "example_2" in str(req.scan_dir).lower())
-
-    # For example_2 multi-file workflow, keep deterministic defaults unless user explicitly overrides.
-    if is_example2_mode:
-        parsed.mass_goal_ratio = 0.4
-        parsed.filter_radius = 2.0
-        parsed.optimization_base = "failure_index"
-        parsed.save_every = 10
-        parsed.reasoning_summary = "检测到 example_2 多文件任务，采用与示例一致的稳定参数（可由设置覆盖）。"
+    # example_2 扫描目录不再强制覆盖模型解析结果：配置 QWEN_API_KEY 时由 decide_params 给出参数；
+    # 仍需固定值时请在请求体中传入 mass_goal_ratio / filter_radius 等字段。
+    eff_inp: str | None = None
+    if inp_path and Path(inp_path).suffix.lower() == ".inp":
+        try:
+            eff_inp = str(Path(inp_path).resolve())
+        except OSError:
+            eff_inp = inp_path
+    parsed = decide_params(req.message, effective_inp_path=eff_inp, scan_dir=req.scan_dir)
 
     mass_goal_ratio = req.mass_goal_ratio if req.mass_goal_ratio is not None else parsed.mass_goal_ratio
     filter_radius = req.filter_radius if req.filter_radius is not None else parsed.filter_radius
@@ -371,13 +409,37 @@ def scan_directory_legacy(scan_dir: str):
 class ConvertIgesIn(BaseModel):
     scan_dir: str
     iges_name: str | None = None
+    characteristic_length_max: float | None = None
+    characteristic_length_min: float | None = None
+    element_order: Literal["1st", "2nd"] | None = None
+    mesh_size_from_curvature: int | None = None
+    compound_part_strategy: Literal["largest_volume", "first"] | None = None
+    timeout_minutes: float | None = None
 
+
+def _mesh_opts_from_convert_body(body: ConvertIgesIn) -> dict:
+    """将 API 请求体中的可选网格字段映射为 ``run_cad_iges_to_inp`` 关键字参数。"""
+    m: dict = {}
+    if body.characteristic_length_max is not None:
+        m["char_length_max"] = float(body.characteristic_length_max)
+    if body.characteristic_length_min is not None:
+        m["char_length_min"] = float(body.characteristic_length_min)
+    if body.element_order is not None:
+        m["element_order"] = body.element_order
+    if body.mesh_size_from_curvature is not None:
+        m["mesh_size_from_curvature"] = int(body.mesh_size_from_curvature)
+    if body.compound_part_strategy is not None:
+        m["compound_part_strategy"] = body.compound_part_strategy
+    if body.timeout_minutes is not None:
+        m["timeout_s"] = max(60.0, float(body.timeout_minutes) * 60.0)
+    return m
 
 
 @app.post("/api/cad/convert-iges")
 def start_convert_iges(body: ConvertIgesIn):
     task_id = uuid.uuid4().hex
     task_dir = CAD_CONVERT_ROOT / task_id
+    mesh = _mesh_opts_from_convert_body(body)
     _write_cad_status(
         task_dir,
         {
@@ -392,11 +454,32 @@ def start_convert_iges(body: ConvertIgesIn):
     )
     t = threading.Thread(
         target=_cad_convert_worker,
-        args=(task_id, body.scan_dir, body.iges_name),
+        args=(task_id, body.scan_dir, body.iges_name, mesh),
         daemon=True,
     )
     t.start()
     return {"task_id": task_id}
+
+
+@app.post("/api/cad/convert-iges/{task_id}/cancel")
+def cancel_convert_iges(task_id: str):
+    if not task_id.isalnum() or len(task_id) < 16:
+        raise HTTPException(status_code=400, detail="invalid task_id")
+    rec = None
+    ph = None
+    with _cad_convert_registry_lock:
+        rec = _cad_convert_registry.get(task_id)
+        if rec:
+            rec["cancel"].set()
+            ph = rec.get("proc")
+    if ph:
+        p = ph[0] if ph else None
+        if p is not None and p.poll() is None:
+            try:
+                p.kill()
+            except Exception:
+                pass
+    return {"ok": True, "cancel_requested": bool(rec)}
 
 
 @app.get("/api/cad/convert-iges/{task_id}")
@@ -509,6 +592,8 @@ class TaskUpsertIn(BaseModel):
     file_name: str | None = None
     job_id: str | None = None
     scan_dir: str | None = None
+    ui_stage: str | None = None
+    oc4_design_domain_session_id: str | None = None
 
 
 @app.post("/api/tasks/upsert")

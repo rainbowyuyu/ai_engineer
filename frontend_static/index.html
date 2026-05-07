@@ -823,6 +823,7 @@
           <span class="chip">后端：<span id="baseUrlText">127.0.0.1:8000</span></span>
           <span class="chip">Job：<span id="jobId">(未启动)</span></span>
           <span class="chip">状态：<span id="status">-</span></span>
+          <button type="button" class="btn resultsViewerTopBtn" id="resultsViewerBtn" title="打开本地结果查看器（文件夹）">结果查看器</button>
           <button class="iconBtn" id="settingsBtn" title="设置">⚙</button>
         </div>
       </div>
@@ -876,6 +877,105 @@
         </div>
       </div>
 
+      <div class="main hidden" id="designDomainMain">
+        <div class="designDomainShell">
+          <header class="designDomainHeader">
+            <div>
+              <div class="designDomainBadge">OC4 · 设计域</div>
+              <h1 class="designDomainTitle">几何与设计域预览</h1>
+              <p class="designDomainSub">
+                请按步骤条顺序操作；步骤名可点击以<strong>回溯定位</strong>到对应工具按钮。每步可点「AI」打开专步对话。第 3 步体网格会先弹出与主页「IGES→INP」相同的 <strong>Plan 方案窗</strong> 再提交服务端（同源 FreeCAD+Gmsh）。工具栏 char_max 若填写会覆盖方案中的 CharacteristicLengthMax；留空时服务端用最粗启发式以控制 02_mesh_body.inp 体积（目标约 &lt;10MB，超限会提示）。
+              </p>
+            </div>
+            <button type="button" class="btn backHomeBtn" id="designDomainBackBtn">返回主页</button>
+          </header>
+          <nav class="designDomainStepRail" id="designDomainStepRail" aria-label="OC4 设计域分步">
+            <div class="ddStepCluster">
+              <div class="ddStep" data-idx="1"><span class="ddStepNum">1</span><span class="ddStepLabel">源装配预览</span></div>
+              <button type="button" class="ddStepAiBtn" data-dd-topic="design" title="步骤 1：设计域选项 AI">AI</button>
+            </div>
+            <span class="ddStepSep" aria-hidden="true">→</span>
+            <div class="ddStepCluster">
+              <div class="ddStep" data-idx="2"><span class="ddStepNum">2</span><span class="ddStepLabel">设计域 OBJ</span></div>
+              <button type="button" class="ddStepAiBtn" data-dd-topic="preview" title="步骤 2：OBJ 预览 AI">AI</button>
+            </div>
+            <span class="ddStepSep" aria-hidden="true">→</span>
+            <div class="ddStepCluster">
+              <div class="ddStep" data-idx="3"><span class="ddStepNum">3</span><span class="ddStepLabel">体网格</span></div>
+              <button type="button" class="ddStepAiBtn" data-dd-topic="mesh" title="步骤 3：FreeCAD 体网格 AI">AI</button>
+            </div>
+            <span class="ddStepSep" aria-hidden="true">→</span>
+            <div class="ddStepCluster">
+              <div class="ddStep" data-idx="4"><span class="ddStepNum">4</span><span class="ddStepLabel">载荷 INP</span></div>
+              <button type="button" class="ddStepAiBtn" data-dd-topic="loads" title="步骤 4：载荷 AI">AI</button>
+            </div>
+            <span class="ddStepSep" aria-hidden="true">→</span>
+            <span class="ddStepRailTail">「完成并进入编排」</span>
+          </nav>
+          <p class="designDomainStepHint" id="designDomainStepHint" role="status"></p>
+          <div class="designDomainFlowLog" id="designDomainFlowLog" aria-live="polite"></div>
+          <div class="designDomainPreviewRow">
+            <div class="designDomainViewportCard">
+              <div class="designDomainViewportLabel">源几何（经 STEP 三角化预览）</div>
+              <div class="designDomainViewport" id="designDomainViewportLeft">
+                <div class="designDomainCanvasWrap" id="designDomainCanvasLeft"></div>
+                <div class="designDomainViewportOverlay hidden" id="designDomainLeftOverlay" aria-hidden="true">
+                  <div class="designDomainOverlayInner">
+                    <div class="designDomainSpinner" aria-hidden="true"></div>
+                    <div class="designDomainOverlayText" id="designDomainLeftOverlayText">正在准备预览…</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="designDomainViewportCard">
+              <div class="designDomainViewportLabel">设计域 STEP</div>
+              <div class="designDomainViewport" id="designDomainViewportRight">
+                <div class="designDomainCanvasWrap" id="designDomainCanvasRight"></div>
+                <div class="designDomainViewportOverlay hidden" id="designDomainRightOverlay" aria-hidden="true">
+                  <div class="designDomainOverlayInner">
+                    <div class="designDomainSpinner" aria-hidden="true"></div>
+                    <div class="designDomainOverlayText" id="designDomainRightOverlayText">正在生成设计域…</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="designDomainToolbar">
+            <label class="designDomainCheck"><input type="checkbox" id="ddCutCenter" checked /> 挖除中心柱</label>
+            <label class="designDomainCheck"><input type="checkbox" id="ddIncludeSource" /> 合并源几何（对照）</label>
+            <input type="number" id="ddCharMax" class="designDomainInput" placeholder="网格 char_max（空=默认最粗，目标约&lt;10MB）" />
+            <button type="button" class="btn btnPrimary" id="ddBtnBuild">1 构建设计域</button>
+            <button type="button" class="btn" id="ddBtnPreview">2 导出 OBJ 预览</button>
+            <button type="button" class="btn" id="ddBtnMesh">3 FreeCAD 体网格</button>
+            <button type="button" class="btn" id="ddBtnLoads">4 划分载荷</button>
+            <button type="button" class="btn btnPrimary" id="ddBtnFinalize">完成并进入编排</button>
+          </div>
+        </div>
+        <dialog class="ddStepNlDialog" id="ddStepNlDialog" aria-labelledby="ddStepNlTitle">
+          <div class="ddStepNlDialogPanel" id="ddStepNlDialogPanel">
+            <div class="ddStepNlDialogHead">
+              <h2 class="ddStepNlTitle" id="ddStepNlTitle">步骤助手</h2>
+              <button type="button" class="btn ddStepNlClose" id="ddStepNlClose" aria-label="关闭">×</button>
+            </div>
+            <p class="ddStepNlIntro" id="ddStepNlIntro"></p>
+            <div class="ddStepNlLog designDomainChatLog" id="ddStepNlLog"></div>
+            <label class="ddStepNlInputLbl hidden" id="ddNlLoadsLbl" for="ddNlLoadsTa">载荷自然语言（可选）</label>
+            <textarea
+              id="ddNlLoadsTa"
+              class="designDomainLoadsTextarea hidden"
+              rows="3"
+              maxlength="4000"
+              placeholder="例如：最高点单点向下 5MN；或顶端 20 节点各 50kN 向下。划分载荷时会与数值参数合并提交。"
+            ></textarea>
+            <textarea id="ddStepNlInput" class="ddStepNlInput" rows="3" maxlength="4000" placeholder="输入本步问题…"></textarea>
+            <div class="ddStepNlActions">
+              <button type="button" class="btn btnPrimary" id="ddStepNlSend">发送</button>
+              <button type="button" class="btn" id="ddStepNlApply">应用本步建议</button>
+            </div>
+          </div>
+        </dialog>
+      </div>
+
       <div class="main hidden" id="orchestrateMain">
         <div class="orchestrateStage">
           <div class="orchestrateHeader">
@@ -925,6 +1025,12 @@
             <div class="scanExplorer">
               <div class="scanExplorerMeta" id="autoScanInfo">(将根据主页上传文件目录自动搜索并返回关联文件)</div>
               <div class="scanExplorerTree" id="autoScanTree"></div>
+            </div>
+            <div class="cadConvertBlock hidden" id="cadConvertBlock" aria-live="polite">
+              <div class="cadConvertBlockHint" id="cadConvertBlockHint"></div>
+              <button type="button" class="btn btnPrimary cadConvertManualBtn" id="cadConvertManualBtn">
+                IGES → INP 格式转换
+              </button>
             </div>
             <input id="scanDir" type="text" class="hidden" />
             <textarea id="msg" class="hidden"></textarea>
@@ -1048,6 +1154,74 @@
       </div>
     </div>
 
+    <div id="cadConvertPlanModal" class="cadPlanModal hidden" aria-hidden="true">
+      <div class="cadPlanModalBackdrop"></div>
+      <div class="cadPlanModalCard" role="dialog" aria-modal="true" aria-labelledby="cadPlanModalTitle">
+        <div class="cadPlanModalHeader">
+          <span class="cadPlanBadge">Plan</span>
+          <button type="button" class="cadPlanIconBtn" id="cadPlanCloseBtn" title="关闭 (Esc)">×</button>
+        </div>
+        <h2 class="cadPlanModalTitle" id="cadPlanModalTitle">网格转换方案</h2>
+        <p class="cadPlanModalSubtitle" id="cadPlanModalSubtitle">
+          确认 FreeCAD + Gmsh 剖分参数后开始生成 <code>from_cad_gmsh.inp</code>。服务端需配置 <code>FREECAD_CMD</code>。
+        </p>
+        <div class="cadPlanField">
+          <label class="cadPlanLabel" id="cadPlanSourceLabel">源几何</label>
+          <div class="cadPlanReadonly" id="cadPlanIgesName">—</div>
+        </div>
+        <div class="cadPlanField">
+          <label class="cadPlanLabel" for="cadPlanPreset">密度预设</label>
+          <select id="cadPlanPreset" class="cadPlanInput">
+            <option value="auto">自动（按文件大小估计）</option>
+            <option value="fine">精细 · 单元多</option>
+            <option value="medium">中等</option>
+            <option value="coarse">粗 · 试算快</option>
+            <option value="xlarge">超大模型 · 稀疏</option>
+          </select>
+        </div>
+        <div class="cadPlanRow2">
+          <div class="cadPlanField">
+            <label class="cadPlanLabel" for="cadPlanCharMax">CharacteristicLengthMax（mm）</label>
+            <input type="number" id="cadPlanCharMax" class="cadPlanInput" min="1" step="1" placeholder="留空则按预设/自动" />
+          </div>
+          <div class="cadPlanField">
+            <label class="cadPlanLabel" for="cadPlanCharMin">CharacteristicLengthMin（mm）</label>
+            <input type="number" id="cadPlanCharMin" class="cadPlanInput" min="0" step="any" placeholder="可选" />
+          </div>
+        </div>
+        <div class="cadPlanRow2">
+          <div class="cadPlanField">
+            <label class="cadPlanLabel" for="cadPlanElementOrder">单元阶次</label>
+            <select id="cadPlanElementOrder" class="cadPlanInput">
+              <option value="1st">一阶 (1st)</option>
+              <option value="2nd">二阶 (2nd)</option>
+            </select>
+          </div>
+          <div class="cadPlanField">
+            <label class="cadPlanLabel" for="cadPlanCurvature">曲率加密 MeshSizeFromCurvature</label>
+            <input type="number" id="cadPlanCurvature" class="cadPlanInput" min="0" step="1" placeholder="留空=FreeCAD 默认" />
+          </div>
+        </div>
+        <div class="cadPlanRow2">
+          <div class="cadPlanField">
+            <label class="cadPlanLabel" for="cadPlanPartStrategy">多实体策略</label>
+            <select id="cadPlanPartStrategy" class="cadPlanInput">
+              <option value="largest_volume">最大体积实体</option>
+              <option value="first">第一个形状</option>
+            </select>
+          </div>
+          <div class="cadPlanField">
+            <label class="cadPlanLabel" for="cadPlanTimeout">超时（分钟）</label>
+            <input type="number" id="cadPlanTimeout" class="cadPlanInput" min="5" max="720" step="5" value="120" />
+          </div>
+        </div>
+        <div class="cadPlanActions">
+          <button type="button" class="cadPlanBtn cadPlanBtnGhost" id="cadPlanLaterBtn">稍后</button>
+          <button type="button" class="cadPlanBtn cadPlanBtnPrimary" id="cadPlanStartBtn">开始转换</button>
+        </div>
+      </div>
+    </div>
+
     <div id="cadConvertModal" class="cadConvertModal hidden" aria-hidden="true">
       <div class="cadConvertModalBackdrop"></div>
       <div class="cadConvertModalCard" role="dialog" aria-labelledby="cadConvertModalTitle">
@@ -1057,6 +1231,10 @@
           <div class="cadConvertBarFill" id="cadConvertBarFill"></div>
         </div>
         <div class="cadConvertStage" id="cadConvertStage"></div>
+        <div class="cadConvertActions">
+          <button type="button" class="cadConvertPauseBtn" id="cadConvertPauseBtn">暂停</button>
+          <span class="cadConvertEscHint" id="cadConvertEscHint">按 Esc 退出并中止转换</span>
+        </div>
       </div>
     </div>
 

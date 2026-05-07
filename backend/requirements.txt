@@ -1,4 +1,6 @@
-# Use venv: .\.venv_web\Scripts\pip install -r backend\requirements.txt
+# 安装到项目 .venv（推荐）:
+#   .\.venv\Scripts\python -m pip install -r backend\requirements.txt
+# 旧示例 .venv_web 同理。
 # Pydantic v2 required for FastAPI 0.115 (do not mix with pydantic 1.x globally).
 #
 # Pin set checked with pip install --dry-run.
@@ -15,5 +17,6 @@ networkx==3.6.1
 meshio==5.3.5
 gmsh==4.15.2
 cadquery-ocp==7.9.3.1
-# pythonocc-core 目前在部分 Python 版本（如 3.13）无可用轮子，按版本条件安装。
-pythonocc-core; python_version < "3.13"
+# pythonocc-core：Windows 上 PyPI 常无匹配轮子，会导致整份 requirements 安装失败。
+# 梁解析 OCC 路径为可选；OC4 设计域 Gmsh 链路不依赖此项。需要时再装：
+#   pip install -r backend/requirements-occ.txt

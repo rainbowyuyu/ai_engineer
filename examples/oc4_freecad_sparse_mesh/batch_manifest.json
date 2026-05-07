@@ -1,0 +1,83 @@
+{
+  "cad": "D:\\python_project\\beso_ai\\examples\\oc4\\oc4.igs",
+  "out_dir": "D:\\python_project\\beso_ai\\examples\\oc4_freecad_sparse_mesh",
+  "started_utc": "2026-05-06T12:09:29.765750+00:00",
+  "finished_utc": "2026-05-06T12:14:12.367116+00:00",
+  "runner": "D:\\python_project\\beso_ai\\scripts\\run_freecad_iges_to_inp.py",
+  "note": "若多个「很粗」变体字节数相同，多为几何/离散极限导致；缩小 characteristic_length_max 或调整 mesh_size_from_curvature 才会明显分叉。",
+  "variants": [
+    {
+      "slug": "a01_xlarge_curv0",
+      "extra_args": [
+        "--preset",
+        "xlarge",
+        "--mesh-size-from-curvature",
+        "0"
+      ]
+    },
+    {
+      "slug": "a02_char18k_curv0",
+      "extra_args": [
+        "--char-max",
+        "18000",
+        "--char-min",
+        "0.1",
+        "--mesh-size-from-curvature",
+        "0"
+      ]
+    },
+    {
+      "slug": "a03_char12k_curv0",
+      "extra_args": [
+        "--char-max",
+        "12000",
+        "--char-min",
+        "0.1",
+        "--mesh-size-from-curvature",
+        "0"
+      ]
+    }
+  ],
+  "runs": [
+    {
+      "slug": "a01_xlarge_curv0",
+      "extra_args": [
+        "--preset",
+        "xlarge",
+        "--mesh-size-from-curvature",
+        "0"
+      ],
+      "out_inp": "D:\\python_project\\beso_ai\\examples\\oc4_freecad_sparse_mesh\\oc4_a01_xlarge_curv0.inp",
+      "exit_code": 0,
+      "bytes": 5454809
+    },
+    {
+      "slug": "a02_char18k_curv0",
+      "extra_args": [
+        "--char-max",
+        "18000",
+        "--char-min",
+        "0.1",
+        "--mesh-size-from-curvature",
+        "0"
+      ],
+      "out_inp": "D:\\python_project\\beso_ai\\examples\\oc4_freecad_sparse_mesh\\oc4_a02_char18k_curv0.inp",
+      "exit_code": 0,
+      "bytes": 5454809
+    },
+    {
+      "slug": "a03_char12k_curv0",
+      "extra_args": [
+        "--char-max",
+        "12000",
+        "--char-min",
+        "0.1",
+        "--mesh-size-from-curvature",
+        "0"
+      ],
+      "out_inp": "D:\\python_project\\beso_ai\\examples\\oc4_freecad_sparse_mesh\\oc4_a03_char12k_curv0.inp",
+      "exit_code": 0,
+      "bytes": 5454809
+    }
+  ]
+}

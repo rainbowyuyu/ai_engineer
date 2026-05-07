@@ -1,0 +1,1 @@
+﻿{"cad_path":"d:/python_project/beso_ai/examples/oc4_beso_pipeline/01_design_domain.step","out_inp":"d:/python_project/beso_ai/examples/oc4_beso_pipeline/_fc_try.inp","characteristic_length_max":120000,"characteristic_length_min":20,"element_order":"1st","element_dimension":"From Shape","compound_part_strategy":"largest_volume","geometry_tolerance":0,"optimize_std":true}

@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+"""
+OC4 导管架：由原始梁系 IGS（如 oc4.igs）生成「实心设计域」IGES/STEP，用途类比
+examples/base/BESO2-FEMMeshGmsh.inp 中的实体设计域——后续可在 Gmsh 中体网格再供 BESO。
+
+几何意图：
+- 以外柱三角形为底、竖向拉伸的棱柱包络（包住下层水平弦杆与上部柱身/桩靴标高范围）；
+- 布尔减去柱身/桩靴圆柱，使设计域在柱位开孔；
+- 默认减去中心柱 + 三根边柱；若仅需挖三根边柱，使用 --edge-columns-only。
+"""
+
 import argparse
 import itertools
 import math
@@ -236,8 +246,13 @@ def _merge_parallel_axis_pairs(vertical: list[CylinderAxis]) -> list[CylinderAxi
     return out
 
 
-def _sort_outers_ccw(outers: list[CylinderAxis], origin_xy: np.ndarray) -> list[CylinderAxis]:
-    """绕 origin_xy 逆时针排序外柱，避免三角形顶点顺序任意导致识别混乱。"""
+def _sort_outers_ccw(outers: list[CylinderAxis]) -> list[CylinderAxis]:
+    """
+    绕三根外柱围心逆时针排序。勿用中心柱 xy 作极角原点，否则中心略偏三角形
+    围心时 atan2 会乱序，导致设计域三角与真实柱位旋转错位。
+    """
+    origin_xy = np.mean(np.asarray([c.center[:2] for c in outers], dtype=float), axis=0)
+
     def ang(c: CylinderAxis) -> float:
         d = c.center[:2] - origin_xy
         return math.atan2(float(d[1]), float(d[0]))
@@ -266,12 +281,24 @@ def _cluster_beam_segs_by_mid_xy(segs: list, tol: float) -> list[list]:
     return groups
 
 
-def _cluster_reduce_vertical_shaft(cluster: list) -> tuple[np.ndarray, float, float, float]:
-    xy = np.mean([_beam_seg_mid_xyz(s)[:2] for s in cluster], axis=0)
-    r = float(np.median([float(s.radius) for s in cluster]))
+def _cluster_representative_vertical_shaft(cluster: list) -> tuple[np.ndarray, float, float, float]:
+    """
+    用簇内最长竖向圆柱段代表整柱：中点 xy、半径取该段，z 取簇内并集。
+    比单纯平均各段中点 xy 更贴近真实柱轴，布尔挖孔位置与半径与 IGS 一致。
+    """
+    if not cluster:
+        raise ValueError("empty cluster")
+    rep = max(
+        cluster,
+        key=lambda s: _norm(np.asarray(s.p1, dtype=float) - np.asarray(s.p0, dtype=float)),
+    )
+    p0 = np.asarray(rep.p0, dtype=float)
+    p1 = np.asarray(rep.p1, dtype=float)
+    mid = 0.5 * (p0 + p1)
+    r = float(rep.radius)
     z_lo = min(min(float(s.p0[2]), float(s.p1[2])) for s in cluster)
     z_hi = max(max(float(s.p0[2]), float(s.p1[2])) for s in cluster)
-    return xy, r, z_lo, z_hi
+    return mid[:2].copy(), r, z_lo, z_hi
 
 
 def _triangle_area_xy2(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
@@ -340,7 +367,7 @@ def _oc4_cut_geometry_from_beams_segs(segs: list) -> Oc4CutGeometry | None:
     for g in _cluster_beam_segs_by_mid_xy(shafts_long, 6000.0):
         if not g:
             continue
-        shaft_specs.append(_cluster_reduce_vertical_shaft(g))
+        shaft_specs.append(_cluster_representative_vertical_shaft(g))
 
     center_cands = [(xy, r, z0, z1) for xy, r, z0, z1 in shaft_specs if 1100.0 <= r <= 2300.0]
     outer_cands = [(xy, r, z0, z1) for xy, r, z0, z1 in shaft_specs if 2400.0 <= r <= 4500.0]
@@ -360,12 +387,14 @@ def _oc4_cut_geometry_from_beams_segs(segs: list) -> Oc4CutGeometry | None:
     if best_trip is None:
         return None
 
-    outer_xy_ccw = _sort_xy_ccw([t[0].copy() for t in best_trip], center_xy)
+    trip_xy = np.asarray([t[0] for t in best_trip], dtype=float)
+    trip_centroid = np.mean(trip_xy, axis=0)
+    outer_xy_ccw = _sort_xy_ccw([t[0].copy() for t in best_trip], trip_centroid)
     outer_rs: list[float] = []
     z_o_min = float("inf")
     z_o_max = float("-inf")
     for oxy in outer_xy_ccw:
-        hit = min(best_trip, key=lambda t: _norm(t[0] - oxy))
+        hit = min(best_trip, key=lambda t: float(np.sum((np.asarray(t[0], dtype=float) - np.asarray(oxy, dtype=float)) ** 2)))
         outer_rs.append(float(hit[1]))
         z_o_min = min(z_o_min, hit[2])
         z_o_max = max(z_o_max, hit[3])
@@ -374,11 +403,17 @@ def _oc4_cut_geometry_from_beams_segs(segs: list) -> Oc4CutGeometry | None:
     z_col_hi = max(cz1, z_o_max)
 
     pontoon_targets: list[tuple[float, float, float, float, float]] = []
-    for s in pontoon_segs:
-        m = _beam_seg_mid_xyz(s)
-        z0 = min(float(s.p0[2]), float(s.p1[2]))
-        z1 = max(float(s.p0[2]), float(s.p1[2]))
-        pontoon_targets.append((float(m[0]), float(m[1]), float(s.radius), z0, z1))
+    for g in _cluster_beam_segs_by_mid_xy(pontoon_segs, 9000.0):
+        if not g:
+            continue
+        rep = max(
+            g,
+            key=lambda s: _norm(np.asarray(s.p1, dtype=float) - np.asarray(s.p0, dtype=float)),
+        )
+        m = _beam_seg_mid_xyz(rep)
+        z0 = min(float(rep.p0[2]), float(rep.p1[2]))
+        z1 = max(float(rep.p0[2]), float(rep.p1[2]))
+        pontoon_targets.append((float(m[0]), float(m[1]), float(rep.radius), z0, z1))
 
     outer_pontoons_l, unused_p = _greedy_match_xy_to_pontoons(outer_xy_ccw, pontoon_targets)
     center_pontoon: tuple[float, float, float, float, float] | None = None
@@ -470,6 +505,42 @@ def _design_domain_z_bounds_from_beams(segs: list) -> tuple[float, float] | None
     z_top = float(z_p_top)
     if z_top <= z_bot + 10.0:
         return None
+    return z_bot, z_top
+
+
+def _non_vertical_beam_z_span_and_pad(segs: list) -> tuple[float, float, float]:
+    """
+    水平 + 斜梁（排除近似竖杆）在全局的 z 范围，及竖向余量。
+    用于把棱柱包络拉高/压低，包住上层甲板弦杆与下层水平梁系（原逻辑顶面仅用桩靴顶会偏矮）。
+    """
+    zs: list[float] = []
+    rmax = 0.0
+    for s in segs:
+        v = np.asarray(s.p1, dtype=float) - np.asarray(s.p0, dtype=float)
+        L = _norm(v)
+        if L <= 1.0e-9:
+            continue
+        if abs(float(v[2]) / L) >= 0.82:
+            continue
+        zs.extend([float(s.p0[2]), float(s.p1[2])])
+        rmax = max(rmax, float(s.radius))
+    if len(zs) < 2:
+        return 0.0, 0.0, 0.0
+    span = float(max(zs) - min(zs))
+    pad = max(5000.0, 1.4 * rmax, 0.045 * span)
+    return float(min(zs)), float(max(zs)), float(pad)
+
+
+def _merge_z_bounds_with_brace_envelope(z_base: tuple[float, float], segs: list) -> tuple[float, float]:
+    """将弦杆/斜梁 z 包络与原有桩靴—底弦推导范围取并集。"""
+    z_lo_b, z_hi_b = float(z_base[0]), float(z_base[1])
+    lo, hi, pad = _non_vertical_beam_z_span_and_pad(segs)
+    if not hi > lo:
+        return z_lo_b, z_hi_b
+    z_bot = min(z_lo_b, lo - pad)
+    z_top = max(z_hi_b, hi + pad)
+    if z_top <= z_bot + 500.0:
+        return z_lo_b, z_hi_b
     return z_bot, z_top
 
 
@@ -566,7 +637,7 @@ def _pick_oc4_key_columns(
                     best_trip = (outer_cands[i], outer_cands[j], outer_cands[k])
     if best_trip is None:
         raise ValueError("外柱三角形识别失败。")
-    outers = _sort_outers_ccw(list(best_trip), center_col.center[:2])
+    outers = _sort_outers_ccw(list(best_trip))
 
     r_outer_max = max(o.radius for o in outers)
     outer_ids = {id(o) for o in outers}
@@ -815,7 +886,14 @@ def _append_pontoon_base_cut(
     )
 
 
-def build_oc4_design_domain_iges(src_iges: Path, out_iges: Path, *, out_step: Path | None = None) -> Path:
+def build_oc4_design_domain_iges(
+    src_iges: Path,
+    out_iges: Path,
+    *,
+    out_step: Path | None = None,
+    cut_center_column: bool = True,
+    include_source_geometry: bool = False,
+) -> Path:
     segs_cache: list | None = None
     try:
         from backend.tools.iges_beam_to_inp import _extract_beam_segments_from_iges  # type: ignore
@@ -854,15 +932,17 @@ def build_oc4_design_domain_iges(src_iges: Path, out_iges: Path, *, out_step: Pa
 
     # 须在 gmsh.initialize() 之前算完所有会 merge/mesh 的梁解析，否则会 finalize 掉当前会话
 
-    # 重新建模：先导入原始 oc4.igs（保持 column 原始尺寸），再新增中部实心设计域
+    # 仅构建布尔后的设计域实体；默认不再 merge 源 IGS，避免导出文件里整船架与设计域
+    # 叠在一起（预览像“未挖孔”或严重错位）。需要对照原模型时设 include_source_geometry=True。
     import gmsh
 
     gmsh.initialize()
     try:
         gmsh.option.setNumber("General.Terminal", 0)
         gmsh.model.add("oc4_design_domain")
-        gmsh.merge(str(src_iges.resolve()))
-        gmsh.model.occ.synchronize()
+        if include_source_geometry:
+            gmsh.merge(str(src_iges.resolve()))
+            gmsh.model.occ.synchronize()
 
         # 1) 构建中部“实心设计域”（三角柱体，接近图二绿色域）
         if beam_geom is not None:
@@ -873,7 +953,7 @@ def build_oc4_design_domain_iges(src_iges: Path, out_iges: Path, *, out_step: Pa
         else:
             assert center_col is not None
             cxy = center_col.center[:2]
-            outer_xy = [o.center[:2] for o in outer_cols]
+            outer_xy = [o.center[:2].copy() for o in _sort_outers_ccw(list(outer_cols))]
             z0_main = float(min(center_col.p0[2], center_col.p1[2]))
             z1_main = float(max(center_col.p0[2], center_col.p1[2]))
         # 竖向：优先完全由 IGS 梁段推导（下层弦杆下端 ↔ 桩靴顶/柱身起点）；否则退回旧启发式
@@ -892,6 +972,9 @@ def build_oc4_design_domain_iges(src_iges: Path, out_iges: Path, *, out_step: Pa
             z_bot = z0_main + 0.22 * (z1_main - z0_main)
             z_top = z0_main + 0.82 * (z1_main - z0_main)
 
+        if segs_cache:
+            z_bot, z_top = _merge_z_bounds_with_brace_envelope((z_bot, z_top), segs_cache)
+
         # 平面外扩：由桩靴圆心相对柱轴几何确定（与 oc4.igs 一致），不用经验系数
         low_pts: list[np.ndarray] = []
         if beam_geom is not None:
@@ -899,43 +982,48 @@ def build_oc4_design_domain_iges(src_iges: Path, out_iges: Path, *, out_step: Pa
         else:
             r_outer = float(np.mean([o.radius for o in outer_cols])) if outer_cols else 3000.0
             xy_pad = max(1600.0, 0.48 * r_outer)
+        outer_xy_arr = np.asarray(outer_xy, dtype=float)
+        # 外扩方向用三边柱围心 → 各顶点，避免中心柱 xy 与围心不一致时三角整体跑偏
+        radial_origin = np.mean(outer_xy_arr, axis=0) if outer_xy_arr.shape[0] >= 2 else np.asarray(cxy, dtype=float)
         for pxy in outer_xy:
-            vxy = pxy - cxy
+            vxy = np.asarray(pxy, dtype=float) - radial_origin
             nv = _norm(vxy)
             if nv <= 1.0e-9:
-                pxy2 = pxy.copy()
+                pxy2 = np.asarray(pxy, dtype=float).copy()
             else:
-                pxy2 = pxy + (vxy / nv) * xy_pad
+                pxy2 = np.asarray(pxy, dtype=float) + (vxy / nv) * xy_pad
             low_pts.append(np.array([pxy2[0], pxy2[1], z_bot], dtype=float))
         prism_vol = _triangle_prism(gmsh, low_pts, dz=float(z_top - z_bot))
 
         gmsh.model.occ.synchronize()
 
         # 2) 扣除柱身 + 桩靴：优先用梁中心线原始半径与桩靴圆心（对称一致）；回退时用 revolution
-        z_cut_pad = 950.0
+        z_span = float(z_top - z_bot)
+        z_cut_pad = max(1200.0, min(6000.0, 0.06 * z_span))
         cut_tools: list[tuple[int, int]] = []
         if beam_geom is not None:
-            _append_shaft_cut_xy(
-                cut_tools,
-                gmsh,
-                float(beam_geom.center_xy[0]),
-                float(beam_geom.center_xy[1]),
-                beam_geom.center_shaft_r,
-                z_bot,
-                z_top,
-                z_cut_pad,
-                _boolean_radial_eps(beam_geom.center_shaft_r),
-            )
-            if beam_geom.center_pontoon is not None:
-                _append_pontoon_tuple_cut(
+            if cut_center_column:
+                _append_shaft_cut_xy(
                     cut_tools,
                     gmsh,
-                    beam_geom.center_pontoon,
+                    float(beam_geom.center_xy[0]),
+                    float(beam_geom.center_xy[1]),
+                    beam_geom.center_shaft_r,
                     z_bot,
                     z_top,
                     z_cut_pad,
-                    _boolean_radial_eps(beam_geom.center_pontoon[2]),
+                    _boolean_radial_eps(beam_geom.center_shaft_r),
                 )
+                if beam_geom.center_pontoon is not None:
+                    _append_pontoon_tuple_cut(
+                        cut_tools,
+                        gmsh,
+                        beam_geom.center_pontoon,
+                        z_bot,
+                        z_top,
+                        z_cut_pad,
+                        _boolean_radial_eps(beam_geom.center_pontoon[2]),
+                    )
             if len(beam_geom.outer_xy_ccw) != len(beam_geom.outer_shaft_rs) or len(beam_geom.outer_xy_ccw) != len(
                 beam_geom.outer_pontoons
             ):
@@ -964,27 +1052,28 @@ def build_oc4_design_domain_iges(src_iges: Path, out_iges: Path, *, out_step: Pa
                     )
         else:
             assert center_col is not None
-            _append_shaft_cut_xy(
-                cut_tools,
-                gmsh,
-                float(center_col.center[0]),
-                float(center_col.center[1]),
-                float(center_col.radius),
-                z_bot,
-                z_top,
-                z_cut_pad,
-                _boolean_radial_eps(float(center_col.radius)),
-            )
-            if center_base is not None:
-                _append_pontoon_base_cut(
+            if cut_center_column:
+                _append_shaft_cut_xy(
                     cut_tools,
                     gmsh,
-                    center_base,
+                    float(center_col.center[0]),
+                    float(center_col.center[1]),
+                    float(center_col.radius),
                     z_bot,
                     z_top,
                     z_cut_pad,
-                    _boolean_radial_eps(float(center_base.radius)),
+                    _boolean_radial_eps(float(center_col.radius)),
                 )
+                if center_base is not None:
+                    _append_pontoon_base_cut(
+                        cut_tools,
+                        gmsh,
+                        center_base,
+                        z_bot,
+                        z_top,
+                        z_cut_pad,
+                        _boolean_radial_eps(float(center_base.radius)),
+                    )
             for oc, obase in zip(outer_cols, outer_bases):
                 _append_shaft_cut_xy(
                     cut_tools,
@@ -1009,7 +1098,6 @@ def build_oc4_design_domain_iges(src_iges: Path, out_iges: Path, *, out_step: Pa
                     )
         gmsh.model.occ.cut([prism_vol], cut_tools, removeObject=True, removeTool=True)
 
-        # 3) 保持原始几何与设计域独立实体，不做 fuse，避免改变 column 尺寸。
         gmsh.model.occ.synchronize()
 
         # Keep topology stable for IGES export; aggressive heal can break import
@@ -1046,11 +1134,23 @@ def main() -> int:
         metavar="PATH",
         help="Also write STEP (.step/.stp) of the same model",
     )
+    parser.add_argument(
+        "--edge-columns-only",
+        action="store_true",
+        help="仅挖三根边柱（及桩靴），不挖中心柱；默认会同时挖中心柱与边柱。",
+    )
+    parser.add_argument(
+        "--include-source",
+        action="store_true",
+        help="把源 IGS 几何一并 merge 进模型再导出（仅调试用，默认只导出设计域实体）。",
+    )
     args = parser.parse_args()
     build_oc4_design_domain_iges(
         Path(args.src_iges),
         Path(args.out_iges),
         out_step=Path(args.step) if args.step else None,
+        cut_center_column=not args.edge_columns_only,
+        include_source_geometry=bool(args.include_source),
     )
     return 0
 

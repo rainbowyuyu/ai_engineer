@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,13 @@ WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 BASE_CONF = WORKSPACE_ROOT / "beso" / "beso_conf.py"
 EXAMPLE2_CONF = WORKSPACE_ROOT / "beso" / "wiki_files" / "example_2" / "input_and_results" / "beso_conf.py"
 EXAMPLE3_CONF = WORKSPACE_ROOT / "beso" / "wiki_files" / "example_3" / "work_files" / "analysis_files" / "beso_conf.py"
+
+# wiki 示例目录常在子文件夹下放 INP（如 example_2/input_and_results），仅扫一层根目录会漏文件
+_SCAN_SKIP_DIR_NAMES = frozenset(
+    {".git", "__pycache__", ".venv", ".venv_web", "node_modules", "runs", "frontend_static"}
+)
+_SCAN_MAX_DIR_DEPTH = 6
+_SCAN_INPUT_EXTENSIONS = frozenset({".inp", ".py", ".vtk", ".log", ".obj", ".step", ".stp", ".igs", ".iges"})
 
 
 @dataclass
@@ -87,7 +95,11 @@ def _classify_file(path: Path) -> str:
         return "load_case"
     if "node_elem_sets" in name or "node_sets" in name:
         return "set_definition"
-    if "analysis-1" in name or "plan" in name or "mesh" in name:
+    if "femmeshgmsh" in name:
+        return "primary_candidate"
+    if "for_beso" in name:
+        return "primary_candidate"
+    if "analysis-1" in name or "plan" in name:
         return "primary_candidate"
     return "inp_candidate"
 
@@ -96,6 +108,8 @@ def _pick_primary_inp(items: list[InputFileItem]) -> str | None:
     if not items:
         return None
     preferred = [
+        "03_for_beso.inp",
+        "beso2-femmeshgmsh.inp",
         "femmeshgmsh.inp",
         "from_cad_gmsh.inp",
         "analysis-1.inp",
@@ -132,26 +146,54 @@ def _scan_domain_mapping(primary_inp: Path) -> dict[str, str]:
     return mapping
 
 
+def _collect_input_file_items(root: Path) -> list[InputFileItem]:
+    """
+    在 root 下按有限深度 BFS 收集支持的输入文件（兼容 wiki example_2/3 子目录结构）。
+    """
+    items: list[InputFileItem] = []
+    seen: set[str] = set()
+    q: deque[tuple[Path, int]] = deque([(root.resolve(), 0)])
+    while q:
+        dpath, depth = q.popleft()
+        try:
+            for p in sorted(dpath.iterdir()):
+                if p.name.startswith("."):
+                    continue
+                if p.is_dir():
+                    if p.name in _SCAN_SKIP_DIR_NAMES:
+                        continue
+                    if depth < _SCAN_MAX_DIR_DEPTH:
+                        q.append((p.resolve(), depth + 1))
+                    continue
+                if not p.is_file():
+                    continue
+                ext = p.suffix.lower()
+                if ext not in _SCAN_INPUT_EXTENSIONS:
+                    continue
+                key = str(p.resolve())
+                if key in seen:
+                    continue
+                seen.add(key)
+                items.append(
+                    InputFileItem(
+                        name=p.name,
+                        path=key,
+                        ext=ext,
+                        role=_classify_file(p),
+                    )
+                )
+        except (PermissionError, OSError):
+            continue
+    items.sort(key=lambda x: x.path.lower())
+    return items
+
+
 def scan_input_directory(scan_dir: str) -> InputBundle:
     root = Path(scan_dir).resolve()
     if not root.exists() or not root.is_dir():
         raise FileNotFoundError(f"scan directory not found: {scan_dir}")
 
-    files: list[InputFileItem] = []
-    for p in sorted(root.iterdir()):
-        if not p.is_file():
-            continue
-        ext = p.suffix.lower()
-        if ext not in {".inp", ".py", ".vtk", ".log", ".obj", ".step", ".stp", ".igs", ".iges"}:
-            continue
-        files.append(
-            InputFileItem(
-                name=p.name,
-                path=str(p.resolve()),
-                ext=ext,
-                role=_classify_file(p),
-            )
-        )
+    files = _collect_input_file_items(root)
 
     notes: list[str] = []
     if any("force_lc" in x.name.lower() for x in files):

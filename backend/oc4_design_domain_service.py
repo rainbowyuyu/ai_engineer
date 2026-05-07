@@ -1,0 +1,406 @@
+"""
+OC4 设计域前置会话：目录布局、几何摘要、与 ``build_oc4_design_domain_iges`` 的封装。
+"""
+from __future__ import annotations
+
+import json
+import shutil
+import uuid
+from pathlib import Path
+from typing import Any
+
+from backend.tools.files import resolve_file, StoredFile
+
+
+def _require_oc4_design_domain_dependencies() -> None:
+    """设计域构建依赖 Gmsh 与 networkx；未安装时提示与 ``backend/requirements.txt`` 一致的安装方式。"""
+    missing: list[str] = []
+    try:
+        import gmsh  # noqa: F401
+    except ImportError:
+        missing.append("gmsh")
+    try:
+        import networkx  # noqa: F401
+    except ImportError:
+        missing.append("networkx")
+    if not missing:
+        return
+    pkgs = " ".join(missing)
+    raise RuntimeError(
+        "缺少 Python 依赖："
+        + ", ".join(missing)
+        + "。请在启动后端的同一虚拟环境中执行：\n"
+        f"  pip install {pkgs}\n"
+        "或： pip install -r backend/requirements.txt\n"
+        "（Windows 示例： .\\.venv_web\\Scripts\\python -m pip install -r .\\backend\\requirements.txt）"
+    )
+
+
+def design_domain_root(workspace_root: Path) -> Path:
+    return (workspace_root / "runs" / "_design_domain").resolve()
+
+
+def session_dir(workspace_root: Path, session_id: str) -> Path:
+    safe = "".join(c for c in session_id if c.isalnum())[:64]
+    return (design_domain_root(workspace_root) / safe).resolve()
+
+
+def source_cad_path(session: Path) -> Path:
+    for name in ("00_source.igs", "00_source.iges", "00_source.stp", "00_source.step"):
+        p = session / name
+        if p.is_file():
+            return p
+    raise FileNotFoundError("会话中未找到 00_source.*")
+
+
+def write_session_meta(session: Path, data: dict[str, Any]) -> None:
+    session.mkdir(parents=True, exist_ok=True)
+    (session / "session.json").write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def read_session_meta(session: Path) -> dict[str, Any]:
+    p = session / "session.json"
+    if not p.is_file():
+        return {}
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+def merge_session_meta(session: Path, patch: dict[str, Any]) -> dict[str, Any]:
+    cur = read_session_meta(session)
+    cur.update(patch)
+    write_session_meta(session, cur)
+    return cur
+
+
+def runs_file_url(workspace_root: Path, file_abs: Path) -> str:
+    """与 ``app.mount("/runs", RUNS_ROOT)`` 一致：路径为 ``/runs/<相对 RUNS_ROOT 的路径>``，避免 ``/runs/runs/...`` 重复。"""
+    rr = (workspace_root / "runs").resolve()
+    rel = file_abs.resolve().relative_to(rr)
+    return "/runs/" + str(rel).replace("\\", "/")
+
+
+def session_progress_flags(sdir: Path) -> dict[str, bool]:
+    """会话目录内关键产物是否存在（供前端分步引导与按钮禁用）。"""
+    return {
+        "has_source_preview_obj": (sdir / "source_preview.obj").is_file(),
+        "has_design_domain_step": (sdir / "01_design_domain.step").is_file(),
+        "has_design_preview_obj": (sdir / "design_preview.obj").is_file(),
+        "has_mesh_body_inp": (sdir / "02_mesh_body.inp").is_file(),
+        "has_for_beso_inp": (sdir / "03_for_beso.inp").is_file(),
+    }
+
+
+def create_session_from_upload(workspace_root: Path, file_id: str) -> tuple[str, Path, StoredFile]:
+    sf = resolve_file(workspace_root, file_id)
+    ext = sf.ext.lower()
+    if ext not in {".igs", ".iges"}:
+        raise ValueError("OC4 设计域前置仅支持上传 .igs / .iges")
+    design_domain_root(workspace_root).mkdir(parents=True, exist_ok=True)
+    sid = uuid.uuid4().hex
+    sdir = session_dir(workspace_root, sid)
+    sdir.mkdir(parents=True, exist_ok=False)
+    name = "00_source.igs" if ext == ".igs" else "00_source.iges"
+    dest = sdir / name
+    shutil.copy2(sf.path, dest)
+    meta = {
+        "session_id": sid,
+        "file_id": file_id,
+        "source_name": name,
+        "workspace_relative": str(sdir.relative_to(workspace_root.resolve())).replace("\\", "/"),
+    }
+    write_session_meta(sdir, meta)
+    return sid, sdir, sf
+
+
+def _geometry_summary_worker(src_resolved_str: str) -> dict[str, Any]:
+    """在 spawn 子进程内执行（Gmsh 信号限制）；参数为 resolve 后的路径字符串。"""
+    src = Path(src_resolved_str)
+    out: dict[str, Any] = {
+        "path": str(src),
+        "name": src.name,
+        "size_bytes": src.stat().st_size if src.is_file() else 0,
+        "beam_segments": None,
+        "revolution_cylinders": None,
+        "errors": [],
+    }
+    try:
+        from backend.tools.iges_beam_to_inp import _extract_beam_segments_from_iges  # type: ignore
+
+        segs = _extract_beam_segments_from_iges(src)
+        out["beam_segments"] = len(segs) if segs is not None else 0
+    except Exception as e:
+        out["errors"].append(f"beam_segments: {e}")
+    try:
+        from backend.tools.oc4_design_domain_iges import _extract_revolution_cylinders, _merge_parallel_axis_pairs
+
+        cyls = _extract_revolution_cylinders(src)
+        vertical = [c for c in cyls if abs(float(c.direction[2])) > 0.96]
+        vertical = _merge_parallel_axis_pairs(vertical)
+        out["revolution_cylinders"] = len(vertical)
+    except Exception as e:
+        out["errors"].append(f"cylinders: {e}")
+    return out
+
+
+def geometry_summary(src: Path) -> dict[str, Any]:
+    from backend.gmsh_spawn import run_in_spawn_process
+
+    return run_in_spawn_process(_geometry_summary_worker, str(src.resolve()))
+
+
+def _run_build_worker(
+    sdir_resolved_str: str,
+    cut_center_column: bool,
+    include_source_geometry: bool,
+) -> dict[str, Any]:
+    """在 spawn 子进程内执行设计域构建。"""
+    sdir = Path(sdir_resolved_str)
+    _require_oc4_design_domain_dependencies()
+    src = source_cad_path(sdir)
+    out_iges = sdir / "01_design_domain.igs"
+    out_step = sdir / "01_design_domain.step"
+    from backend.tools.oc4_design_domain_iges import build_oc4_design_domain_iges
+
+    build_oc4_design_domain_iges(
+        src,
+        out_iges,
+        out_step=out_step,
+        cut_center_column=cut_center_column,
+        include_source_geometry=include_source_geometry,
+    )
+    merge_session_meta(
+        sdir,
+        {
+            "design_domain_iges": "01_design_domain.igs",
+            "design_domain_step": "01_design_domain.step",
+            "build_ok": True,
+            "cut_center_column": cut_center_column,
+            "include_source_geometry": include_source_geometry,
+        },
+    )
+    return {
+        "design_domain_iges": str(out_iges),
+        "design_domain_step": str(out_step),
+    }
+
+
+def run_build(sdir: Path, *, cut_center_column: bool = True, include_source_geometry: bool = False) -> dict[str, Any]:
+    from backend.gmsh_spawn import run_in_spawn_process
+
+    return run_in_spawn_process(
+        _run_build_worker,
+        str(sdir.resolve()),
+        cut_center_column,
+        include_source_geometry,
+    )
+
+
+def run_export_source_preview_only(
+    sdir: Path,
+    workspace_root: Path,
+    *,
+    linear_source: float = 1200.0,
+) -> dict[str, str]:
+    """仅源几何：IGES→STEP（若需）→OBJ，不依赖设计域 STEP。"""
+    from backend.tools.freecad_export_obj import run_freecad_export_obj
+    from backend.tools.freecad_export_step import run_freecad_export_step
+
+    src = source_cad_path(sdir)
+    src_step = sdir / "00_source.step"
+    try:
+        need_step = (not src_step.is_file()) or (src_step.stat().st_mtime < src.stat().st_mtime)
+        if need_step:
+            run_freecad_export_step(src, src_step)
+    except Exception:
+        src_step = src
+    src_obj = sdir / "source_preview.obj"
+    try:
+        run_freecad_export_obj(src_step, src_obj, linear_deflection=linear_source)
+    except Exception:
+        run_freecad_export_obj(src, src_obj, linear_deflection=linear_source)
+    u = runs_file_url(workspace_root, src_obj)
+    patch: dict[str, Any] = {"source_obj_url": u}
+    if (sdir / "00_source.step").is_file():
+        patch["source_step"] = "00_source.step"
+    merge_session_meta(sdir, patch)
+    return {"source_obj": u}
+
+
+def run_export_design_preview_only(
+    sdir: Path,
+    workspace_root: Path,
+    *,
+    linear_design: float = 800.0,
+) -> dict[str, str]:
+    """仅设计域：由 ``01_design_domain.step`` 导出 OBJ。"""
+    from backend.tools.freecad_export_obj import run_freecad_export_obj
+
+    step = sdir / "01_design_domain.step"
+    if not step.is_file():
+        raise FileNotFoundError("请先执行设计域构建（缺少 01_design_domain.step）")
+    design_obj = sdir / "design_preview.obj"
+    run_freecad_export_obj(step, design_obj, linear_deflection=linear_design)
+    u = runs_file_url(workspace_root, design_obj)
+    merge_session_meta(sdir, {"design_obj_url": u})
+    return {"design_obj": u}
+
+
+def run_export_obj(
+    sdir: Path,
+    workspace_root: Path,
+    *,
+    linear_source: float = 1200.0,
+    linear_design: float = 800.0,
+    design_only: bool = False,
+) -> dict[str, str]:
+    """导出 OBJ 预览。``design_only=True`` 时仅更新设计域 OBJ（左侧源预览保持不变）。"""
+    if design_only:
+        return run_export_design_preview_only(sdir, workspace_root, linear_design=linear_design)
+    src_urls = run_export_source_preview_only(sdir, workspace_root, linear_source=linear_source)
+    des_urls = run_export_design_preview_only(sdir, workspace_root, linear_design=linear_design)
+    return {**src_urls, **des_urls}
+
+
+def run_mesh(
+    sdir: Path,
+    *,
+    char_length_max: float | None = None,
+    char_length_min: float | None = None,
+    element_order: str | None = None,
+    mesh_size_from_curvature: int | None = None,
+    compound_part_strategy: str | None = None,
+    element_dimension: str | None = None,
+    geometry_tolerance: float | None = None,
+    optimize_std: bool | None = None,
+    length_unit: str | None = None,
+    timeout_s: float | None = None,
+) -> dict[str, Any]:
+    from backend.tools.cad_iges_to_inp import run_cad_iges_to_inp
+
+    try:
+        from backend.tools.cad_iges_to_inp import default_coarse_char_length_max
+    except ImportError:  # 兼容旧部署未更新门面模块 re-export 的情况
+        from backend.tools.freecad_iges_to_inp import default_coarse_char_length_max
+
+    step = sdir / "01_design_domain.step"
+    if not step.is_file():
+        raise FileNotFoundError("缺少 01_design_domain.step")
+    mesh_inp = sdir / "02_mesh_body.inp"
+    cl_max = float(char_length_max) if char_length_max is not None else float(default_coarse_char_length_max(step))
+    kw: dict[str, Any] = {"char_length_max": cl_max, "timeout_s": timeout_s}
+    if char_length_min is not None:
+        kw["char_length_min"] = float(char_length_min)
+    if element_order is not None:
+        kw["element_order"] = str(element_order)
+    if mesh_size_from_curvature is not None:
+        kw["mesh_size_from_curvature"] = int(mesh_size_from_curvature)
+    if compound_part_strategy is not None:
+        kw["compound_part_strategy"] = str(compound_part_strategy)
+    if element_dimension is not None:
+        kw["element_dimension"] = str(element_dimension)
+    if geometry_tolerance is not None:
+        kw["geometry_tolerance"] = float(geometry_tolerance)
+    if optimize_std is not None:
+        kw["optimize_std"] = bool(optimize_std)
+    if length_unit is not None:
+        kw["length_unit"] = str(length_unit)
+    run_cad_iges_to_inp(step, mesh_inp, **kw)
+    mesh_inp = mesh_inp.resolve()
+    size_b = mesh_inp.stat().st_size if mesh_inp.is_file() else 0
+    meta_mesh: dict[str, Any] = {
+        "mesh_inp": "02_mesh_body.inp",
+        "mesh_char_length_max_used": cl_max,
+        "mesh_inp_size_bytes": int(size_b),
+    }
+    ten_mb = 10 * 1024 * 1024
+    if size_b > ten_mb:
+        meta_mesh["mesh_inp_size_warning"] = (
+            f"02_mesh_body.inp 约 {size_b / (1024 * 1024):.1f} MB，超过 10MB 目标；"
+            "可在「体网格」步骤 AI 中要求更粗（增大 characteristic_length_max）后重试。"
+        )
+    else:
+        meta_mesh["mesh_inp_size_warning"] = None
+    merge_session_meta(sdir, meta_mesh)
+    out: dict[str, Any] = {"mesh_inp": str(mesh_inp), "mesh_inp_size_bytes": int(size_b), "mesh_char_length_max_used": cl_max}
+    if size_b > ten_mb:
+        out["mesh_inp_size_warning"] = meta_mesh["mesh_inp_size_warning"]
+    return out
+
+
+def run_loads(
+    sdir: Path,
+    *,
+    band_scale: float = 1.22,
+    z_fix_band: float = 800.0,
+    cload_mag: float = -5.0e6,
+    load_case: dict[str, Any] | None = None,
+    loads_natural_language: str | None = None,
+) -> dict[str, Any]:
+    from backend.tools.inp_oc4_design_nondesign import partition_oc4_mesh_inp
+    from backend.tools.oc4_nl_loads import parse_loads_natural_language
+
+    mesh = sdir / "02_mesh_body.inp"
+    src = source_cad_path(sdir)
+    out_inp = sdir / "03_for_beso.inp"
+    if not mesh.is_file():
+        raise FileNotFoundError("缺少 02_mesh_body.inp，请先执行网格")
+
+    merged: dict[str, Any] = {
+        "band_scale": float(band_scale),
+        "z_fix_band": float(z_fix_band),
+        "cload_mag": float(cload_mag),
+    }
+    merged.update(load_case or {})
+    nl_reply: str | None = None
+    if (loads_natural_language or "").strip():
+        nl_reply, lc_nl = parse_loads_natural_language(
+            mesh,
+            loads_natural_language.strip(),
+            band_scale=float(merged["band_scale"]),
+            z_fix_band=float(merged["z_fix_band"]),
+            cload_mag=float(merged.get("cload_mag", cload_mag)),
+        )
+        merged.update(lc_nl)
+
+    stats = partition_oc4_mesh_inp(
+        mesh,
+        src,
+        out_inp,
+        band_scale=float(merged["band_scale"]),
+        z_fix_band=float(merged["z_fix_band"]),
+        cload_mag=float(merged.get("cload_mag", cload_mag)),
+        load_case=merged,
+    )
+    merge_session_meta(
+        sdir,
+        {
+            "final_inp": "03_for_beso.inp",
+            "partition_stats": stats,
+            "last_load_case": merged,
+            "last_nl_load_reply": nl_reply,
+        },
+    )
+    out: dict[str, Any] = {"stats": stats, "final_inp": str(out_inp), "resolved_load_case": merged}
+    if nl_reply:
+        out["nl_reply"] = nl_reply
+    return out
+
+
+__all__ = [
+    "create_session_from_upload",
+    "design_domain_root",
+    "geometry_summary",
+    "merge_session_meta",
+    "read_session_meta",
+    "run_build",
+    "run_export_design_preview_only",
+    "run_export_obj",
+    "run_export_source_preview_only",
+    "run_loads",
+    "run_mesh",
+    "runs_file_url",
+    "session_dir",
+    "session_progress_flags",
+    "source_cad_path",
+    "write_session_meta",
+]

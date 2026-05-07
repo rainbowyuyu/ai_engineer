@@ -132,6 +132,25 @@ def auto_scale_filter_radius(inp_path: Path, requested: float) -> tuple[float, s
     return r2, note
 
 
+def beso_simple_filter_radius_min_for_connectivity(inp_path: Path) -> float:
+    """
+    BESO ``beso_filters.prepare2s`` 要求优化域内每个单元在 ``r_min`` 内至少存在一个
+    质心距离小于 ``r_min`` 的邻居单元，否则触发除零错误。
+
+    对海工尺度（数万 mm 对角线）+ 相对稀疏的四面体网格，``filter_radius`` 仅数百或
+    一千多 mm 时常会失败；本函数用包围盒对角线与单元总数粗估特征单元尺寸，给出与
+    模型同单位的下限（与 ``auto_scale_filter_radius`` 的 sector 上界约束不同）。
+    """
+    diag = inp_node_bbox_diagonal(inp_path)
+    _, ne = count_nodes_and_elements_in_inp(inp_path)
+    if diag <= 0.0 or ne <= 0:
+        return 5000.0
+    nef = float(ne)
+    n_edge = max(8.0, nef ** (1.0 / 3.0))
+    h_typ = diag / n_edge
+    return float(max(2000.0, min(h_typ * 3.5, diag / 4.0)))
+
+
 def assert_inp_mesh_size_reasonable(inp_path: Path) -> None:
     """超过默认上限时直接报错，避免 beso_lib.import_inp 在弱内存环境下 OOM。"""
     max_n = int((os.environ.get("BESO_MAX_INP_NODES") or "250000").strip())

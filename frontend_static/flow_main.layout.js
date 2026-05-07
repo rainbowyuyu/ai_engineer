@@ -157,6 +157,7 @@ export function createLayoutManager(deps) {
 
   function showStage(mode) {
     refs.landingMain?.classList.toggle("hidden", mode !== "landing");
+    refs.designDomainMain?.classList.toggle("hidden", mode !== "designDomain");
     refs.orchestrateMain?.classList.toggle("hidden", mode !== "orchestrate");
     refs.flowMain?.classList.toggle("hidden", mode !== "flow");
     refs.flowStepper?.classList.toggle("hidden", mode !== "flow");
@@ -169,11 +170,27 @@ export function createLayoutManager(deps) {
 
   function streamOrchestration(onDone) {
     const phases = [
-      { text: "## 阶段A｜任务理解\n- 解析你的目标与约束\n- 读取上传文件上下文", active: 1, conn: 0 },
-      { text: "## 阶段B｜关联检索\n- 自动检索 `inp` 分片、集合与载荷文件\n- 构建主/辅文件映射关系", active: 1, conn: 0 },
-      { text: "## 阶段C｜流程编排\n- 生成四阶段轨道：**搜索 -> 生成 -> 预览 -> 汇总**\n- 绑定步骤推进状态", active: 2, conn: 1 },
-      { text: "## 阶段D｜执行策略\n- 注入校验与异常兜底\n- 提供可视化反馈与可回放链路", active: 3, conn: 2 },
-      { text: "## 阶段E｜待确认\n- 编排完成，已准备就绪\n- 点击 **执行任务** 进入分步运行", active: 4, conn: 3 },
+      {
+        text:
+          "## 步骤 1｜搜索相关文件\n- 解析目标与约束，读取上传文件上下文\n- 扫描工作目录与 `inp` 分片、集合、载荷\n- **OC4 IGES**：主页会先进入「设计域」四步流水线；第 3 步体网格与主页 CAD 转换共用同一 **Plan 方案窗**（FreeCAD+Gmsh），步骤条可点击回溯后再跑",
+        active: 1,
+        conn: 0,
+      },
+      {
+        text: "## 步骤 2｜生成代码\n- 构建策略与 `run_generated` 链路\n- 产出可执行脚本与配置（与 Flow 第 2 步对齐）",
+        active: 2,
+        conn: 1,
+      },
+      {
+        text: "## 步骤 3｜预览指标\n- 绑定主/辅 INP 与载荷映射\n- 为演化曲线与网格预览做准备",
+        active: 3,
+        conn: 2,
+      },
+      {
+        text: "## 步骤 4｜汇总与执行就绪\n- 校验清单与异常兜底\n- 点击 **执行任务** 进入分步运行",
+        active: 4,
+        conn: 3,
+      },
     ];
     if (!refs.orchestrateStream) return;
     refs.orchestrateStream.innerHTML = "";
@@ -223,10 +240,18 @@ export function createLayoutManager(deps) {
 
   function setSidebarCollapsed(collapsed) {
     if (!refs.landingMain) return;
-    refs.landingMain.classList.toggle("sidebarCollapsed", Boolean(collapsed));
-    if (refs.toggleSidebarBtn) refs.toggleSidebarBtn.textContent = collapsed ? "≡" : "◀";
+    const c = Boolean(collapsed);
+    refs.landingMain.classList.toggle("sidebarCollapsed", c);
+    const btn = refs.toggleSidebarBtn;
+    if (btn) {
+      btn.textContent = c ? "\u203a" : "\u2039";
+      btn.setAttribute("aria-expanded", c ? "false" : "true");
+      btn.title = c ? "展开任务栏" : "收起侧栏";
+    }
+    const aside = refs.landingMain.querySelector(".taskSidebar");
+    if (aside) aside.setAttribute("aria-expanded", c ? "false" : "true");
     try {
-      localStorage.setItem("beso.sidebar.collapsed", collapsed ? "1" : "0");
+      localStorage.setItem("beso.sidebar.collapsed", c ? "1" : "0");
     } catch {}
   }
 

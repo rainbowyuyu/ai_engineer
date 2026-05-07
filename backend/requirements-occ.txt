@@ -1,0 +1,3 @@
+# OpenCASCADE Python 绑定（IGES 梁解析等）。仅在当前平台有 PyPI/conda 轮子时装入。
+# Windows 若失败可改用 conda-forge: conda install -c conda-forge pythonocc-core
+pythonocc-core

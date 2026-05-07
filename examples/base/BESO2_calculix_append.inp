@@ -1,0 +1,2 @@
+** BESO2-FEMMeshGmsh.inp 已内含 *MATERIAL、*SOLID SECTION 与 *STEP（系泊/风载节点组见文件末尾 FreeCAD Group 注释）。
+** 本文件保留为空补片，便于仍调用「主 INP + 拼接」的旧脚本不重复写入第二份 *STEP。

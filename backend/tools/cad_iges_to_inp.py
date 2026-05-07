@@ -1,28 +1,23 @@
 """
-IGES → BESO 主 INP 的统一入口。
+IGES/STEP → BESO 主 INP 的统一入口。
 
-默认 **auto**：优先 **Open CASCADE** 曲面三角化（快，输出 S3 壳网格），失败或未安装 ``cadquery-ocp`` 时回退 **Gmsh**。
+仅使用 **FreeCAD FEM + Gmsh**（``backend.tools.freecad_iges_to_inp``，对应
+``scripts/freecad_iges_to_inp_runner.py``）。环境变量 ``FREECAD_CMD`` 可指向 ``FreeCADCmd.exe``。
 
-环境变量 ``CAD_IGES_BACKEND``：
-
-- ``occ``：仅用 OCC（失败则抛错，不回退 Gmsh）。
-- ``gmsh``：仅用 Gmsh（与旧行为一致）。
-- ``auto`` 或未设置：OCC 优先，失败再 Gmsh。
+为兼容旧调用签名，以下参数会被忽略：``gmsh_bin``、``linear_deflection``、``angular_deflection``。
 """
 from __future__ import annotations
 
-import os
+import threading
 from pathlib import Path
 
-from backend.tools.gmsh_iges_to_inp import OUTPUT_INP_NAME, list_iges_in_dir, run_gmsh_iges_to_inp, suggest_char_length_max
-from backend.tools.iges_occ_tess_to_inp import occ_sdk_available, run_occ_iges_to_inp
-
-
-def cad_iges_backend() -> str:
-    v = (os.environ.get("CAD_IGES_BACKEND") or "auto").strip().lower()
-    if v in {"occ", "gmsh", "auto"}:
-        return v
-    return "auto"
+from backend.tools.freecad_iges_to_inp import (
+    OUTPUT_INP_NAME,
+    default_coarse_char_length_max,
+    list_iges_in_dir,
+    run_freecad_cad_to_inp,
+    suggest_char_length_max,
+)
 
 
 def run_cad_iges_to_inp(
@@ -34,45 +29,51 @@ def run_cad_iges_to_inp(
     gmsh_bin: str | None = None,
     linear_deflection: float | None = None,
     angular_deflection: float | None = None,
+    char_length_min: float | None = None,
+    element_order: str | None = None,
+    mesh_size_from_curvature: int | None = None,
+    compound_part_strategy: str | None = None,
+    element_dimension: str | None = None,
+    geometry_tolerance: float | None = None,
+    optimize_std: bool | None = None,
+    length_unit: str | None = None,
+    freecad_cmd: Path | None = None,
+    cancel_event: threading.Event | None = None,
+    proc_box: list | None = None,
 ) -> Path:
-    mode = cad_iges_backend()
-    kwargs_gmsh = {"char_length_max": char_length_max, "timeout_s": timeout_s, "gmsh_bin": gmsh_bin}
-    kwargs_occ = {
+    _ = (gmsh_bin, linear_deflection, angular_deflection)
+    kw: dict = {
         "char_length_max": char_length_max,
-        "linear_deflection": linear_deflection,
-        "angular_deflection": angular_deflection,
         "timeout_s": timeout_s,
-        "gmsh_bin": gmsh_bin,
+        "cancel_event": cancel_event,
+        "proc_box": proc_box,
     }
-
-    if mode == "gmsh":
-        return run_gmsh_iges_to_inp(iges_path, dest_inp, **kwargs_gmsh)
-    if mode == "occ":
-        return run_occ_iges_to_inp(iges_path, dest_inp, **kwargs_occ)
-
-    # auto
-    if occ_sdk_available():
-        try:
-            return run_occ_iges_to_inp(iges_path, dest_inp, **kwargs_occ)
-        except Exception as occ_err:
-            try:
-                return run_gmsh_iges_to_inp(iges_path, dest_inp, **kwargs_gmsh)
-            except Exception as gmsh_err:
-                raise RuntimeError(
-                    "IGES→INP：Open CASCADE 与 Gmsh 均未成功。\n"
-                    f"  OCC: {occ_err}\n"
-                    f"  Gmsh: {gmsh_err}"
-                ) from gmsh_err
-    return run_gmsh_iges_to_inp(iges_path, dest_inp, **kwargs_gmsh)
+    if char_length_min is not None:
+        kw["char_length_min"] = float(char_length_min)
+    if element_order is not None:
+        kw["element_order"] = str(element_order)
+    if mesh_size_from_curvature is not None:
+        kw["mesh_size_from_curvature"] = int(mesh_size_from_curvature)
+    if compound_part_strategy is not None:
+        kw["compound_part_strategy"] = str(compound_part_strategy)
+    if element_dimension is not None:
+        kw["element_dimension"] = str(element_dimension)
+    if geometry_tolerance is not None:
+        kw["geometry_tolerance"] = float(geometry_tolerance)
+    if optimize_std is not None:
+        kw["optimize_std"] = bool(optimize_std)
+    if length_unit is not None:
+        kw["length_unit"] = str(length_unit)
+    if freecad_cmd is not None:
+        kw["freecad_cmd"] = freecad_cmd
+    return run_freecad_cad_to_inp(iges_path, dest_inp, **kw)
 
 
 __all__ = [
     "OUTPUT_INP_NAME",
-    "cad_iges_backend",
+    "default_coarse_char_length_max",
     "list_iges_in_dir",
     "run_cad_iges_to_inp",
-    "run_gmsh_iges_to_inp",
-    "run_occ_iges_to_inp",
+    "run_freecad_cad_to_inp",
     "suggest_char_length_max",
-    "occ_sdk_available",
 ]
