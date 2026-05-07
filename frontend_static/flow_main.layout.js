@@ -168,26 +168,27 @@ export function createLayoutManager(deps) {
     setStep(1);
   }
 
-  function streamOrchestration(onDone) {
+  function streamOrchestration(onDone, opts = {}) {
+    const preambleMd = typeof opts.preambleMd === "string" ? opts.preambleMd.trim() : "";
     const phases = [
       {
         text:
-          "## 步骤 1｜搜索相关文件\n- 解析目标与约束，读取上传文件上下文\n- 扫描工作目录与 `inp` 分片、集合、载荷\n- **OC4 IGES**：主页会先进入「设计域」四步流水线；第 3 步体网格与主页 CAD 转换共用同一 **Plan 方案窗**（FreeCAD+Gmsh），步骤条可点击回溯后再跑",
+          "## 步骤 1｜搜索相关文件\n- 解析目标与约束，读取上传上下文\n- 扫描工作目录与 `inp`、集合与载荷\n- **IGES**：可进入「设计域」四步；体网格与 CAD 转换共用 **Plan** 弹窗；顶栏「← 设计域」可随时返回调整",
         active: 1,
         conn: 0,
       },
       {
-        text: "## 步骤 2｜生成代码\n- 构建策略与 `run_generated` 链路\n- 产出可执行脚本与配置（与 Flow 第 2 步对齐）",
+        text: "## 步骤 2｜生成代码\n- 构建 `run_generated` 链路与脚本配置",
         active: 2,
         conn: 1,
       },
       {
-        text: "## 步骤 3｜预览指标\n- 绑定主/辅 INP 与载荷映射\n- 为演化曲线与网格预览做准备",
+        text: "## 步骤 3｜预览指标\n- 绑定 INP 与载荷映射，准备曲线与网格预览",
         active: 3,
         conn: 2,
       },
       {
-        text: "## 步骤 4｜汇总与执行就绪\n- 校验清单与异常兜底\n- 点击 **执行任务** 进入分步运行",
+        text: "## 步骤 4｜汇总与执行就绪\n- 校验清单后点击 **执行任务**",
         active: 4,
         conn: 3,
       },
@@ -197,7 +198,11 @@ export function createLayoutManager(deps) {
     updateRailVisibility(1, 0);
 
     let phaseIdx = 0;
-    let streamMd = "";
+    let streamMd = preambleMd ? `${preambleMd}\n\n` : "";
+    if (streamMd) {
+      refs.orchestrateStream.innerHTML = renderMd(streamMd);
+      refs.orchestrateStream.scrollTop = refs.orchestrateStream.scrollHeight;
+    }
     const typePhase = () => {
       if (phaseIdx >= phases.length) {
         setTimeout(() => onDone?.(), 1700);

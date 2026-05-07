@@ -27,7 +27,7 @@ export function formatTaskStatus(status) {
 }
 
 export function createTaskManager(deps) {
-  const { refs, state, normalizedBaseUrl, onOpenTask } = deps;
+  const { refs, state, normalizedBaseUrl, onOpenTask, onTasksListUpdated } = deps;
 
   function formatTaskTime(v) {
     if (!v) return "-";
@@ -45,14 +45,28 @@ export function createTaskManager(deps) {
 
   async function upsertTask(patch = {}) {
     if (!state.currentTaskId) return;
-    const keys = ["title", "progress", "step", "status", "file_name", "job_id", "scan_dir", "ui_stage", "oc4_design_domain_session_id"];
+    const keys = [
+      "title",
+      "progress",
+      "step",
+      "status",
+      "file_name",
+      "job_id",
+      "scan_dir",
+      "ui_stage",
+      "oc4_design_domain_session_id",
+      "oc4_activity",
+    ];
     const body = { task_id: state.currentTaskId };
     for (const k of keys) {
       if (patch[k] !== undefined) body[k] = patch[k];
     }
     const pk = Object.keys(patch);
     const onlyStagePersist =
-      pk.length > 0 && pk.every((k) => k === "ui_stage" || k === "oc4_design_domain_session_id");
+      pk.length > 0 &&
+      pk.every((k) =>
+        ["ui_stage", "oc4_design_domain_session_id", "oc4_activity"].includes(k),
+      );
     if (!onlyStagePersist) {
       if (body.title === undefined) {
         body.title = String(refs.msgLanding?.value || refs.msgEl?.value || "未命名任务").slice(0, 80);
@@ -164,6 +178,17 @@ export function createTaskManager(deps) {
     });
   }
 
+  function lastOc4ActivitySnippet(raw) {
+    const arr = Array.isArray(raw) ? raw : [];
+    for (let i = arr.length - 1; i >= 0; i -= 1) {
+      const x = arr[i];
+      if (x && String(x.text || "").trim()) {
+        return String(x.text).replace(/\s+/g, " ").trim().slice(0, 100);
+      }
+    }
+    return "";
+  }
+
   function renderTaskList(items) {
     if (!refs.taskListEl) return;
     refs.taskListEl.innerHTML = "";
@@ -183,6 +208,7 @@ export function createTaskManager(deps) {
       const st = formatTaskStatus(t.status);
       const stepNum = Number(t.step);
       const stepLabel = Number.isFinite(stepNum) && stepNum >= 1 && stepNum <= 4 ? `步骤 ${stepNum}/4` : "步骤 —";
+      const oc4Note = lastOc4ActivitySnippet(t.oc4_activity);
       const row = document.createElement("div");
       row.className = `taskItem${t.task_id === state.currentTaskId ? " active" : ""}`;
       row.setAttribute("role", "listitem");
@@ -197,6 +223,7 @@ export function createTaskManager(deps) {
           <span class="taskItemStepBadge">${escapeHtml(stepLabel)}</span>
           <span class="taskItemTime">${escapeHtml(formatTaskTime(t.updated_at || t.created_at))}</span>
         </div>
+        ${oc4Note ? `<div class="taskItemOc4" title="${escapeHtml(oc4Note)}">OC4：${escapeHtml(oc4Note)}</div>` : ""}
         <div class="taskProgress" aria-hidden="true"><span style="width:${Math.max(0, Math.min(100, Number(t.progress || 0)))}%"></span></div>
         <div class="taskActions">
           <button type="button" class="taskIconBtn taskRename" title="重命名">✎</button>
@@ -241,6 +268,11 @@ export function createTaskManager(deps) {
       renderTaskList([]);
     } finally {
       refs.taskListEl.removeAttribute("aria-busy");
+      try {
+        onTasksListUpdated?.();
+      } catch {
+        /* ignore */
+      }
     }
   }
 

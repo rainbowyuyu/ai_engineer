@@ -594,6 +594,8 @@ class TaskUpsertIn(BaseModel):
     scan_dir: str | None = None
     ui_stage: str | None = None
     oc4_design_domain_session_id: str | None = None
+    # OC4 设计域：助手 / 用户轨迹（前端为 list[{"ts","role","text"}]，最多由前端裁剪）
+    oc4_activity: list | None = None
 
 
 @app.post("/api/tasks/upsert")

@@ -66,6 +66,8 @@ const refs = {
   panelStep4: $("panelStep4"),
   flowStageRight: $("flowStageRight"),
   backHomeFloating: $("backHomeFloating"),
+  backToOc4FromFlowBtn: $("backToOc4FromFlowBtn"),
+  backToOc4FromOrchestrateBtn: $("backToOc4FromOrchestrateBtn"),
   flowStepper: $("flowStepper"),
   taskListEl: $("taskList"),
   taskSidebarEl: document.querySelector("#landingMain .taskSidebar"),
@@ -117,6 +119,7 @@ const refs = {
   cadConvertBlockHint: $("cadConvertBlockHint"),
   cadConvertManualBtn: $("cadConvertManualBtn"),
   designDomainMain: $("designDomainMain"),
+  designDomainToolbar: $("designDomainToolbar"),
   designDomainBackBtn: $("designDomainBackBtn"),
   designDomainCanvasLeft: $("designDomainCanvasLeft"),
   designDomainCanvasRight: $("designDomainCanvasRight"),
@@ -191,6 +194,10 @@ const state = {
   ddNlLastPayload: null,
   /** OC4 设计域分步：由 GET session 的布尔字段填充 */
   ddProgress: null,
+  /** 与任务 JSON `oc4_activity` 同步：{ ts, role, text }[] */
+  oc4ActivityLog: [],
+  /** 设计域收尾后仍可用于「返回 OC4」恢复 session_id（与任务 oc4_design_domain_session_id 一致） */
+  oc4DesignDomainSessionIdForResume: "",
 };
 
 let designDomainViewer = null;
@@ -389,11 +396,21 @@ function deriveMaxReachedStepFromTask(task) {
   return hasValidStep ? Math.min(4, Math.max(1, stepNum)) : 1;
 }
 
+function updateOc4ReturnNavVisibility() {
+  const hasTask = Boolean(state.currentTaskId);
+  const sidMem = String(state.oc4DesignDomainSessionIdForResume || "").trim();
+  const sidLive = String(state.oc4DesignDomainSessionId || "").trim();
+  const show = hasTask && Boolean(sidMem || sidLive);
+  refs.backToOc4FromFlowBtn?.classList.toggle("hidden", !show);
+  refs.backToOc4FromOrchestrateBtn?.classList.toggle("hidden", !show);
+}
+
 let taskManager = null;
 taskManager = createTaskManager({
   refs,
   state,
   normalizedBaseUrl,
+  onTasksListUpdated: () => updateOc4ReturnNavVisibility(),
   onOpenTask: async (task) => {
     const tid = String(task?.task_id || "").trim();
     const nextTaskKey = tid || String(task?.job_id || "").trim();
@@ -404,6 +421,8 @@ taskManager = createTaskManager({
     }
     state.currentTaskStatus = String(task.status || "");
     state.maxReachedStep = deriveMaxReachedStepFromTask(task);
+    ingestTaskOc4Activity(task);
+    state.oc4DesignDomainSessionIdForResume = String(task?.oc4_design_domain_session_id || "").trim();
     if (refs.scanDirInput) refs.scanDirInput.value = state.uploadedSourceDir;
     if (refs.fileSummaryInline) {
       refs.fileSummaryInline.textContent = `已上传文件：${state.currentFileName || "(未知)"}\n扫描目录：${state.uploadedSourceDir || "(未知)"}`;
@@ -419,12 +438,13 @@ taskManager = createTaskManager({
           if (refs.executePlannedTask) refs.executePlannedTask.disabled = false;
         } else if (st === "orchestrating") {
           if (refs.executePlannedTask) refs.executePlannedTask.disabled = true;
+          const preambleMd = buildOc4OrchestratePreambleMd();
           layout.streamOrchestration(async () => {
             if (refs.executePlannedTask) refs.executePlannedTask.disabled = false;
             layout.addLandingBubble("agent", "编排完成，点击“执行任务”进入分步执行。");
             await taskManager.upsertTask({ progress: 20, step: 1, status: "ready_to_execute" });
             await taskManager.loadTasks();
-          });
+          }, { preambleMd });
         } else if (refs.executePlannedTask) {
           refs.executePlannedTask.disabled = false;
         }
@@ -435,9 +455,10 @@ taskManager = createTaskManager({
         if (sid) state.oc4DesignDomainSessionId = sid;
         if (!state.currentFileId) {
           layout.showStage("landing");
-          layout.addLandingBubble("agent", "该任务缺少已上传文件记录，无法恢复 OC4 设计域。已回到主页。");
+          layout.addLandingBubble("agent", "缺少上传记录，无法恢复设计域。已回主页。");
           return;
         }
+        renderDesignDomainChatFromState();
         await enterOc4DesignDomainStage({ softResume: Boolean(state.oc4DesignDomainSessionId) });
         return;
       }
@@ -499,11 +520,14 @@ taskManager = createTaskManager({
   let uiStageTimer = null;
   function mapLayoutModeToUiStage(mode) {
     if (mode === "designDomain") return "design_domain";
+    if (mode === "orchestrate") return "orchestrate";
+    if (mode === "flow") return "flow";
     return String(mode || "landing");
   }
   const origShow = layout.showStage.bind(layout);
   layout.showStage = (mode) => {
     origShow(mode);
+    queueMicrotask(() => updateOc4ReturnNavVisibility());
     if (mode === "landing") taskManager.loadTasks().catch(() => {});
     if (!state.currentTaskId) return;
     clearTimeout(uiStageTimer);
@@ -610,38 +634,122 @@ async function oc4DesignDomainApi(path, body, options = {}) {
   return data;
 }
 
-function appendDesignDomainChat(role, text) {
+let _oc4ActivityDebounce = null;
+
+function normalizeOc4ActivityEntry(x) {
+  if (!x || typeof x !== "object") return null;
+  const text = String(x.text ?? "").trim().slice(0, 2500);
+  if (!text) return null;
+  const role = x.role === "user" ? "user" : "agent";
+  return { ts: Number.isFinite(Number(x.ts)) ? Number(x.ts) : Date.now(), role, text };
+}
+
+function ingestTaskOc4Activity(task) {
+  const raw = task?.oc4_activity;
+  state.oc4ActivityLog = (Array.isArray(raw) ? raw : []).map(normalizeOc4ActivityEntry).filter(Boolean).slice(-80);
+}
+
+function renderDesignDomainChatFromState() {
   const log = refs.designDomainFlowLog;
   if (!log) return;
-  const row = document.createElement("div");
-  row.className = `ddMsg ${role === "user" ? "user" : "agent"}`;
-  row.textContent = text;
-  log.appendChild(row);
-  while (log.children.length > 40) log.removeChild(log.firstChild);
+  log.innerHTML = "";
+  for (const e of state.oc4ActivityLog || []) {
+    appendDesignDomainChatRow(e.role, e.text);
+  }
   log.scrollTop = log.scrollHeight;
+}
+
+function appendDesignDomainChatRow(role, text) {
+  const log = refs.designDomainFlowLog;
+  if (!log) return;
+  const wrap = document.createElement("div");
+  wrap.className = `ddMsgWrap ddMsgWrap--${role === "user" ? "user" : "agent"}`;
+  const badge = document.createElement("span");
+  badge.className = "ddMsgBadge";
+  badge.textContent = role === "user" ? "你" : "Agent";
+  const row = document.createElement("div");
+  row.className = `ddMsg ddMsg--${role === "user" ? "user" : "agent"}`;
+  row.textContent = text;
+  wrap.appendChild(badge);
+  wrap.appendChild(row);
+  log.appendChild(wrap);
+  while (log.children.length > 48) log.removeChild(log.firstChild);
+  log.scrollTop = log.scrollHeight;
+}
+
+function pushOc4ActivityPersist(role, text) {
+  const entry = {
+    ts: Date.now(),
+    role: role === "user" ? "user" : "agent",
+    text: String(text || "").trim().slice(0, 2500),
+  };
+  if (!entry.text) return;
+  state.oc4ActivityLog = [...(state.oc4ActivityLog || []), entry].slice(-80);
+  if (_oc4ActivityDebounce) clearTimeout(_oc4ActivityDebounce);
+  _oc4ActivityDebounce = setTimeout(() => {
+    _oc4ActivityDebounce = null;
+    if (state.currentTaskId) taskManager.upsertTask({ oc4_activity: state.oc4ActivityLog }).catch(() => {});
+  }, 450);
+}
+
+async function flushOc4ActivityPersist() {
+  if (_oc4ActivityDebounce) {
+    clearTimeout(_oc4ActivityDebounce);
+    _oc4ActivityDebounce = null;
+  }
+  if (state.currentTaskId && Array.isArray(state.oc4ActivityLog) && state.oc4ActivityLog.length) {
+    await taskManager.upsertTask({ oc4_activity: state.oc4ActivityLog }).catch(() => {});
+  }
+}
+
+function buildOc4OrchestratePreambleMd() {
+  const arr = state.oc4ActivityLog || [];
+  if (!arr.length) return "";
+  const lines = ["### 设计域记录", ""];
+  for (const x of arr.slice(-16)) {
+    const who = x.role === "user" ? "用户" : "Agent";
+    const t = String(x.text || "").replace(/\s+/g, " ").trim().slice(0, 170);
+    lines.push(`- **${who}**：${t}`);
+  }
+  return lines.join("\n");
+}
+
+function appendDesignDomainChat(role, text, opts = {}) {
+  appendDesignDomainChatRow(role, text);
+  if (!opts.skipPersist) pushOc4ActivityPersist(role, text);
+}
+
+function ddNlShortTopicLabel() {
+  const t = state.ddNlTopic;
+  if (t === "design") return "步骤1·构建";
+  if (t === "preview") return "步骤2·OBJ";
+  if (t === "mesh") return "步骤3·网格";
+  if (t === "loads") return "步骤4·载荷";
+  return "专步";
 }
 
 function appendDdNlLog(role, text) {
   const log = refs.ddStepNlLog;
-  if (!log) return;
-  const row = document.createElement("div");
-  row.className = `ddMsg ${role === "user" ? "user" : "agent"}`;
-  row.textContent = text;
-  log.appendChild(row);
-  log.scrollTop = log.scrollHeight;
+  if (log) {
+    const row = document.createElement("div");
+    row.className = `ddMsg ${role === "user" ? "user" : "agent"}`;
+    row.textContent = text;
+    log.appendChild(row);
+    log.scrollTop = log.scrollHeight;
+  }
+  appendDesignDomainChat(role, `[${ddNlShortTopicLabel()}] ${text}`);
 }
 
 const DD_NL_TOPIC_META = {
-  design: { title: "步骤 1 · 设计域构建", intro: "讨论是否挖除中心柱、是否合并源几何；应用建议后请再点「1 构建设计域」。" },
-  preview: { title: "步骤 2 · OBJ 预览", intro: "调整源/设计域三角化疏密（linear_deflection_*，与主页 CAD 转换无关）；应用后点「2 导出 OBJ 预览」。" },
+  design: { title: "步骤 1 · 设计域", intro: "选项讨论后点「1 构建设计域」。" },
+  preview: { title: "步骤 2 · OBJ", intro: "可调三角化疏密；应用后点「2 导出 OBJ」。" },
   mesh: {
-    title: "步骤 3 · FreeCAD 体网格",
-    intro:
-      "与主页「IGES→INP」相同管线：backend/tools/cad_iges_to_inp.py → scripts/freecad_iges_to_inp_runner.py。点击「3 FreeCAD 体网格」会先弹出与主页一致的 **Plan 方案窗** 供确认/调参；工具栏 char_max 若填写会覆盖方案中的 CharacteristicLengthMax。上方步骤条可点击回溯定位各步。",
+    title: "步骤 3 · 体网格",
+    intro: "与主页相同 Plan 弹窗确认参数；char_max 可覆盖方案。步骤条可回溯。",
   },
   loads: {
-    title: "步骤 4 · 载荷与分区",
-    intro: "描述力、边界意图；下方长框可写自然语言（与「4 划分载荷」一致）。应用建议后点「4 划分载荷」。",
+    title: "步骤 4 · 载荷",
+    intro: "描述载荷意图；可选自然语言。应用后点「4 划分载荷」。",
   },
 };
 
@@ -842,23 +950,34 @@ function readDdProgressFromPayload(data) {
   };
 }
 
+/** 当前会话已完成的最后一步序号（1～4），用于判断回溯时是否需作废后续产物 */
+function deepestDdRailStepDone(p) {
+  const x = p || readDdProgressFromPayload({});
+  let d = 0;
+  if (x.has_source_preview_obj) d = Math.max(d, 1);
+  if (x.has_design_domain_step && x.has_design_preview_obj) d = Math.max(d, 2);
+  if (x.has_mesh_body_inp) d = Math.max(d, 3);
+  if (x.has_for_beso_inp) d = Math.max(d, 4);
+  return d;
+}
+
 function computeDdStepHint(p) {
   if (!p.has_source_preview_obj) {
-    return "下一步：点击「1 构建设计域」生成左侧源装配 OBJ（IGES→STEP→三角化）；自动进入本页时也会尝试执行。";
+    return "点「1 构建设计域」生成左侧 OBJ。";
   }
   if (!p.has_design_domain_step) {
-    return "左侧预览已就绪；下一步：完成「1 构建设计域」以生成 01_design_domain.step 与右侧几何。";
+    return "左侧已就绪；点「1 构建设计域」生成 STEP 与右侧几何。";
   }
   if (!p.has_design_preview_obj) {
-    return "设计域 STEP 已就绪；下一步：点击「2 导出 OBJ 预览」刷新右侧三角化装配。";
+    return "STEP 已就绪；点「2 导出 OBJ」刷新右侧。";
   }
   if (!p.has_mesh_body_inp) {
-    return "下一步：点击「3 FreeCAD 体网格」——将先弹出与主页一致的 Plan 方案窗，确认 FreeCAD+Gmsh 参数后再生成 02_mesh_body.inp。";
+    return "点「3 体网格」：先确认 Plan，再生成 02_mesh_body.inp。";
   }
   if (!p.has_for_beso_inp) {
-    return "下一步：点击「4 划分载荷」生成 03_for_beso.inp，然后点击「完成并进入编排」。";
+    return "点「4 划分载荷」生成 03_for_beso.inp，再「完成并进入编排」。";
   }
-  return "前置步骤已就绪：点击「完成并进入编排」写入扫描目录并进入智能体编排。";
+  return "可点「完成并进入编排」。";
 }
 
 function applyDesignDomainStepUi() {
@@ -867,28 +986,36 @@ function applyDesignDomainStepUi() {
   const rail = refs.designDomainStepRail;
   const p = sid ? state.ddProgress ?? readDdProgressFromPayload({}) : readDdProgressFromPayload({});
 
-  if (hintEl) {
-    hintEl.textContent = sid ? computeDdStepHint(p) : "上传 OC4 IGES 后将进入本流程；尚未建立设计域会话。";
-  }
-
-  if (rail && sid) {
+  let ddCur = null;
+  let ddDone = [false, false, false, false];
+  let ddS4 = false;
+  if (sid) {
     const s1 = p.has_source_preview_obj;
     const s2 = p.has_design_domain_step && p.has_design_preview_obj;
     const s3 = p.has_mesh_body_inp;
     const s4 = p.has_for_beso_inp;
+    ddS4 = s4;
+    ddDone = [s1, s2, s3, s4];
     let cur = 1;
     if (!s1) cur = 1;
     else if (!p.has_design_domain_step || !p.has_design_preview_obj) cur = 2;
     else if (!s3) cur = 3;
     else if (!s4) cur = 4;
     else cur = null;
-    const doneFlags = [s1, s2, s3, s4];
+    ddCur = cur;
+  }
+
+  if (hintEl) {
+    hintEl.textContent = sid ? computeDdStepHint(p) : "上传 IGES 后开始；尚无会话。";
+  }
+
+  if (rail && sid) {
     for (let i = 0; i < 4; i += 1) {
       const el = rail.querySelector(`.ddStep[data-idx="${i + 1}"]`);
       if (!el) continue;
-      el.classList.toggle("ddStepDone", doneFlags[i]);
-      el.classList.toggle("ddStepCurrent", cur === i + 1);
-      el.setAttribute("aria-current", cur === i + 1 ? "step" : "false");
+      el.classList.toggle("ddStepDone", ddDone[i]);
+      el.classList.toggle("ddStepCurrent", ddCur === i + 1);
+      el.setAttribute("aria-current", ddCur === i + 1 ? "step" : "false");
       el.classList.toggle("ddStepNavigable", true);
       el.tabIndex = 0;
     }
@@ -900,6 +1027,28 @@ function applyDesignDomainStepUi() {
       el.classList.remove("ddStepDone", "ddStepCurrent", "ddStepNavigable");
       el.setAttribute("aria-current", "false");
       el.tabIndex = -1;
+    }
+  }
+
+  const tb = refs.designDomainToolbar;
+  const tbarSteps = [refs.ddBtnBuild, refs.ddBtnPreview, refs.ddBtnMesh, refs.ddBtnLoads];
+  if (tb) {
+    if (!sid) {
+      tb.removeAttribute("data-dd-active-step");
+      tb.removeAttribute("data-dd-all-done");
+      for (const b of tbarSteps) {
+        b?.classList.remove("ddTbarDone", "ddTbarCurrent");
+      }
+      refs.ddBtnFinalize?.classList.remove("ddTbarFinalizeReady");
+    } else {
+      tb.setAttribute("data-dd-active-step", ddCur === null ? "0" : String(ddCur));
+      if (ddCur === null) tb.setAttribute("data-dd-all-done", "");
+      else tb.removeAttribute("data-dd-all-done");
+      tbarSteps.forEach((b, i) => {
+        b?.classList.toggle("ddTbarDone", Boolean(ddDone[i]));
+        b?.classList.toggle("ddTbarCurrent", ddCur === i + 1);
+      });
+      refs.ddBtnFinalize?.classList.toggle("ddTbarFinalizeReady", Boolean(ddS4));
     }
   }
 
@@ -936,9 +1085,28 @@ function mapDdRailIdxToToolbarBtn(idx) {
   return null;
 }
 
-function focusDesignDomainRailStep(idx) {
+async function focusDesignDomainRailStep(idx) {
   const rail = refs.designDomainStepRail;
   if (rail) rail.setAttribute("data-rail-focus", String(idx));
+  const sid = String(state.oc4DesignDomainSessionId || "").trim();
+  const p = state.ddProgress ?? readDdProgressFromPayload({});
+  const deep = deepestDdRailStepDone(p);
+  let didInvalidate = false;
+  if (sid && idx < deep) {
+    try {
+      await oc4DesignDomainApi("/invalidate-from-step", { session_id: sid, rail_step: idx });
+      didInvalidate = true;
+      appendDesignDomainChat(
+        "agent",
+        `已回溯到第 ${idx} 步：已删除第 ${idx + 1}～4 步在服务端生成的中间文件，请从工具栏重新执行对应步骤。`,
+      );
+    } catch (e) {
+      appendDesignDomainChat("agent", String(e?.message || e));
+    }
+    await syncDesignDomainSessionProgress().catch(() => {});
+    await refreshDesignDomainPreviewsFromSession().catch(() => {});
+    applyDesignDomainStepUi();
+  }
   const btn = mapDdRailIdxToToolbarBtn(idx);
   if (btn) {
     try {
@@ -952,8 +1120,10 @@ function focusDesignDomainRailStep(idx) {
       btn.focus();
     }
   }
-  const names = ["", "构建设计域 / 源预览", "导出 OBJ 预览", "FreeCAD 体网格", "划分载荷"];
-  appendDesignDomainChat("agent", `步骤条回溯：已定位到第 ${idx} 步「${names[idx] || ""}」，可在下方工具栏重试该步。`);
+  if (!didInvalidate) {
+    const names = ["", "构建设计域 / 源预览", "导出 OBJ 预览", "FreeCAD 体网格", "划分载荷"];
+    appendDesignDomainChat("agent", `步骤条：已定位到第 ${idx} 步「${names[idx] || ""}」，可在下方工具栏操作。`);
+  }
 }
 
 async function fetchOc4DesignDomainSessionJson() {
@@ -1073,26 +1243,33 @@ async function runDdBuildAndExportObj() {
 }
 
 async function enterOc4DesignDomainStage(opts = {}) {
-  const { autoPipeline = false, forceNewSession = false, softResume = false } = opts;
+  const { autoPipeline = false, forceNewSession = false, softResume = false, resumeHint = "" } = opts;
+  const sidHas = Boolean(String(state.oc4DesignDomainSessionId || "").trim());
+  const canSoftResume = Boolean(softResume && sidHas && !forceNewSession);
+  if (canSoftResume) {
+    layout.showStage("designDomain");
+    await deferTwoFrames();
+    await refreshDesignDomainPreviewsFromSession();
+    appendDesignDomainChat(
+      "agent",
+      resumeHint ||
+        "继续：体网格与载荷完成后点「完成并进入编排」；或返回调整。",
+    );
+    return;
+  }
   if (!state.currentFileId) {
     layout.addLandingBubble("agent", "请先上传 IGES 文件。");
     return;
   }
   if (!isOc4IgesFilename(state.currentFileName)) {
-    layout.addLandingBubble("agent", "当前文件不是 IGES（.igs/.iges），OC4 设计域步骤不适用。");
-    return;
-  }
-  if (softResume && state.oc4DesignDomainSessionId && !forceNewSession) {
-    layout.showStage("designDomain");
-    await deferTwoFrames();
-    await refreshDesignDomainPreviewsFromSession();
-    appendDesignDomainChat("agent", "请继续：完成体网格、载荷划分后点击「完成并进入编排」，或调整选项后重建设计域。");
+    layout.addLandingBubble("agent", "当前文件不是 IGES，设计域步骤不适用。");
     return;
   }
   layout.showStage("designDomain");
   const hadSession = Boolean(state.oc4DesignDomainSessionId) && !forceNewSession;
   if (!hadSession && refs.designDomainFlowLog) refs.designDomainFlowLog.innerHTML = "";
   if (!hadSession) {
+    state.oc4ActivityLog = [];
     state.oc4LastSuggestedBuild = null;
     state.oc4LastSuggestedLoads = null;
     state.oc4PendingMesh = null;
@@ -1102,6 +1279,7 @@ async function enterOc4DesignDomainStage(opts = {}) {
     if (!state.oc4DesignDomainSessionId || forceNewSession) {
       const sess = await oc4DesignDomainApi("/session", { file_id: state.currentFileId });
       state.oc4DesignDomainSessionId = sess.session_id;
+      state.oc4DesignDomainSessionIdForResume = state.oc4DesignDomainSessionId;
       appendDesignDomainChat("agent", `已创建设计域会话（${sess.session_id.slice(0, 8)}…）。几何摘要已写入服务端。`);
       if (state.currentTaskId) {
         taskManager.upsertTask({ oc4_design_domain_session_id: state.oc4DesignDomainSessionId }).catch(() => {});
@@ -1115,7 +1293,7 @@ async function enterOc4DesignDomainStage(opts = {}) {
       await runDdSourcePreviewOnly();
       appendDesignDomainChat("agent", "源预览已就绪；正在构建设计域并更新右侧预览…");
       await runDdBuildAndExportObj();
-      appendDesignDomainChat("agent", "预览已更新。各步骤可点步骤条「AI」打开专步对话；体网格默认最粗以控制 INP 体积。");
+      appendDesignDomainChat("agent", "预览已更新。步骤条「AI」打开专步对话；体网格默认偏粗以控制 INP 体积。");
     } else {
       await refreshDesignDomainPreviewsFromSession();
     }
@@ -1123,13 +1301,60 @@ async function enterOc4DesignDomainStage(opts = {}) {
     setDesignDomainOverlay("left", false);
     setDesignDomainOverlay("right", false);
     appendDesignDomainChat("agent", String(e?.message || e));
-    layout.addLandingBubble("agent", `OC4 设计域：${e?.message || e}`);
+    layout.addLandingBubble("agent", `设计域：${e?.message || e}`);
   } finally {
     await syncDesignDomainSessionProgress().catch(() => {});
   }
 }
 
+async function ensureOc4DesignDomainSessionForResume() {
+  if (String(state.oc4DesignDomainSessionId || "").trim()) return true;
+  const mem = String(state.oc4DesignDomainSessionIdForResume || "").trim();
+  if (mem) {
+    state.oc4DesignDomainSessionId = mem;
+    return true;
+  }
+  if (!state.currentTaskId) return false;
+  try {
+    const resp = await fetch(`${normalizedBaseUrl()}/api/tasks`, { cache: "no-store" });
+    const data = await resp.json();
+    const t = (data.items || []).find((x) => x.task_id === state.currentTaskId);
+    const sid = String(t?.oc4_design_domain_session_id || "").trim();
+    if (sid) {
+      state.oc4DesignDomainSessionId = sid;
+      state.oc4DesignDomainSessionIdForResume = sid;
+      if (t?.file_name && isOc4IgesFilename(t.file_name)) state.currentFileName = t.file_name;
+      ingestTaskOc4Activity(t);
+      renderDesignDomainChatFromState();
+      return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+async function goBackToOc4DesignDomainFromPipeline(opts = {}) {
+  const { focusLoads = true } = opts || {};
+  const ok = await ensureOc4DesignDomainSessionForResume();
+  if (!ok) {
+    layout.addLandingBubble(
+      "agent",
+      "没有可恢复的设计域会话。请重新上传 IGES 并进入设计域。",
+    );
+    return;
+  }
+  state.oc4DesignDomainFinalized = false;
+  const hint =
+    "已返回设计域。可重跑体网格或「4 划分载荷」，再「完成并进入编排」。";
+  await enterOc4DesignDomainStage({ softResume: true, forceNewSession: false, resumeHint: hint });
+  if (focusLoads) await focusDesignDomainRailStep(4);
+  if (state.currentTaskId) await taskManager.upsertTask({ ui_stage: "design_domain" });
+  await taskManager.loadTasks().catch(() => {});
+}
+
 async function beginOrchestrationAfterLanding() {
+  if (!isOc4IgesFilename(state.currentFileName)) state.oc4ActivityLog = [];
   if (!state.currentTaskId) state.currentTaskId = (crypto?.randomUUID?.() || `${Date.now()}`);
   state.currentTaskStatus = "orchestrating";
   if (refs.msgEl) refs.msgEl.value = (refs.msgLanding?.value || "").trim() || refs.msgEl.value;
@@ -1145,12 +1370,13 @@ async function beginOrchestrationAfterLanding() {
   await taskManager.loadTasks();
   layout.showStage("orchestrate");
   if (refs.executePlannedTask) refs.executePlannedTask.disabled = true;
+  const preambleMd = buildOc4OrchestratePreambleMd();
   layout.streamOrchestration(async () => {
     if (refs.executePlannedTask) refs.executePlannedTask.disabled = false;
     layout.addLandingBubble("agent", "编排完成，点击“执行任务”进入分步执行。");
     await taskManager.upsertTask({ progress: 20, step: 1, status: "ready_to_execute" });
     await taskManager.loadTasks();
-  });
+  }, { preambleMd });
 }
 
 function focusCadConvertGuide() {
@@ -1186,10 +1412,7 @@ function isFlowStepClickable(target) {
 const setStepRaw = layout.setStep;
 layout.setStep = (step) => {
   if (step > 1 && state.step1NeedsInp) {
-    layout.addBubble(
-      "agent",
-      "需先完成 IGES→INP 格式转换并生成主 INP，才能进入后续步骤。请点击「IGES → INP 格式转换」（与后端 backend/tools/freecad_iges_to_inp 链路一致）。",
-    );
+    layout.addBubble("agent", "需先完成 IGES→INP 并生成主 INP。请点击「IGES → INP 格式转换」。");
     focusCadConvertGuide();
     return;
   }
@@ -1268,14 +1491,16 @@ async function uploadSelectedFile(file) {
   await taskManager.upsertTask({ file_name: state.currentFileName, scan_dir: state.uploadedSourceDir, status: "uploaded", progress: 8, step: 1 });
   await taskManager.loadTasks();
   if (isOc4IgesFilename(state.currentFileName)) {
+    state.oc4DesignDomainSessionIdForResume = "";
     resetOc4DesignDomainState();
     state.oc4DesignDomainFinalized = false;
     disposeDesignDomainViewer();
-    layout.addLandingBubble("agent", "已识别为 IGES：进入 OC4 设计域前置步骤（构建设计域、预览、体网格与载荷）。");
+    layout.addLandingBubble("agent", "已识别 IGES：进入设计域（构建、预览、体网格、载荷）。");
     await enterOc4DesignDomainStage({ autoPipeline: true }).catch((e) => {
       layout.addLandingBubble("agent", `设计域步骤启动失败：${e?.message || e}`);
     });
   } else {
+    state.oc4DesignDomainSessionIdForResume = "";
     state.oc4DesignDomainFinalized = true;
     resetOc4DesignDomainState();
     disposeDesignDomainViewer();
@@ -1426,9 +1651,8 @@ function showOc4MeshPlanModal() {
   return showCadPlanModal({
     sourceLabel: "设计域 STEP",
     sourceReadonly: `01_design_domain.step（会话 ${short}）`,
-    modalTitle: "体网格方案（OC4）",
-    modalSubtitleText:
-      "与主页「搜索文件 → IGES→INP」使用同一套 FreeCAD + Gmsh 参数；由此生成 02_mesh_body.inp。Gmsh 中 CharacteristicLengthMax 越大网格越粗。服务端需配置 FREECAD_CMD。",
+    modalTitle: "体网格方案",
+    modalSubtitleText: "FreeCAD + Gmsh 生成 02_mesh_body.inp；char_max 越大越粗。需 FREECAD_CMD。",
     primaryButtonText: "开始体网格",
   });
 }
@@ -1533,7 +1757,7 @@ async function runCadConvertWithModal(scanDir, data, plan) {
   showCadConvertModal();
   if (refs.cadConvertModalDesc) {
     refs.cadConvertModalDesc.textContent =
-      "已识别 IGES 几何，当前目录尚无主 INP。服务端通过 backend/tools/freecad_iges_to_inp（FreeCAD FEM + Gmsh）生成体网格并写出 from_cad_gmsh.inp。需本机安装 FreeCAD，并可设置 FREECAD_CMD。完成后会自动重新扫描目录。";
+      "IGES 尚无主 INP：服务端用 FreeCAD+Gmsh 生成 from_cad_gmsh.inp（需本机 FreeCAD / FREECAD_CMD）。完成后将自动扫描。";
   }
   if (refs.cadConvertStage) refs.cadConvertStage.textContent = "正在提交转换任务…";
   setCadConvertBar(8);
@@ -2379,7 +2603,7 @@ refs.fileInputLanding?.addEventListener("change", async (e) => {
 refs.runAgentFlow?.addEventListener("click", async () => {
   if (!state.currentFileId) return layout.addLandingBubble("agent", "请先上传文件，再运行智能体流程。");
   if (isOc4IgesFilename(state.currentFileName) && !state.oc4DesignDomainFinalized) {
-    layout.addLandingBubble("agent", "OC4 IGES 需先完成设计域、体网格与载荷划分；已打开设计域步骤。");
+    layout.addLandingBubble("agent", "IGES 需先完成设计域流程；已打开设计域。");
     await enterOc4DesignDomainStage({ autoPipeline: true, softResume: true }).catch((e) => {
       layout.addLandingBubble("agent", `设计域步骤：${e?.message || e}`);
     });
@@ -2444,7 +2668,7 @@ refs.ddBtnMesh?.addEventListener("click", async () => {
     }
     appendDesignDomainChat(
       "agent",
-      "已开始体网格：服务端正在调用 FreeCAD + Gmsh（backend/tools/freecad_iges_to_inp → scripts/freecad_iges_to_inp_runner.py）由设计域 STEP 生成 02_mesh_body.inp；模型较大时可能需数分钟，请勿关闭页面。",
+      "体网格进行中：FreeCAD + Gmsh 由 STEP 生成 02_mesh_body.inp，大模型可能需数分钟。",
     );
     if (meshBtn) {
       meshBtn.disabled = true;
@@ -2476,14 +2700,26 @@ refs.ddBtnLoads?.addEventListener("click", async () => {
   const loadsBtn = refs.ddBtnLoads;
   const nl = String(refs.ddNlLoadsTa?.value || "").trim();
   try {
+    loadsBtn?.setAttribute("aria-busy", "true");
+    if (loadsBtn) loadsBtn.disabled = true;
+    const overlayMsg = nl
+      ? "划分载荷：大模型解析与 INP 写入中…"
+      : "划分载荷：正在划分 design / nondesign 并写入 INP…";
+    setDesignDomainOverlay("right", true, overlayMsg);
     if (nl) {
-      appendDesignDomainChat("agent", "正在调用 Qwen 解析载荷自然语言，随后划分 design/nondesign 并写入 *STEP / *CLOAD …");
-      loadsBtn?.setAttribute("aria-busy", "true");
-      if (loadsBtn) loadsBtn.disabled = true;
-      setDesignDomainOverlay("right", true, "划分载荷：大模型解析与 INP 写入中…");
+      appendDesignDomainChat(
+        "agent",
+        "正在调用 Qwen 解析载荷自然语言，随后划分 design/nondesign 并写入 *STEP / *CLOAD …",
+      );
+    } else {
+      appendDesignDomainChat("agent", "正在划分 design / nondesign 单元集并追加 *STEP（无自然语言时跳过 Qwen）…");
     }
     const data = await oc4DesignDomainApi("/loads", buildOc4LoadsRequestBody());
     if (data.nl_reply) appendDesignDomainChat("agent", String(data.nl_reply));
+    const warns = data.validation_warnings || data.stats?.validation_warnings;
+    if (Array.isArray(warns) && warns.length) {
+      for (const w of warns) appendDesignDomainChat("agent", String(w));
+    }
     appendDesignDomainChat(
       "agent",
       `载荷划分完成：${data.final_inp_url || data.final_inp || ""}（统计：${JSON.stringify(data.stats || {})}）`,
@@ -2500,8 +2736,7 @@ refs.ddBtnFinalize?.addEventListener("click", async () => {
   try {
     const prog = state.ddProgress ?? readDdProgressFromPayload({});
     if (!prog.has_for_beso_inp) {
-      const tip =
-        "请先依次完成：1 构建设计域 → 3 体网格 → 4 划分载荷，待服务端生成 03_for_beso.inp 后再进入编排。";
+      const tip = "请先完成 1→3→4 步并生成 03_for_beso.inp，再进入编排。";
       appendDesignDomainChat("agent", tip);
       layout.addLandingBubble("agent", tip);
       return;
@@ -2510,18 +2745,26 @@ refs.ddBtnFinalize?.addEventListener("click", async () => {
     state.uploadedSourceDir = String(data.scan_dir || "").trim();
     if (refs.scanDirInput) refs.scanDirInput.value = state.uploadedSourceDir;
     state.oc4DesignDomainFinalized = true;
+    const sidKeep = String(state.oc4DesignDomainSessionId || "").trim();
+    state.oc4DesignDomainSessionIdForResume = sidKeep;
+    appendDesignDomainChat(
+      "agent",
+      `设计域收尾完成。工作目录：${state.uploadedSourceDir || "(未知)"}，随后进入编排流水线。`,
+    );
+    await flushOc4ActivityPersist();
     resetOc4DesignDomainState();
     disposeDesignDomainViewer();
     if (refs.fileSummaryInline) {
       refs.fileSummaryInline.textContent = `已上传文件：${state.currentFileName}\n扫描目录：${state.uploadedSourceDir || "(未知)"}`;
     }
-    layout.addLandingBubble("agent", `OC4 设计域完成，工作目录：${state.uploadedSourceDir}`);
+    layout.addLandingBubble("agent", `设计域完成。目录：${state.uploadedSourceDir}`);
     await taskManager.upsertTask({
       file_name: state.currentFileName,
       scan_dir: state.uploadedSourceDir,
       status: "uploaded",
       progress: 10,
       step: 1,
+      ...(sidKeep ? { oc4_design_domain_session_id: sidKeep } : {}),
     });
     await taskManager.loadTasks();
     await beginOrchestrationAfterLanding();
@@ -2539,7 +2782,7 @@ refs.designDomainStepRail?.addEventListener("click", (e) => {
   if (!stepEl || !stepEl.classList.contains("ddStepNavigable")) return;
   const idx = parseInt(stepEl.getAttribute("data-idx") || "0", 10);
   if (!Number.isFinite(idx) || idx < 1 || idx > 4) return;
-  focusDesignDomainRailStep(idx);
+  void focusDesignDomainRailStep(idx);
 });
 refs.designDomainStepRail?.addEventListener("keydown", (e) => {
   if (e.key !== "Enter" && e.key !== " ") return;
@@ -2548,7 +2791,7 @@ refs.designDomainStepRail?.addEventListener("keydown", (e) => {
   e.preventDefault();
   const idx = parseInt(stepEl.getAttribute("data-idx") || "0", 10);
   if (!Number.isFinite(idx) || idx < 1 || idx > 4) return;
-  focusDesignDomainRailStep(idx);
+  void focusDesignDomainRailStep(idx);
 });
 refs.designDomainMain?.addEventListener("click", (e) => {
   const btn = e.target?.closest?.(".ddStepAiBtn");
@@ -2592,7 +2835,22 @@ refs.ddStepNlSend?.addEventListener("click", async () => {
 });
 refs.ddStepNlApply?.addEventListener("click", () => applyDdNlSuggestions());
 
-refs.executePlannedTask?.addEventListener("click", async () => { layout.showStage("flow"); layout.setStep(1); await scanDirectory(); });
+refs.executePlannedTask?.addEventListener("click", async () => {
+  layout.showStage("flow");
+  layout.setStep(1);
+  queueMicrotask(() => updateOc4ReturnNavVisibility());
+  await scanDirectory();
+});
+refs.backToOc4FromOrchestrateBtn?.addEventListener("click", () => {
+  goBackToOc4DesignDomainFromPipeline({ focusLoads: true }).catch((e) =>
+    layout.addLandingBubble("agent", String(e?.message || e)),
+  );
+});
+refs.backToOc4FromFlowBtn?.addEventListener("click", () => {
+  goBackToOc4DesignDomainFromPipeline({ focusLoads: true }).catch((e) =>
+    layout.addBubble("agent", String(e?.message || e)),
+  );
+});
 refs.backHomeFromOrchestrate?.addEventListener("click", () => layout.goHome());
 refs.backHomeFromFlow?.addEventListener("click", () => layout.goHome());
 refs.backHomeFloating?.addEventListener("click", () => layout.goHome());
@@ -2666,6 +2924,7 @@ refs.uploadPreviewRemove?.addEventListener("click", () => {
   state.currentFileId = null;
   state.currentFileName = "";
   state.uploadedSourceDir = "";
+  state.oc4DesignDomainSessionIdForResume = "";
   disposeDesignDomainViewer();
   resetOc4DesignDomainState();
   state.oc4DesignDomainFinalized = false;
@@ -2703,7 +2962,7 @@ refs.spinToggleBtn?.addEventListener("click", () => {
 layout.setStep(1);
 layout.showStage("landing");
 updateLogDockVisibility();
-layout.addLandingBubble("agent", "先聊天并上传文件，点击“运行智能体流程”后开始流式编排。");
+layout.addLandingBubble("agent", "上传文件并输入需求，点「运行智能体流程」开始编排。");
 try {
   if (refs.baseUrlInput) {
     const stored = localStorage.getItem("beso.settings.baseUrl") || "";
@@ -2732,6 +2991,7 @@ refreshLogSummaryViews();
 updateSpinToggleUi();
 taskManager.loadTasks().catch(() => {});
 queueMicrotask(() => applyDesignDomainStepUi());
+queueMicrotask(() => updateOc4ReturnNavVisibility());
 
 const resultsViewer = mountResultsViewer();
 document.getElementById("resultsViewerBtn")?.addEventListener("click", () => {

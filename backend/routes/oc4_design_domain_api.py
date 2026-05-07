@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from backend.oc4_design_domain_service import (
     create_session_from_upload,
     geometry_summary,
+    invalidate_oc4_downstream_from_rail_step,
     merge_session_meta,
     read_session_meta,
     run_build,
@@ -162,6 +163,22 @@ def oc4_dd_get_session(session_id: str):
     return {"session_id": session_id, **meta, **session_progress_flags(sdir)}
 
 
+class InvalidateFromStepIn(BaseModel):
+    session_id: str
+    rail_step: int = Field(..., ge=1, le=4, description="用户点击的步骤条序号（1～4）；将清除该步之后的产物。")
+
+
+@router.post("/invalidate-from-step")
+def oc4_dd_invalidate_from_step(body: InvalidateFromStepIn):
+    """步骤条回溯到较早步骤时，删除后续步骤生成的文件并清理 session meta。"""
+    sdir = _get_session(body.session_id)
+    try:
+        out = invalidate_oc4_downstream_from_rail_step(sdir, rail_step=body.rail_step)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, **out}
+
+
 @router.post("/build")
 def oc4_dd_build(body: BuildIn):
     sdir = _get_session(body.session_id)
@@ -283,6 +300,8 @@ def oc4_dd_loads(body: LoadsIn):
     }
     if out.get("nl_reply"):
         payload["nl_reply"] = out["nl_reply"]
+    if out.get("validation_warnings"):
+        payload["validation_warnings"] = out["validation_warnings"]
     return payload
 
 

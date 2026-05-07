@@ -254,9 +254,10 @@ def run_beso_job(
         except Exception:
             manifest = {}
 
-    # Copy inp into run directory
+    # Copy inp into run directory（若主 INP 已在 run_dir 内，避免 shutil.copy2 自覆盖导致 Windows WinError 32）
     inp_dst = run_dir / inp_src.name
-    shutil.copy2(inp_src, inp_dst)
+    if inp_src.resolve() != inp_dst.resolve():
+        shutil.copy2(inp_src, inp_dst)
     _normalize_include_lines(inp_dst)
     selected_aux: set[str] = set()
     if manifest:
@@ -314,6 +315,12 @@ def run_beso_job(
     # Derive elset name（与 generator 一致，避免 meshio/Gmsh INP 误用 example_2 的 SolidMaterial*）
     elsets = _scan_elsets(inp_dst)
     elset_name = pick_usable_elset_name(elsets)
+    elsets_ci = {e.strip().lower() for e in elsets if e.strip()}
+    is_oc4_dual_inp = (
+        inp_dst.name.lower() == "03_for_beso.inp"
+        and "design_space" in elsets_ci
+        and "nondesign_space" in elsets_ci
+    )
 
     # Locate ccx
     ccx_path = Path(os.environ.get("CCX_PATH", r"D:\freecad\bin\ccx.exe")).resolve()
@@ -347,26 +354,60 @@ def run_beso_job(
     except Exception:
         fr_use = float(r_req)
 
-    if not conf_path.exists():
-        _write_beso_conf(
-            conf_path,
-            work_dir=run_dir,
-            ccx_path=ccx_path,
-            file_name=inp_dst.name,
-            elset_name=elset_name,
-            mass_goal_ratio=mass_goal_ratio,
-            filter_radius=fr_use,
-            optimization_base=optimization_base,
-            save_every=save_every,
-        )
-    elif conf_text_existing is not None:
-        rf0 = _parse_first_simple_filter_radius(conf_text_existing)
-        if rf0 is not None and abs(fr_use - rf0) > max(1e-9, 1e-6 * abs(rf0)):
-            conf_path.write_text(
-                _patch_first_simple_filter_radius(conf_text_existing, fr_use),
-                encoding="utf-8",
+    oc4_dual_applied = False
+    if is_oc4_dual_inp:
+        try:
+            from backend.tools.inp_oc4_design_nondesign import (
+                repair_oc4_beso_inp_lines,
+                write_beso_conf_example3_style,
             )
-            on_log(f"[INFO] 已回写 {conf_path.name}：simple 滤波半径 {rf0:g} -> {fr_use:g}")
+
+            raw_inp = inp_dst.read_text(encoding="utf-8", errors="replace")
+            old_lines = raw_inp.splitlines()
+            new_lines = repair_oc4_beso_inp_lines(old_lines)
+            if new_lines != old_lines:
+                inp_dst.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+                elsets = _scan_elsets(inp_dst)
+                elset_name = pick_usable_elset_name(elsets)
+                on_log("[INFO] OC4：已修复 03_for_beso.inp（*STEP 前材料顺序 / 缺失 *MATERIAL）")
+            iter_env = (os.environ.get("BESO_ITERATIONS_LIMIT") or "").strip()
+            iter_lim: int | str = int(iter_env) if iter_env.isdigit() else 8
+            write_beso_conf_example3_style(
+                conf_path,
+                work_dir=run_dir,
+                ccx_path=ccx_path,
+                inp_name=inp_dst.name,
+                mass_goal_ratio=mass_goal_ratio,
+                filter_radius=fr_use,
+                optimization_base=optimization_base,
+                iterations_limit=iter_lim,
+            )
+            oc4_dual_applied = True
+            on_log("[INFO] OC4 双域：已写入 design_space/nondesign_space 的 beso_conf.py（覆盖单域模板）")
+        except Exception as e:
+            on_log(f"[WARN] OC4 双域预处理失败，将退回通用 beso_conf 逻辑: {e}")
+
+    if not oc4_dual_applied:
+        if not conf_path.exists():
+            _write_beso_conf(
+                conf_path,
+                work_dir=run_dir,
+                ccx_path=ccx_path,
+                file_name=inp_dst.name,
+                elset_name=elset_name,
+                mass_goal_ratio=mass_goal_ratio,
+                filter_radius=fr_use,
+                optimization_base=optimization_base,
+                save_every=save_every,
+            )
+        elif conf_text_existing is not None:
+            rf0 = _parse_first_simple_filter_radius(conf_text_existing)
+            if rf0 is not None and abs(fr_use - rf0) > max(1e-9, 1e-6 * abs(rf0)):
+                conf_path.write_text(
+                    _patch_first_simple_filter_radius(conf_text_existing, fr_use),
+                    encoding="utf-8",
+                )
+                on_log(f"[INFO] 已回写 {conf_path.name}：simple 滤波半径 {rf0:g} -> {fr_use:g}")
 
     # Run beso_main.py, ensuring it loads our config (same dir). Pick source set by task type.
     beso_src = _choose_beso_source_dir(workspace_root, manifest, inp_src)

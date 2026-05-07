@@ -86,7 +86,8 @@ def main() -> int:
         if not mi.is_file():
             print(f"[ERR] --mesh-inp 不存在: {mi}", file=sys.stderr)
             return 2
-        shutil.copy2(mi, mesh_inp)
+        if mi != mesh_inp.resolve():
+            shutil.copy2(mi, mesh_inp)
     else:
         from backend.tools.gmsh_iges_to_inp import run_gmsh_iges_to_inp
 

@@ -261,6 +261,61 @@ def _scan_elsets(inp_path: Path) -> list[str]:
     return sorted(set(elsets))
 
 
+def _scan_dir_session_beso_conf_path(bundle: InputBundle) -> Path:
+    return Path(bundle.scan_dir).resolve() / "beso_conf.py"
+
+
+def _primary_inp_suggests_oc4_dual_domain(primary_name: str, primary_elsets: list[str]) -> bool:
+    """主文件为 ``03_for_beso.inp`` 且 ELSET 含 design_space + nondesign_space 时视为 OC4 双域任务。"""
+    if primary_name.lower() != "03_for_beso.inp":
+        return False
+    lc = {e.strip().lower() for e in primary_elsets if e.strip()}
+    return "design_space" in lc and "nondesign_space" in lc
+
+
+def _should_use_oc4_session_beso_conf(bundle: InputBundle, primary_name: str) -> bool:
+    scan_norm = bundle.scan_dir.replace("\\", "/").lower()
+    if "_design_domain" in scan_norm:
+        return True
+    if primary_name.lower() == "03_for_beso.inp":
+        return True
+    return False
+
+
+def _is_oc4_dual_domain_beso_conf_text(text: str) -> bool:
+    return "design_space" in text and "nondesign_space" in text
+
+
+def _patch_beso_conf_runtime_paths(
+    text: str,
+    *,
+    run_dir: Path,
+    ccx_path: Path,
+    primary_name: str,
+    mass_goal_ratio: float,
+    filter_radius: float,
+    optimization_base: str,
+    save_every: int,
+) -> str:
+    """
+    仅改写运行期路径与常用超参，保留 OC4 finalize 写入的双域 domain_* 块，
+    避免 _build_conf_from_examples 用单 elset 模板覆盖 design_space / nondesign_space。
+    """
+    conf = text
+    conf = _replace_assignment(conf, "path", f'r"{run_dir}"')
+    conf = _replace_assignment(conf, "path_calculix", f'r"{ccx_path}"')
+    conf = _replace_assignment(conf, "file_name", f'"{primary_name}"')
+    conf = _replace_assignment(conf, "mass_goal_ratio", str(float(mass_goal_ratio)))
+    conf = _replace_assignment(conf, "filter_list", f'[["simple", {float(filter_radius)}]]')
+    conf = _replace_assignment(conf, "optimization_base", f'"{optimization_base}"')
+    conf = _replace_assignment(conf, "save_iteration_results", str(int(save_every)))
+    conf = _replace_assignment(conf, "save_resulting_format", '"inp vtk"')
+    if optimization_base == "stiffness":
+        conf = _replace_assignment(conf, "reference_points", '"integration points"')
+        conf = _replace_assignment(conf, "reference_value", '"max"')
+    return conf
+
+
 def _llm_choose_primary(bundle: InputBundle, qwen: QwenClient | None = None) -> str | None:
     qwen = qwen or QwenClient()
     if not qwen.api_key:
@@ -327,19 +382,65 @@ def build_generated_code(
 
     filter_radius_used, filter_radius_note = auto_scale_filter_radius(Path(primary_inp), float(filter_radius))
 
-    conf_text = _build_conf_from_examples(
-        bundle=bundle,
-        run_dir=run_dir,
-        ccx_path=ccx_path,
-        primary_name=primary_name,
-        primary_elsets=elsets,
-        mass_goal_ratio=mass_goal_ratio,
-        filter_radius=filter_radius_used,
-        optimization_base=optimization_base,
-        save_every=save_every,
-        fallback_elset=elset_name,
-        extra_comment=extra_comment,
-    )
+    scan_conf = _scan_dir_session_beso_conf_path(bundle)
+    session_raw = ""
+    use_session_oc4 = False
+    if scan_conf.is_file() and _should_use_oc4_session_beso_conf(bundle, primary_name):
+        session_raw = scan_conf.read_text(encoding="utf-8", errors="ignore")
+        if _is_oc4_dual_domain_beso_conf_text(session_raw):
+            use_session_oc4 = True
+
+    if use_session_oc4:
+        patched = _patch_beso_conf_runtime_paths(
+            session_raw,
+            run_dir=run_dir,
+            ccx_path=ccx_path,
+            primary_name=primary_name,
+            mass_goal_ratio=mass_goal_ratio,
+            filter_radius=filter_radius_used,
+            optimization_base=optimization_base,
+            save_every=save_every,
+        )
+        conf_header = (
+            "# Auto-generated: preserved OC4 session beso_conf.py (design_space + nondesign_space).\n"
+            f"# Source: {scan_conf.as_posix()}\n"
+            f"# Detected auxiliary inp files: {extra_comment}\n\n"
+        )
+        conf_text = conf_header + patched
+        elset_source = "oc4_session_beso_conf"
+    elif _primary_inp_suggests_oc4_dual_domain(primary_name, elsets) and EXAMPLE3_CONF.exists():
+        raw_tpl = EXAMPLE3_CONF.read_text(encoding="utf-8", errors="ignore")
+        patched = _patch_beso_conf_runtime_paths(
+            raw_tpl,
+            run_dir=run_dir,
+            ccx_path=ccx_path,
+            primary_name=primary_name,
+            mass_goal_ratio=mass_goal_ratio,
+            filter_radius=filter_radius_used,
+            optimization_base=optimization_base,
+            save_every=save_every,
+        )
+        conf_header = (
+            "# Auto-generated: OC4 dual-domain beso_conf from wiki example_3 template "
+            "(03_for_beso.inp + design_space/nondesign_space ELSETs; scan_dir 无会话 beso_conf 时).\n"
+            f"# Detected auxiliary inp files: {extra_comment}\n\n"
+        )
+        conf_text = conf_header + patched
+        elset_source = "oc4_example3_dual_template"
+    else:
+        conf_text = _build_conf_from_examples(
+            bundle=bundle,
+            run_dir=run_dir,
+            ccx_path=ccx_path,
+            primary_name=primary_name,
+            primary_elsets=elsets,
+            mass_goal_ratio=mass_goal_ratio,
+            filter_radius=filter_radius_used,
+            optimization_base=optimization_base,
+            save_every=save_every,
+            fallback_elset=elset_name,
+            extra_comment=extra_comment,
+        )
 
     manifest = {
         "scan_dir": bundle.scan_dir,
@@ -485,7 +586,7 @@ def _choose_conf_template(bundle: InputBundle, primary_name: str) -> Path:
     if "example_1" in scan_s or "plane_mesh" in p:
         if BASE_CONF.exists():
             return BASE_CONF
-    if "example_3" in scan_s or "analysis-1" in p or "analysis_1" in p:
+    if "example_3" in scan_s or "analysis-1" in p or "analysis_1" in p or "for_beso" in p:
         if EXAMPLE3_CONF.exists():
             return EXAMPLE3_CONF
     if looks_example2 and EXAMPLE2_CONF.exists():

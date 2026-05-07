@@ -1,0 +1,142 @@
+
+---------------------------------------------------
+file_name = D:\python_project\beso_ai\examples\oc4_force\beso_run\03_for_beso.inp
+Start at    Fri May  8 02:46:08 2026
+
+elset_name              = design_space
+domain_optimized        = True
+domain_density          = [1e-06, 1]
+domain_thickness        = [1.0, 1.0]
+domain_offset           = 0.0
+domain_orientation      = []
+domain_FI               = [[('stress_von_Mises', 450000000.0)], [('stress_von_Mises', 450.0)]]
+domain_material         = ['*ELASTIC \n210000e-6,  0.3', '*ELASTIC \n210000,  0.3']
+domain_same_state       = False
+
+elset_name              = nondesign_space
+domain_optimized        = False
+domain_density          = [1e-06, 1]
+domain_thickness        = [1.0, 1.0]
+domain_offset           = 0.0
+domain_orientation      = []
+domain_FI               = [[('stress_von_Mises', 450000000.0)], [('stress_von_Mises', 450.0)]]
+domain_material         = ['*ELASTIC \n210000e-6,  0.3', '*ELASTIC \n210000,  0.3']
+domain_same_state       = False
+
+mass_goal_ratio         = 0.35
+continue_from           = 
+filter_list             = [['simple', 26053.41671991062]]
+optimization_base       = failure_index
+cpu_cores               = 24
+FI_violated_tolerance   = 1
+decay_coefficient       = -0.2
+shells_as_composite     = False
+reference_points        = integration points
+reference_value         = max
+mass_addition_ratio     = 0.01
+mass_removal_ratio      = 0.03
+ratio_type              = relative
+compensate_state_filter = False
+sensitivity_averaging   = False
+steps_superposition     = []
+iterations_limit        = 2
+tolerance               = 0.001
+displacement_graph      = []
+save_iteration_results  = 2
+save_solver_files       = 
+save_resulting_format   = inp vtk
+
+domains: 2
+nodes  : 258
+TRIA3  : 0
+TRIA6  : 0
+QUAD4  : 0
+QUAD8  : 0
+TETRA4 : 739
+TETRA10: 0
+HEXA8  : 0
+HEXA20 : 0
+PENTA6 : 0
+PENTA15: 0
+
+domain order: 
+0) design_space
+1) nondesign_space
+
+   i              mass FI_violated_0)   1) all)          FI_mean    _without_state0         FI_max_0)                1)              all)
+ERROR: CalculiX exit status 201. It cannot open inp file.
+
+ERROR: CalculiX results not found, check CalculiX for errors.
+
+---------------------------------------------------
+file_name = D:\python_project\beso_ai\examples\oc4_force\beso_run\03_for_beso.inp
+Start at    Fri May  8 02:56:29 2026
+
+elset_name              = design_space
+domain_optimized        = True
+domain_density          = [1e-06, 1]
+domain_thickness        = [1.0, 1.0]
+domain_offset           = 0.0
+domain_orientation      = []
+domain_FI               = [[('stress_von_Mises', 450000000.0)], [('stress_von_Mises', 450.0)]]
+domain_material         = ['*ELASTIC \n210000e-6,  0.3', '*ELASTIC \n210000,  0.3']
+domain_same_state       = False
+
+elset_name              = nondesign_space
+domain_optimized        = False
+domain_density          = [1e-06, 1]
+domain_thickness        = [1.0, 1.0]
+domain_offset           = 0.0
+domain_orientation      = []
+domain_FI               = [[('stress_von_Mises', 450000000.0)], [('stress_von_Mises', 450.0)]]
+domain_material         = ['*ELASTIC \n210000e-6,  0.3', '*ELASTIC \n210000,  0.3']
+domain_same_state       = False
+
+mass_goal_ratio         = 0.35
+continue_from           = 
+filter_list             = [['simple', 26053.41671991062]]
+optimization_base       = failure_index
+cpu_cores               = 24
+FI_violated_tolerance   = 1
+decay_coefficient       = -0.2
+shells_as_composite     = False
+reference_points        = integration points
+reference_value         = max
+mass_addition_ratio     = 0.01
+mass_removal_ratio      = 0.03
+ratio_type              = relative
+compensate_state_filter = False
+sensitivity_averaging   = False
+steps_superposition     = []
+iterations_limit        = 2
+tolerance               = 0.001
+displacement_graph      = []
+save_iteration_results  = 2
+save_solver_files       = 
+save_resulting_format   = inp vtk
+
+domains: 2
+nodes  : 258
+TRIA3  : 0
+TRIA6  : 0
+QUAD4  : 0
+QUAD8  : 0
+TETRA4 : 739
+TETRA10: 0
+HEXA8  : 0
+HEXA20 : 0
+PENTA6 : 0
+PENTA15: 0
+
+domain order: 
+0) design_space
+1) nondesign_space
+
+   i              mass FI_violated_0)   1) all)          FI_mean    _without_state0         FI_max_0)                1)              all)
+   0 74744826369063.39             0    0    0 9.565677094977062e-06 9.565677094977062e-06 0.14795308870995993 9.070138536975263e-05 0.14795308870995993
+   1 72333488882380.39             0    0    0 9.852660603296417e-06 9.8526609317489e-06 0.14829881017928437 9.074607673436633e-05 0.14829881017928437
+   2 71278843220318.83             0    0    0 9.982669598851554e-06 9.982670084266292e-06 0.14861620403692652 9.078019546770126e-05 0.14861620403692652
+
+Finished at  Fri May  8 02:56:30 2026
+Total time   0 h 0 min 1 s
+

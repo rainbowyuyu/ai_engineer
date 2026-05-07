@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BESO 智能体（本机）</title>
-    <link rel="icon" href="data:;base64,iVBORw0KGgo=" />
+    <title>BESO 智能体</title>
+    <link rel="icon" href="./assets/beso-agent-mark.svg" type="image/svg+xml" />
     <script type="importmap">
       {
         "imports": {
@@ -818,7 +818,10 @@
   <body>
     <div class="app">
       <div class="top">
-        <div class="brand"><span class="dot"></span> BESO 智能体 （rainbow鱼搭建）</div>
+        <div class="brand" title="BESO 拓扑优化智能体">
+          <img class="brandLogo" src="./assets/beso-agent-lockup.svg" width="180" height="28" alt="" aria-hidden="true" />
+          <span class="brandName">BESO 智能体</span>
+        </div>
         <div class="topRight">
           <span class="chip">后端：<span id="baseUrlText">127.0.0.1:8000</span></span>
           <span class="chip">Job：<span id="jobId">(未启动)</span></span>
@@ -828,8 +831,13 @@
         </div>
       </div>
 
-      <div class="panelHd hidden" id="flowStepper" style="margin:12px 14px 0;border-radius:14px;border:1px solid var(--border); justify-content:space-between;">
+      <div class="panelHd hidden" id="flowStepper" style="margin:12px 14px 0;border-radius:14px;border:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <div class="btnRow" style="flex-wrap:wrap;gap:8px;align-items:center;">
         <button class="btn backHomeBtn" id="backHomeFloating">&lt; 返回主页</button>
+        <button type="button" class="btn oc4ReturnToDesignBtn hidden" id="backToOc4FromFlowBtn" title="返回设计域：调整网格与载荷后再进入编排">
+          ← 设计域
+        </button>
+        </div>
         <div class="btnRow" style="justify-content:flex-end;">
           <span class="chip" id="flowStep1" tabindex="-1" aria-disabled="true">1 搜索文件</span>
           <span class="chip" id="flowStep2" tabindex="-1" aria-disabled="true">2 生成代码</span>
@@ -841,8 +849,11 @@
       <div class="main chatgptHome" id="landingMain">
         <div class="taskSidebar">
           <div class="taskSidebarHd">
-            <div class="title">任务记录</div>
-            <div class="btnRow">
+            <div class="taskSidebarBrand">
+              <img class="taskSidebarBrandMark" src="./assets/beso-agent-mark.svg" width="22" height="22" alt="" />
+              <div class="title">任务</div>
+            </div>
+            <div class="taskSidebarTools btnRow">
               <button class="sidebarToggle" id="toggleSidebarBtn" title="折叠/展开任务栏">◀</button>
               <button class="btn" id="refreshTasksBtn">刷新</button>
             </div>
@@ -852,8 +863,10 @@
 
         <div class="introStage panel">
           <div class="homeHero">
-            <div class="heroTitle">BESO 智能体</div>
-            <div class="heroSub">上方查看会话，底部输入需求并开始任务。</div>
+            <div class="heroTitleRow">
+              <img class="heroLockup" src="./assets/beso-agent-lockup.svg" width="120" height="24" alt="" aria-hidden="true" />
+              <div class="heroTitle">BESO 智能体</div>
+            </div>
           </div>
 
           <div id="chatLanding" class="chat"></div>
@@ -880,75 +893,94 @@
       <div class="main hidden" id="designDomainMain">
         <div class="designDomainShell">
           <header class="designDomainHeader">
-            <div>
-              <div class="designDomainBadge">OC4 · 设计域</div>
-              <h1 class="designDomainTitle">几何与设计域预览</h1>
-              <p class="designDomainSub">
-                请按步骤条顺序操作；步骤名可点击以<strong>回溯定位</strong>到对应工具按钮。每步可点「AI」打开专步对话。第 3 步体网格会先弹出与主页「IGES→INP」相同的 <strong>Plan 方案窗</strong> 再提交服务端（同源 FreeCAD+Gmsh）。工具栏 char_max 若填写会覆盖方案中的 CharacteristicLengthMax；留空时服务端用最粗启发式以控制 02_mesh_body.inp 体积（目标约 &lt;10MB，超限会提示）。
-              </p>
+            <div class="designDomainHeaderMain">
+              <div class="stageBrandRow">
+                <img class="stageLockup" src="./assets/beso-agent-mark.svg" width="26" height="26" alt="" aria-hidden="true" />
+                <div>
+                  <div class="designDomainBadge">设计域</div>
+                  <h1 class="designDomainTitle">几何与预览</h1>
+                </div>
+              </div>
             </div>
             <button type="button" class="btn backHomeBtn" id="designDomainBackBtn">返回主页</button>
           </header>
-          <nav class="designDomainStepRail" id="designDomainStepRail" aria-label="OC4 设计域分步">
-            <div class="ddStepCluster">
-              <div class="ddStep" data-idx="1"><span class="ddStepNum">1</span><span class="ddStepLabel">源装配预览</span></div>
-              <button type="button" class="ddStepAiBtn" data-dd-topic="design" title="步骤 1：设计域选项 AI">AI</button>
-            </div>
-            <span class="ddStepSep" aria-hidden="true">→</span>
-            <div class="ddStepCluster">
-              <div class="ddStep" data-idx="2"><span class="ddStepNum">2</span><span class="ddStepLabel">设计域 OBJ</span></div>
-              <button type="button" class="ddStepAiBtn" data-dd-topic="preview" title="步骤 2：OBJ 预览 AI">AI</button>
-            </div>
-            <span class="ddStepSep" aria-hidden="true">→</span>
-            <div class="ddStepCluster">
-              <div class="ddStep" data-idx="3"><span class="ddStepNum">3</span><span class="ddStepLabel">体网格</span></div>
-              <button type="button" class="ddStepAiBtn" data-dd-topic="mesh" title="步骤 3：FreeCAD 体网格 AI">AI</button>
-            </div>
-            <span class="ddStepSep" aria-hidden="true">→</span>
-            <div class="ddStepCluster">
-              <div class="ddStep" data-idx="4"><span class="ddStepNum">4</span><span class="ddStepLabel">载荷 INP</span></div>
-              <button type="button" class="ddStepAiBtn" data-dd-topic="loads" title="步骤 4：载荷 AI">AI</button>
-            </div>
-            <span class="ddStepSep" aria-hidden="true">→</span>
-            <span class="ddStepRailTail">「完成并进入编排」</span>
-          </nav>
-          <p class="designDomainStepHint" id="designDomainStepHint" role="status"></p>
-          <div class="designDomainFlowLog" id="designDomainFlowLog" aria-live="polite"></div>
-          <div class="designDomainPreviewRow">
-            <div class="designDomainViewportCard">
-              <div class="designDomainViewportLabel">源几何（经 STEP 三角化预览）</div>
-              <div class="designDomainViewport" id="designDomainViewportLeft">
-                <div class="designDomainCanvasWrap" id="designDomainCanvasLeft"></div>
-                <div class="designDomainViewportOverlay hidden" id="designDomainLeftOverlay" aria-hidden="true">
-                  <div class="designDomainOverlayInner">
-                    <div class="designDomainSpinner" aria-hidden="true"></div>
-                    <div class="designDomainOverlayText" id="designDomainLeftOverlayText">正在准备预览…</div>
+          <div class="designDomainBodyGrid">
+            <div class="designDomainWorkCol">
+              <nav class="designDomainStepRail" id="designDomainStepRail" aria-label="设计域分步">
+                <div class="ddStepCluster">
+                  <div class="ddStep" data-idx="1"><span class="ddStepNum">1</span><span class="ddStepLabel">源装配预览</span></div>
+                  <button type="button" class="ddStepAiBtn" data-dd-topic="design" title="步骤 1：设计域选项 AI">AI</button>
+                </div>
+                <span class="ddStepSep" aria-hidden="true">→</span>
+                <div class="ddStepCluster">
+                  <div class="ddStep" data-idx="2"><span class="ddStepNum">2</span><span class="ddStepLabel">设计域 OBJ</span></div>
+                  <button type="button" class="ddStepAiBtn" data-dd-topic="preview" title="步骤 2：OBJ 预览 AI">AI</button>
+                </div>
+                <span class="ddStepSep" aria-hidden="true">→</span>
+                <div class="ddStepCluster">
+                  <div class="ddStep" data-idx="3"><span class="ddStepNum">3</span><span class="ddStepLabel">体网格</span></div>
+                  <button type="button" class="ddStepAiBtn" data-dd-topic="mesh" title="步骤 3：FreeCAD 体网格 AI">AI</button>
+                </div>
+                <span class="ddStepSep" aria-hidden="true">→</span>
+                <div class="ddStepCluster">
+                  <div class="ddStep" data-idx="4"><span class="ddStepNum">4</span><span class="ddStepLabel">载荷 INP</span></div>
+                  <button type="button" class="ddStepAiBtn" data-dd-topic="loads" title="步骤 4：载荷 AI">AI</button>
+                </div>
+                <span class="ddStepSep" aria-hidden="true">→</span>
+                <span class="ddStepRailTail">「完成并进入编排」</span>
+              </nav>
+              <p class="designDomainStepHint" id="designDomainStepHint" role="status"></p>
+              <div class="designDomainPreviewRow">
+                <div class="designDomainViewportCard">
+                  <div class="designDomainViewportLabel">源几何（经 STEP 三角化预览）</div>
+                  <div class="designDomainViewport" id="designDomainViewportLeft">
+                    <div class="designDomainCanvasWrap" id="designDomainCanvasLeft"></div>
+                    <div class="designDomainViewportOverlay hidden" id="designDomainLeftOverlay" aria-hidden="true">
+                      <div class="designDomainOverlayInner">
+                        <div class="designDomainSpinner" aria-hidden="true"></div>
+                        <div class="designDomainOverlayText" id="designDomainLeftOverlayText">正在准备预览…</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="designDomainViewportCard">
+                  <div class="designDomainViewportLabel">设计域 STEP</div>
+                  <div class="designDomainViewport" id="designDomainViewportRight">
+                    <div class="designDomainCanvasWrap" id="designDomainCanvasRight"></div>
+                    <div class="designDomainViewportOverlay hidden" id="designDomainRightOverlay" aria-hidden="true">
+                      <div class="designDomainOverlayInner">
+                        <div class="designDomainSpinner" aria-hidden="true"></div>
+                        <div class="designDomainOverlayText" id="designDomainRightOverlayText">正在生成设计域…</div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-            <div class="designDomainViewportCard">
-              <div class="designDomainViewportLabel">设计域 STEP</div>
-              <div class="designDomainViewport" id="designDomainViewportRight">
-                <div class="designDomainCanvasWrap" id="designDomainCanvasRight"></div>
-                <div class="designDomainViewportOverlay hidden" id="designDomainRightOverlay" aria-hidden="true">
-                  <div class="designDomainOverlayInner">
-                    <div class="designDomainSpinner" aria-hidden="true"></div>
-                    <div class="designDomainOverlayText" id="designDomainRightOverlayText">正在生成设计域…</div>
-                  </div>
-                </div>
+              <div class="designDomainToolbar" id="designDomainToolbar">
+                <label class="designDomainCheck"><input type="checkbox" id="ddCutCenter" checked /> 挖除中心柱</label>
+                <label class="designDomainCheck"><input type="checkbox" id="ddIncludeSource" /> 合并源几何（对照）</label>
+                <input type="number" id="ddCharMax" class="designDomainInput" placeholder="char_max（可选）" />
+                <button type="button" class="btn btnPrimary ddTbarBtn ddTbarStep ddTbarStep--1" id="ddBtnBuild">1 构建设计域</button>
+                <button type="button" class="btn ddTbarBtn ddTbarStep ddTbarStep--2" id="ddBtnPreview">2 导出 OBJ 预览</button>
+                <button type="button" class="btn btnPrimary ddTbarBtn ddTbarStep ddTbarStep--3" id="ddBtnMesh">3 FreeCAD 体网格</button>
+                <button type="button" class="btn ddTbarBtn ddTbarStep ddTbarStep--4" id="ddBtnLoads">4 划分载荷</button>
+                <button type="button" class="btn btnPrimary ddTbarBtn ddTbarFinalize" id="ddBtnFinalize">完成并进入编排</button>
               </div>
             </div>
-          </div>
-          <div class="designDomainToolbar">
-            <label class="designDomainCheck"><input type="checkbox" id="ddCutCenter" checked /> 挖除中心柱</label>
-            <label class="designDomainCheck"><input type="checkbox" id="ddIncludeSource" /> 合并源几何（对照）</label>
-            <input type="number" id="ddCharMax" class="designDomainInput" placeholder="网格 char_max（空=默认最粗，目标约&lt;10MB）" />
-            <button type="button" class="btn btnPrimary" id="ddBtnBuild">1 构建设计域</button>
-            <button type="button" class="btn" id="ddBtnPreview">2 导出 OBJ 预览</button>
-            <button type="button" class="btn" id="ddBtnMesh">3 FreeCAD 体网格</button>
-            <button type="button" class="btn" id="ddBtnLoads">4 划分载荷</button>
-            <button type="button" class="btn btnPrimary" id="ddBtnFinalize">完成并进入编排</button>
+            <aside class="designDomainAgentCol" aria-label="设计域 Agent 对话与轨迹">
+              <div class="designDomainAgentPanel">
+                <div class="designDomainAgentPanelHd">
+                  <span class="designDomainAgentAvatar" aria-hidden="true"></span>
+                  <div class="designDomainAgentPanelTitles">
+                    <div class="designDomainAgentName">设计域助手</div>
+                    <div class="designDomainAgentSub">各步「AI」专窗对话</div>
+                  </div>
+                  <span class="designDomainAgentPulse" title="会话进行中"></span>
+                </div>
+                <div class="designDomainFlowLog designDomainFlowLog--rail" id="designDomainFlowLog" aria-live="polite"></div>
+                <p class="designDomainAgentFoot">与任务、编排页同步记录。</p>
+              </div>
+            </aside>
           </div>
         </div>
         <dialog class="ddStepNlDialog" id="ddStepNlDialog" aria-labelledby="ddStepNlTitle">
@@ -979,11 +1011,16 @@
       <div class="main hidden" id="orchestrateMain">
         <div class="orchestrateStage">
           <div class="orchestrateHeader">
-            <div>
-              <div class="title">智能体正在编排执行流程</div>
-              <div class="fieldLabel">系统正在构建可执行流程图，完成后由你确认启动任务。</div>
+            <div class="orchestrateHeaderMain">
+              <div class="stageBrandRow">
+                <img class="stageLockup" src="./assets/beso-agent-mark.svg" width="26" height="26" alt="" aria-hidden="true" />
+                <div>
+                  <div class="title">编排流程</div>
+                  <div class="fieldLabel">生成流程图后确认执行。</div>
+                </div>
+              </div>
             </div>
-            <span class="agentPulse" title="Agent planning"></span>
+            <span class="agentPulse" title="编排中"></span>
           </div>
           <div class="rail">
             <div class="railLine">
@@ -998,7 +1035,12 @@
           </div>
           <div id="orchestrateStream" class="orchestrateStream"></div>
           <div class="orchestrateActionBar">
-            <span class="orchestrateHint">建议先阅读编排结果，再执行任务。</span>
+            <div class="orchestrateActionLeft">
+              <button type="button" class="btn oc4ReturnToDesignBtn hidden" id="backToOc4FromOrchestrateBtn" title="返回设计域调整网格与载荷">
+                ← 设计域
+              </button>
+              <span class="orchestrateHint">确认编排后再执行任务。</span>
+            </div>
             <div class="btnRow">
               <button class="btn backHomeBtn" id="backHomeFromOrchestrate">返回主页</button>
               <button class="btn btnPrimary" id="executePlannedTask" disabled>执行任务</button>
@@ -1135,7 +1177,7 @@
           <input id="qwenBaseUrl" type="text" placeholder="base_url (默认兼容模式)" />
           <input id="qwenModel" type="text" placeholder="model (例如 qwen-plus)" style="margin-top:8px" />
           <input id="qwenKey" type="text" placeholder="api_key（不会写入磁盘）" style="margin-top:8px" />
-          <div class="fieldLabel" style="margin-top:6px">建议：首次填入后点“保存并启用”，浏览器会本地记住，下次自动带出。</div>
+          <div class="fieldLabel" style="margin-top:6px" title="首次配置后点保存并启用">密钥仅存于本机浏览器。</div>
           <div class="btnRow" style="margin-top:8px">
             <button class="btn btnPrimary" id="qwenSave">保存并启用</button>
             <span class="chip">状态：<span id="qwenStatus">未配置</span></span>

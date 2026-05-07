@@ -65,7 +65,8 @@ def _norm(v: np.ndarray) -> float:
     return float(np.linalg.norm(v))
 
 
-def _extract_revolution_cylinders(iges_path: Path) -> list[CylinderAxis]:
+def _extract_revolution_cylinders_gmsh_raw(iges_path: Path) -> list[CylinderAxis]:
+    """仅在解释器主线程中调用 Gmsh（会 register signal handlers）。"""
     import gmsh
 
     gmsh.initialize()
@@ -112,6 +113,37 @@ def _extract_revolution_cylinders(iges_path: Path) -> list[CylinderAxis]:
         return _dedup_cylinders(out)
     finally:
         gmsh.finalize()
+
+
+def _extract_revolution_cylinders_worker(iges_path_str: str) -> list[tuple[tuple[float, float, float], tuple[float, float, float], float]]:
+    """供 ProcessPoolExecutor(spawn) 调用：在子进程主线程跑 Gmsh，返回可 pickle 的元组列表。"""
+    cyls = _extract_revolution_cylinders_gmsh_raw(Path(iges_path_str))
+    return [
+        (
+            (float(c.p0[0]), float(c.p0[1]), float(c.p0[2])),
+            (float(c.p1[0]), float(c.p1[1]), float(c.p1[2])),
+            float(c.radius),
+        )
+        for c in cyls
+    ]
+
+
+def _extract_revolution_cylinders(iges_path: Path) -> list[CylinderAxis]:
+    """
+    从 IGES 识别 revolution 圆柱轴。
+
+    一律经 ``backend.gmsh_spawn.run_in_spawn_process`` 在 **spawn 子进程主线程** 里执行
+    ``gmsh.initialize()``，避免 Uvicorn/Starlette 同步路由在线程池、或任意非预期线程里
+    触发 ``signal only works in main thread of the main interpreter``。
+    """
+    from backend.gmsh_spawn import run_in_spawn_process
+
+    ip = iges_path.resolve()
+    raw_tuples = run_in_spawn_process(_extract_revolution_cylinders_worker, str(ip), timeout_s=3600.0)
+    return [
+        CylinderAxis(p0=np.asarray(t[0], dtype=float), p1=np.asarray(t[1], dtype=float), radius=float(t[2]))
+        for t in raw_tuples
+    ]
 
 
 def _dedup_cylinders(cyls: list[CylinderAxis]) -> list[CylinderAxis]:

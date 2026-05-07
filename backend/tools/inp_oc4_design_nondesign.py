@@ -30,6 +30,569 @@ _ELEM_HEAD = re.compile(
 )
 _ELEM_HEAD_NO_ELSET = re.compile(r"^\*Element\s*,\s*TYPE\s*=\s*(\w+)\s*$", re.IGNORECASE)
 
+# FreeCAD / Gmsh / meshio / Abaqus 等：*Solid section / *SOLID SECTION / *SOLIDSECTION（无空格）
+_SOLID_SECTION_HEADER = re.compile(
+    r"^\s*\*\s*(?:Solid\s+Section|SOLID\s+SECTION|SOLIDSECTION)\s*(?:,|\s*$)",
+    re.IGNORECASE,
+)
+
+
+def _solid_section_header_bare_line(stripped: str) -> bool:
+    """仅关键字、参数在下一行以逗号开头（Abaqus 续行）。"""
+    if not stripped or stripped.startswith("**"):
+        return False
+    return bool(
+        re.match(r"^\s*\*\s*(?:Solid\s+Section|SOLID\s+SECTION|SOLIDSECTION)\s*$", stripped, re.IGNORECASE)
+    )
+
+
+def _is_solid_section_start(lines: list[str], i: int) -> bool:
+    """行 i 是否为固体截面卡起始（含续行首行）。"""
+    if i >= len(lines):
+        return False
+    s = _strip_inp_line(lines[i])
+    if _SOLID_SECTION_HEADER.match(s):
+        return True
+    if _solid_section_header_bare_line(s) and i + 1 < len(lines):
+        return _strip_inp_line(lines[i + 1]).startswith(",")
+    return False
+
+
+def _solid_section_block_end_exclusive(lines: list[str], start_idx: int) -> int:
+    """固体截面块结束下标（不含），与 beso_lib._consume_solid_section_block 一致。"""
+    n = len(lines)
+    i = start_idx + 1
+    while i < n:
+        t = _strip_inp_line(lines[i])
+        if not t:
+            i += 1
+            continue
+        if t.startswith("**"):
+            i += 1
+            continue
+        if t.startswith("*") and not t.startswith(","):
+            break
+        if t.startswith(","):
+            i += 1
+            continue
+        i += 1
+    return i
+
+
+def _extract_solid_section_blocks_flat(lines: list[str]) -> tuple[list[str], list[str]]:
+    """
+    从行序列中抽出全部固体截面块（含续行），返回 (flat_solid_lines, remainder)。
+    """
+    solid_flat: list[str] = []
+    remainder: list[str] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        if _is_solid_section_start(lines, i):
+            j = _solid_section_block_end_exclusive(lines, i)
+            solid_flat.extend(lines[i:j])
+            i = j
+            continue
+        remainder.append(lines[i])
+        i += 1
+    return solid_flat, remainder
+
+
+def _reorder_pre_step_materials_before_solids(lines: list[str]) -> list[str]:
+    """
+    将首个 *STEP 之前的模型定义规范为：非材料非固体行 + 全部 *MATERIAL 块 + 全部 *SOLID* 截面。
+    修复「*SOLIDSECTION 未被识别为首个截面 → 材料被抽到固体之前」导致的 CalculiX nonexistent material。
+    """
+    idx = _find_first_step_line_index(lines)
+    if idx >= len(lines):
+        return lines
+    pre, post = lines[:idx], lines[idx:]
+    mats, rem = _extract_all_material_blocks_in_order(pre)
+    s_flat, core = _extract_solid_section_blocks_flat(rem)
+    return core + mats + s_flat + post
+
+
+def _inject_missing_material_blocks_for_solid_refs(lines: list[str]) -> list[str]:
+    """
+    最后一道防线：*STEP 前有 *SOLID / *SOLIDSECTION 引用 MATERIAL=，但缺少对应 ``*MATERIAL, NAME=`` 时，
+    在首个固体截面之前注入 ``*MATERIAL`` + ``*ELASTIC``。
+
+    覆盖旧流水/手工裁剪后出现的「仅有 *Solid section 而无材料卡」deck（见 runs/.../03_for_beso.inp 类故障）。
+    """
+    idx_step = _find_first_step_line_index(lines)
+    if idx_step >= len(lines):
+        return lines
+    pre = lines[:idx_step]
+    post = lines[idx_step:]
+    refs = _collect_solid_material_refs_in_model_lines(pre)
+    if not refs:
+        return lines
+    defs_ci = {(d or "").strip().upper() for d in _collect_defined_material_names(pre) if (d or "").strip()}
+    yb = _parse_first_elastic_from_lines(pre) or (210000.0, 0.3)
+    e, nu = float(yb[0]), float(yb[1])
+    to_add: list[str] = []
+    seen_ru: set[str] = set()
+    for r in refs:
+        raw = (r or "").strip()
+        if not raw:
+            continue
+        ru = raw.upper()
+        if ru in defs_ci or ru in seen_ru:
+            continue
+        seen_ru.add(ru)
+        mat_san = _sanitize_ccx_material_name(raw)
+        to_add.extend(
+            [
+                "** --- OC4: auto-injected *MATERIAL + *ELASTIC (solid ref had no deck definition) ---",
+                f"*MATERIAL, NAME={mat_san}",
+                "*ELASTIC",
+                f"{e}, {nu}",
+            ]
+        )
+        defs_ci.add(mat_san.strip().upper())
+    if not to_add:
+        return lines
+    ins = _find_first_solid_section_line_index(pre)
+    if ins < 0:
+        ins = len(pre)
+    new_pre = pre[:ins] + to_add + pre[ins:]
+    return new_pre + post
+
+
+def repair_oc4_beso_inp_lines(lines: list[str]) -> list[str]:
+    """
+    对 OC4 主 INP（通常为 ``03_for_beso.inp``）做 *STEP 前材料顺序整理 + 缺失 *MATERIAL 注入。
+    供 ``run_beso_job`` 等对磁盘上已有文件兜底（旧分区或仅拷贝进 run 目录的 deck）。
+    """
+    rep = _inject_missing_material_blocks_for_solid_refs(
+        _reorder_pre_step_materials_before_solids(list(lines))
+    )
+    return _decimalize_node_coordinate_data_lines(rep)
+
+
+def _strip_inp_line(ln: str) -> str:
+    return ln.strip().lstrip("\ufeff\ufffe")
+
+
+def _decimalize_node_coordinate_data_lines(lines: list[str]) -> list[str]:
+    """
+    将 *NODE 数据行中的科学计数法改为定点小数。
+
+    meshio 等导出的 ``1, -3.68e+04, ...`` 在部分 CalculiX 构建下会在首条 *NODE 即报错，
+    导致 nk 未建立并连带 *NSET / *BOUNDARY / *CLOAD 全部失效；写定点坐标可规避。
+    """
+    out: list[str] = []
+    in_nodes = False
+    for raw in lines:
+        s = _strip_inp_line(raw)
+        if s.upper().startswith("*NODE"):
+            in_nodes = True
+            out.append(raw)
+            continue
+        if in_nodes:
+            if not s:
+                out.append(raw)
+                continue
+            if s.startswith("**"):
+                out.append(raw)
+                continue
+            if s.startswith("*"):
+                in_nodes = False
+                out.append(raw)
+                continue
+            parts = [p.strip() for p in s.split(",")]
+            if len(parts) >= 4 and parts[0].lstrip("-").isdigit():
+                try:
+                    nid = int(parts[0])
+                    x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
+                    tail = [t for t in parts[4:] if t]
+                    body = f"{nid}, {x:.10f}, {y:.10f}, {z:.10f}"
+                    if tail:
+                        body += ", " + ", ".join(tail)
+                    out.append(body)
+                    continue
+                except ValueError:
+                    pass
+            out.append(raw)
+            continue
+        out.append(raw)
+    return out
+
+
+def _find_first_solid_section_line_index(lines: list[str]) -> int:
+    """返回首个 *SOLID SECTION / *SOLIDSECTION 行索引；未找到返回 -1。"""
+    i = 0
+    while i < len(lines):
+        s = _strip_inp_line(lines[i])
+        if s.startswith("**"):
+            i += 1
+            continue
+        if _is_solid_section_start(lines, i):
+            return i
+        i += 1
+    return -1
+
+
+def _find_first_step_line_index(lines: list[str]) -> int:
+    for i, ln in enumerate(lines):
+        if _strip_inp_line(ln).upper().startswith("*STEP"):
+            return i
+    return len(lines)
+
+
+_MATERIAL_NAME_RE = re.compile(r"(?i)\bNAME\s*=\s*([^,\n]+)")
+
+
+def _parse_first_material_name(lines: list[str]) -> str | None:
+    """从首个 *MATERIAL 行解析材料名，保持与 INP 原文一致的大小写（CalculiX 需与 *MATERIAL 定义一致）。"""
+    n = len(lines)
+    i = 0
+    while i < n:
+        s = _strip_inp_line(lines[i])
+        if not s or s.startswith("**"):
+            i += 1
+            continue
+        if not re.match(r"^\*\s*MATERIAL\b", s, re.I):
+            i += 1
+            continue
+        merged = s
+        j = i + 1
+        while j < n:
+            t = _strip_inp_line(lines[j])
+            if not t or t.startswith("**"):
+                j += 1
+                continue
+            if t.startswith("*"):
+                break
+            if t.startswith(","):
+                merged += t
+                j += 1
+                continue
+            break
+        m = _MATERIAL_NAME_RE.search(merged)
+        if m:
+            name = m.group(1).strip()
+            if name:
+                return name
+        i = j if j > i else i + 1
+    return None
+
+
+def _parse_material_from_first_solid_section(lines: list[str]) -> str | None:
+    """若无 NAME=，则从首个 *SOLID SECTION 的 MATERIAL= 取值（保持大小写）；支持参数续行。"""
+    n = len(lines)
+    i = 0
+    while i < n:
+        s = _strip_inp_line(lines[i])
+        if s.startswith("**"):
+            i += 1
+            continue
+        if not _is_solid_section_start(lines, i):
+            i += 1
+            continue
+        merged = s
+        j = i + 1
+        while j < n:
+            t = _strip_inp_line(lines[j])
+            if not t or t.startswith("**"):
+                j += 1
+                continue
+            if t.startswith("*"):
+                break
+            if t.startswith(","):
+                merged += t
+                j += 1
+                continue
+            break
+        m = re.search(r"(?i)\bMATERIAL\s*=\s*([^,\n]+)", merged)
+        if m:
+            name = m.group(1).strip()
+            if name:
+                return name
+        i = j if j > i else i + 1
+    return None
+
+
+def _parse_first_elastic_from_lines(lines: list[str]) -> tuple[float, float] | None:
+    """从行序列中读取首个 *ELASTIC 后第一条数据行的 E、ν（与 CalculiX / Abaqus 一致）。"""
+    n = len(lines)
+    i = 0
+    while i < n:
+        s = _strip_inp_line(lines[i])
+        if re.match(r"^\*\s*ELASTIC\b", s, re.I):
+            j = i + 1
+            while j < n:
+                t = _strip_inp_line(lines[j])
+                if not t or t.startswith("**"):
+                    j += 1
+                    continue
+                if t.startswith("*"):
+                    return None
+                parts = [p.strip() for p in t.split(",")]
+                try:
+                    e = float(parts[0])
+                    nu = float(parts[1]) if len(parts) > 1 else 0.3
+                    return (e, nu)
+                except (ValueError, IndexError):
+                    return None
+            return None
+        i += 1
+    return None
+
+
+def _material_names_from_blocks(mat_lines: list[str]) -> list[str]:
+    return _collect_defined_material_names(mat_lines)
+
+
+def _ensure_material_block_for_name(
+    mat_lines: list[str],
+    mat: str,
+    *,
+    fallback_elastic_lines: list[str],
+) -> list[str]:
+    """
+    若抽出的材料块中尚无 ``mat`` 的定义（常见于 *INCLUDE 材料或续行未被收集），
+    在块末追加 *MATERIAL + *ELASTIC（与 wiki example_3 ``Analysis-1.inp`` 一致），避免 CalculiX nonexistent material。
+    """
+    names = _material_names_from_blocks(mat_lines)
+    mu = mat.strip().upper()
+    if any(x.strip().upper() == mu for x in names):
+        return mat_lines
+    yb = _parse_first_elastic_from_lines(mat_lines) or _parse_first_elastic_from_lines(fallback_elastic_lines)
+    if yb is None:
+        yb = (210000.0, 0.3)
+    e, nu = yb
+    extra = [
+        "** --- OC4: material for design_space / nondesign_space (injected when missing in main deck) ---",
+        f"*MATERIAL, NAME={mat}",
+        "*ELASTIC",
+        f"{e}, {nu}",
+    ]
+    return [*mat_lines, *extra]
+
+
+_CCX_MATERIAL_NAME_SAFE = re.compile(r"^[A-Za-z0-9_.\-]{1,80}$")
+
+
+def _sanitize_ccx_material_name(name: str, *, fallback: str = "MSteel") -> str:
+    """CalculiX / Abaqus 材料名：仅 ASCII 安全字符与长度，避免 deck 解析异常。"""
+    s = (name or "").strip()
+    if not s:
+        return fallback
+    s = re.sub(r"[^A-Za-z0-9_.\-]", "_", s)
+    s = s.strip("._-") or fallback
+    s = s[:80]
+    if not _CCX_MATERIAL_NAME_SAFE.match(s):
+        return fallback
+    return s
+
+
+def _material_list_contains_ci(names: list[str], mat: str) -> bool:
+    mu = (mat or "").strip().upper()
+    if not mu:
+        return False
+    return any((x or "").strip().upper() == mu for x in names)
+
+
+def _collect_solid_material_refs_in_model_lines(model_lines: list[str]) -> list[str]:
+    """收集模型定义段中所有 *SOLID SECTION 的 MATERIAL= 引用（含续行）。"""
+    refs: list[str] = []
+    n = len(model_lines)
+    i = 0
+    while i < n:
+        s = _strip_inp_line(model_lines[i])
+        if s.startswith("**"):
+            i += 1
+            continue
+        is_solid = _is_solid_section_start(model_lines, i)
+        if not is_solid:
+            i += 1
+            continue
+        merged = s
+        j = i + 1
+        while j < n:
+            t = _strip_inp_line(model_lines[j])
+            if not t or t.startswith("**"):
+                j += 1
+                continue
+            if t.startswith("*") and not t.startswith(","):
+                break
+            if t.startswith(","):
+                merged += t
+                j += 1
+                continue
+            break
+        m = re.search(r"(?i)\bMATERIAL\s*=\s*([^,\n]+)", merged)
+        if m:
+            refs.append(m.group(1).strip())
+        i = j if j > i else i + 1
+    return refs
+
+
+def _validate_oc4_partition_output(out_lines: list[str]) -> list[str]:
+    """
+    写出前校验：*STEP 之前每个 *SOLID SECTION 的 MATERIAL 均有对应 *MATERIAL, NAME=。
+    失败抛出 ValueError（由 API 转为 400）；仅提示类问题返回 warnings。
+    """
+    idx = _find_first_step_line_index(out_lines)
+    if idx >= len(out_lines):
+        raise ValueError("生成的 INP 中未找到 *STEP，无法提交 CalculiX。")
+    pre = out_lines[:idx]
+    defs = _collect_defined_material_names(pre)
+    dset_ci = {(d or "").strip().upper() for d in defs if (d or "").strip()}
+    refs = _collect_solid_material_refs_in_model_lines(pre)
+    if not refs:
+        raise ValueError("模型定义段中未找到任何 *SOLID SECTION，OC4 分区输出异常。")
+    for r in refs:
+        ru = (r or "").strip().upper()
+        if ru and ru not in dset_ci:
+            raise ValueError(
+                f"*STEP 前有 *SOLID SECTION 引用材料「{r}」，但未找到匹配的 *MATERIAL, NAME=（"
+                f"已解析材料名: {defs!r}）。请检查网格 INP 或重新划分载荷。"
+            )
+    warns: list[str] = []
+    if any(_strip_inp_line(x).upper().startswith("*INCLUDE") for x in pre):
+        warns.append(
+            "模型定义中含 *INCLUDE：若材料仅在子文件中定义，请确认 CalculiX 能解析到与 *SOLID SECTION 一致的材料名。"
+        )
+    return warns
+
+
+def _collect_defined_material_names(lines: list[str]) -> list[str]:
+    """
+    收集 INP 中所有 *MATERIAL 的 NAME= 值（保留与 deck 完全一致的拼写）。
+    支持 Abaqus 续行：*MATERIAL 后若干行以逗号开头拼到同一逻辑行再解析。
+    """
+    names: list[str] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        s = _strip_inp_line(lines[i])
+        if not s or s.startswith("**"):
+            i += 1
+            continue
+        if not re.match(r"^\*\s*MATERIAL\b", s, re.I):
+            i += 1
+            continue
+        merged = s
+        j = i + 1
+        while j < n:
+            t = _strip_inp_line(lines[j])
+            if not t or t.startswith("**"):
+                j += 1
+                continue
+            if t.startswith("*"):
+                break
+            if t.startswith(","):
+                merged += t
+                j += 1
+                continue
+            break
+        m = _MATERIAL_NAME_RE.search(merged)
+        if m:
+            name = m.group(1).strip()
+            if name:
+                names.append(name)
+        i = j if j > i else i + 1
+    return names
+
+
+def _canon_material_name(defined: list[str], want: str) -> str:
+    """
+    将候选名对齐到 deck 中已定义的材料名（大小写不敏感匹配，返回 deck 原文）。
+    若 deck 中有材料但无法匹配候选名，回退为 ``defined[0]``，避免 *SOLID 引用不存在的材料。
+    """
+    w = (want or "").strip()
+    if not defined:
+        return w or "MSteel"
+    if not w:
+        return defined[0]
+    for x in defined:
+        if x == w:
+            return x
+    wu = w.upper()
+    for x in defined:
+        if x.upper() == wu:
+            return x
+    return defined[0]
+
+
+# *MATERIAL 之后、下一个 *MATERIAL 或模型级关键字之前的子卡（CalculiX 常见写法）
+_MATERIAL_SUBCARD = re.compile(
+    r"^\s*\*\s*(ELASTIC|DENSITY|PLASTIC|HYPERELASTIC|CONDUCTIVITY|SPECIFIC\s+HEAT|HEAT\s+CAPACITY|"
+    r"EXPANSION|CREEP|USER\s+MATERIAL|DEPVAR|POTENTIAL)\b",
+    re.I,
+)
+
+
+def _extract_all_material_blocks_in_order(lines: list[str]) -> tuple[list[str], list[str]]:
+    """
+    从行序列中抽出全部 *MATERIAL 块（含 NAME 续行、*ELASTIC 等子卡及数据行），
+    返回 (material_lines, remainder)。remainder 保持非材料行的原有顺序。
+    """
+    material_lines: list[str] = []
+    remainder: list[str] = []
+    i = 0
+    n = len(lines)
+
+    while i < n:
+        s = _strip_inp_line(lines[i])
+        if not s:
+            remainder.append(lines[i])
+            i += 1
+            continue
+        if s.startswith("**"):
+            remainder.append(lines[i])
+            i += 1
+            continue
+        if not re.match(r"^\*\s*MATERIAL\b", s, re.I):
+            remainder.append(lines[i])
+            i += 1
+            continue
+
+        blk0 = i
+        i += 1
+        while i < n:
+            t = _strip_inp_line(lines[i])
+            if not t or t.startswith("**"):
+                i += 1
+                continue
+            if t.startswith("*"):
+                break
+            if t.startswith(","):
+                i += 1
+                continue
+            break
+
+        while i < n:
+            t = _strip_inp_line(lines[i])
+            if not t or t.startswith("**"):
+                i += 1
+                continue
+            if t.startswith(","):
+                i += 1
+                continue
+            if t.startswith("*"):
+                if re.match(r"^\*\s*MATERIAL\b", t, re.I):
+                    break
+                if _MATERIAL_SUBCARD.match(t):
+                    i += 1
+                    while i < n:
+                        u = _strip_inp_line(lines[i])
+                        if not u or u.startswith("**"):
+                            i += 1
+                            continue
+                        if u.startswith("*"):
+                            break
+                        i += 1
+                    continue
+                break
+            i += 1
+
+        material_lines.extend(lines[blk0:i])
+
+    return material_lines, remainder
+
 
 def _vertical_columns_from_oc4_iges(src_iges: Path) -> list[CylinderAxis]:
     cyls = _extract_revolution_cylinders(src_iges)
@@ -312,30 +875,41 @@ def partition_oc4_mesh_inp(
         load_case=lc if lc else None,
     )
 
+    defined_mats = _collect_defined_material_names(lines)
     mat = material_name
     if mat is None:
-        for ln in lines:
-            u = ln.strip().upper()
-            if u.startswith("*MATERIAL"):
-                if "NAME=" in u:
-                    mat = ln.split("NAME=", 1)[1].split(",")[0].strip()
-                elif "NAME =" in ln.upper():
-                    mat = ln.upper().split("NAME =", 1)[1].split(",")[0].strip()
-                break
-        if mat is None:
-            mat = "MSteel"
+        mat = _parse_first_material_name(lines)
+    if mat is None:
+        mat = _parse_material_from_first_solid_section(lines)
+    if mat is None:
+        mat = "MSteel"
+    mat = _canon_material_name(defined_mats, mat)
+    mat = _sanitize_ccx_material_name(mat)
 
-    solid_pat = re.compile(r"^\*Solid\s+section\s*,", re.IGNORECASE)
-    idx_solid = next((i for i, ln in enumerate(lines) if solid_pat.match(ln.strip())), -1)
+    if not fixed_nodes:
+        raise RuntimeError(
+            "未找到可用于底面约束的节点（z 落在 z_min+z_fix_band 内为空）。"
+            "请增大 z_fix_band 或检查网格坐标/单位。"
+        )
+    node_ids = set(nodes.keys())
+    for nid, dof, _mag in cload_entries:
+        if int(nid) not in node_ids:
+            raise RuntimeError(f"*CLOAD 引用的节点 {nid} 不在 *NODE 中，请检查载荷配置。")
+        if int(dof) not in (1, 2, 3):
+            raise RuntimeError(f"*CLOAD 自由度 {dof} 非法（应为 1～3）。")
+
+    idx_step = _find_first_step_line_index(lines)
+    idx_solid = _find_first_solid_section_line_index(lines)
     if idx_solid < 0:
-        raise RuntimeError("未找到 *SOLID SECTION，无法写入双截面（请确认 INP 含体网格与材料段）。")
-
-    j = idx_solid + 1
-    while j < len(lines) and not lines[j].strip().startswith("*"):
-        j += 1
-
-    idx_step = next((i for i, ln in enumerate(lines) if ln.strip().upper().startswith("*STEP")), len(lines))
-    tail_before_step = lines[j:idx_step]
+        # 部分体网格 INP 仅有 *MATERIAL / *ELASTIC / *ELEMENT 而无显式体截面：在首个 *STEP 前插入双截面。
+        idx_solid = idx_step
+        j = idx_step
+        tail_before_step: list[str] = []
+    else:
+        j = idx_solid + 1
+        while j < len(lines) and not _strip_inp_line(lines[j]).startswith("*"):
+            j += 1
+        tail_before_step = lines[j:idx_step]
 
     head = lines[:idx_solid]
     mid: list[str] = [
@@ -369,7 +943,27 @@ def partition_oc4_mesh_inp(
         "*END STEP",
     ]
 
-    out_lines = head + mid + tail_before_step + nset_blk + step_blk
+    # 与 wiki example_3 ``Analysis-1.inp`` 一致：全部 *MATERIAL / *ELASTIC 在前，*Solid section 在后；
+    # 并从主 deck 抽出材料块，避免「固体截面早于材料定义」；缺定义时注入 *MATERIAL + *ELASTIC。
+    combined_pre = head + tail_before_step
+    mat_lines_raw, core_lines = _extract_all_material_blocks_in_order(combined_pre)
+    names_before_ensure = _material_names_from_blocks(mat_lines_raw)
+    mat_lines = _ensure_material_block_for_name(mat_lines_raw, mat, fallback_elastic_lines=lines)
+    material_injected = not _material_list_contains_ci(names_before_ensure, mat)
+    out_lines = core_lines + mat_lines + mid + nset_blk + step_blk
+    out_lines = _reorder_pre_step_materials_before_solids(out_lines)
+    _snap_post_reorder = list(out_lines)
+    out_lines = _inject_missing_material_blocks_for_solid_refs(out_lines)
+    out_lines = _decimalize_node_coordinate_data_lines(out_lines)
+    validation_warnings = list(_validate_oc4_partition_output(out_lines))
+    if out_lines != _snap_post_reorder:
+        validation_warnings.append(
+            "检测到 *STEP 前有固体截面引用材料，但 deck 中缺少匹配的 *MATERIAL 定义，已自动注入材料块。"
+        )
+    if material_injected:
+        validation_warnings.append(
+            f"已在 *STEP 前自动注入 *MATERIAL, NAME={mat} 与 *ELASTIC（主 deck 中此前无该材料名）。"
+        )
     out_inp.parent.mkdir(parents=True, exist_ok=True)
     out_inp.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
     return {
@@ -380,6 +974,9 @@ def partition_oc4_mesh_inp(
         "cload_mode": cload_mode,
         "n_cload_lines": len(cload_entries),
         "cload_nodes": [int(t[0]) for t in cload_entries],
+        "material_name": mat,
+        "material_injected": bool(material_injected),
+        "validation_warnings": validation_warnings,
     }
 
 

@@ -1,0 +1,152 @@
+
+************************************************************
+
+CalculiX Version 2.22, Copyright(C) 1998-2024 Guido Dhondt
+CalculiX comes with ABSOLUTELY NO WARRANTY. This is free
+software, and you are welcome to redistribute it under
+certain conditions, see gpl.htm
+
+************************************************************
+
+You are using an executable made on Mon Aug  5 19:15:25 CEST 2024
+
+  The numbers below are estimated upper bounds
+
+  number of:
+
+   nodes:          258
+   elements:          739
+   one-dimensional elements:            0
+   two-dimensional elements:            0
+   integration points per element:            1
+   degrees of freedom per node:            3
+   layers per element:            1
+
+   distributed facial loads:            0
+   distributed volumetric loads:            0
+   concentrated loads:            1
+   single point constraints:          129
+   multiple point constraints:            1
+   terms in all multiple point constraints:            1
+   tie constraints:            0
+   dependent nodes tied by cyclic constraints:            0
+   dependent nodes in pre-tension constraints:            0
+
+   sets:            5
+   terms in all sets:         1555
+
+   materials:            2
+   constants per material and temperature:            2
+   temperature points per material:            1
+   plastic data points per material:            0
+
+   orientations:            0
+   amplitudes:            2
+   data points in all amplitudes:            2
+   print requests:            2
+   transformations:            0
+   property cards:            0
+
+ *ERROR reading *NODE. Card image:
+        1,-3.6822912828950000E+04,-2.1259718634339999E+04,-2.2000000000000000E+04
+
+ *WARNING reading *NSET/ELSET: value            1
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value            2
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value            5
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value            6
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value            9
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           10
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           13
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           19
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           20
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           21
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           22
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           23
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           24
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           25
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           26
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           27
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           28
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           29
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           30
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           31
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           32
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           38
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           40
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           41
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           48
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           60
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           61
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           62
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           63
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           64
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           65
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           66
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           67
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           68
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           69
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           70
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           71
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           72
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           73
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value           74
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value          115
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value          116
+          in set FIXED_ZMIN > nk
+ *WARNING reading *NSET/ELSET: value          117
+          in set FIXED_ZMIN > nk
+
+ STEP            1
+
+ *ERROR reading *BOUNDARY: node set FIXED_ZMIN                                                                       
+        has not yet been defined. 
+ *ERROR reading *BOUNDARY. Card image:
+        FIXED_ZMIN,1,3,0
+
+ *ERROR reading *CLOAD: node            3
+        is not defined
+ *ERROR in calinput: at least one fatal
+        error message while reading the
+        input deck: CalculiX stops.
+

@@ -90,6 +90,93 @@ def session_progress_flags(sdir: Path) -> dict[str, bool]:
     }
 
 
+def _unlink_if_file(p: Path) -> bool:
+    try:
+        if p.is_file():
+            p.unlink()
+            return True
+    except OSError:
+        pass
+    return False
+
+
+def invalidate_oc4_downstream_from_rail_step(sdir: Path, *, rail_step: int) -> dict[str, Any]:
+    """
+    用户在步骤条上回溯到 rail_step（1～4）时，删除该步**之后**流水线的产物，
+    并清理 ``session.json`` 中相关字段，使后续步骤必须重新执行。
+
+    - 点到 1：清除步骤 2～4（设计域 STEP/IGES、OBJ、体网格 INP、BESO INP 等）
+    - 点到 2：清除步骤 3～4
+    - 点到 3：清除步骤 4
+    - 点到 4：不删除文件
+    """
+    if rail_step < 1 or rail_step > 4:
+        raise ValueError("rail_step 必须在 1～4 之间")
+    removed: list[str] = []
+
+    def rm(path: Path) -> None:
+        if _unlink_if_file(path):
+            removed.append(path.name)
+
+    if rail_step <= 3:
+        rm(sdir / "03_for_beso.inp")
+        rm(sdir / "03_for_beso.log")
+        rm(sdir / "beso_conf.py")
+        for p in sorted(sdir.glob("03_for_beso.*")):
+            rm(p)
+
+    if rail_step <= 2:
+        for pat in ("02_mesh_body.inp", "02_mesh_body.log", "_fc.json"):
+            rm(sdir / pat)
+        for p in sorted(sdir.glob("02_mesh_body.*")):
+            rm(p)
+
+    if rail_step <= 1:
+        for pat in (
+            "01_design_domain.igs",
+            "01_design_domain.step",
+            "design_preview.obj",
+            "01b_design_domain_volume.msh",
+        ):
+            rm(sdir / pat)
+        for p in sorted(sdir.glob("01_design_domain.*")):
+            rm(p)
+
+    patch: dict[str, Any] = {}
+    if rail_step <= 3:
+        patch.update(
+            {
+                "final_inp": None,
+                "partition_stats": None,
+                "last_load_case": None,
+                "last_nl_load_reply": None,
+                "scan_dir": None,
+                "finalized": False,
+            }
+        )
+    if rail_step <= 2:
+        patch.update(
+            {
+                "mesh_inp": None,
+                "mesh_char_length_max_used": None,
+                "mesh_inp_size_bytes": None,
+                "mesh_inp_size_warning": None,
+            }
+        )
+    if rail_step <= 1:
+        patch.update(
+            {
+                "build_ok": False,
+                "design_domain_iges": None,
+                "design_domain_step": None,
+                "design_obj_url": None,
+            }
+        )
+    if patch:
+        merge_session_meta(sdir, patch)
+    return {"rail_step": rail_step, "removed": removed, **session_progress_flags(sdir)}
+
+
 def create_session_from_upload(workspace_root: Path, file_id: str) -> tuple[str, Path, StoredFile]:
     sf = resolve_file(workspace_root, file_id)
     ext = sf.ext.lower()
@@ -380,7 +467,12 @@ def run_loads(
             "last_nl_load_reply": nl_reply,
         },
     )
-    out: dict[str, Any] = {"stats": stats, "final_inp": str(out_inp), "resolved_load_case": merged}
+    out: dict[str, Any] = {
+        "stats": stats,
+        "final_inp": str(out_inp),
+        "resolved_load_case": merged,
+        "validation_warnings": list(stats.get("validation_warnings") or []),
+    }
     if nl_reply:
         out["nl_reply"] = nl_reply
     return out
@@ -390,6 +482,7 @@ __all__ = [
     "create_session_from_upload",
     "design_domain_root",
     "geometry_summary",
+    "invalidate_oc4_downstream_from_rail_step",
     "merge_session_meta",
     "read_session_meta",
     "run_build",
