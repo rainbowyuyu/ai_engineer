@@ -337,7 +337,7 @@ def oc4_dd_chat(body: ChatIn):
 
     if topic == "general":
         system = (
-            "你是海洋工程/结构 CAD 助手，帮助用户理解 OC4 导管架 IGES 与设计域构建流程。"
+            "你是「AI Engineering」中的海洋工程/结构 CAD 助手，帮助用户理解 OC4 导管架 IGES 与设计域构建流程。"
             "根据几何摘要（非完整模型）与用户问题作答。"
             "你必须只输出**一个** JSON 对象，不要 Markdown 围栏，不要其它多余文字。键：\n"
             '- "reply": string，中文自然语言回答；\n'
@@ -349,7 +349,7 @@ def oc4_dd_chat(body: ChatIn):
         user = f"几何摘要:\n{json.dumps(summ, ensure_ascii=False)}\n\n用户问题:\n{body.message.strip()}"
     elif topic == "design":
         system = (
-            "你是 OC4 设计域构建助手（步骤 1：源装配 + 设计域几何选项）。"
+            "你是「AI Engineering」中负责设计域几何的助手（步骤 1：源装配 + 设计域几何选项）。"
             "只根据几何摘要与用户意图，建议是否挖除中心柱、是否合并源几何作对照。"
             "只输出**一个** JSON：{\"reply\":string,\"suggested_build\":object|null}；"
             "suggested_build 仅含 cut_center_column、include_source_geometry（布尔），未提及则 null。"
@@ -357,7 +357,7 @@ def oc4_dd_chat(body: ChatIn):
         user = f"几何摘要:\n{json.dumps(summ, ensure_ascii=False)}\n\n用户:\n{body.message.strip()}"
     elif topic == "preview":
         system = (
-            "你是三角化预览助手（步骤 2：OBJ 导出）。说明与主页 CAD 流程无关，仅影响预览三角化疏密："
+            "你是「AI Engineering」中负责三角化预览的助手（步骤 2：OBJ 导出）。说明与主页 CAD 流程无关，仅影响预览三角化疏密："
             "linear_deflection_source / linear_deflection_design（正数，越大越粗、越快）。"
             "只输出**一个** JSON：{\"reply\":string,\"suggested_export\":object|null}；"
             "suggested_export 可含 linear_deflection_source、linear_deflection_design（典型 400~3000），未改则 null。"
@@ -365,7 +365,7 @@ def oc4_dd_chat(body: ChatIn):
         user = f"几何摘要:\n{json.dumps(summ, ensure_ascii=False)}\n\n用户:\n{body.message.strip()}"
     elif topic == "mesh":
         system = (
-            "你是 FreeCAD+Gmsh 体网格助手（步骤 3）。本步与主页「IGES→INP」使用同一管线："
+            "你是「AI Engineering」中负责 FreeCAD+Gmsh 体网格的助手（步骤 3）。本步与主页「IGES→INP」使用同一管线："
             "backend/tools/cad_iges_to_inp.py → scripts/freecad_iges_to_inp_runner.py；"
             "Gmsh 中 **characteristic_length_max 越大网格越粗**，单元越少，INP 越小。"
             "默认设计域会话在未指定时使用服务端「最粗启发式」以尽量让 02_mesh_body.inp 落在约 10MB 内（不保证）。"
@@ -385,7 +385,7 @@ def oc4_dd_chat(body: ChatIn):
         )
     elif topic == "loads":
         system = (
-            "你是 OC4 载荷与分区助手（步骤 4：写入 03_for_beso.inp 的 *STEP/*CLOAD）。"
+            "你是「AI Engineering」中负责 OC4 载荷与分区的助手（步骤 4：写入 03_for_beso.inp 的 *STEP/*CLOAD）。"
             "只输出**一个** JSON：{\"reply\":string,\"suggested_loads\":object|null}；\n"
             "suggested_loads 可含 band_scale（1~3）、z_fix_band、cload_mag、"
             "cload_mode（single_top|top_count|top_fraction|explicit）、cload_each、top_node_count、"
@@ -434,7 +434,7 @@ class FinalizeIn(BaseModel):
 
 @router.post("/finalize")
 def oc4_dd_finalize(body: FinalizeIn):
-    """写入最小 beso_conf.py，返回扫描目录供后续智能体流程使用。"""
+    """写入最小 beso_conf.py，返回扫描目录供后续 AI Engineering 编排流程使用。"""
     sdir = _get_session(body.session_id)
     fin = sdir / "03_for_beso.inp"
     if not fin.is_file():
@@ -450,7 +450,7 @@ def oc4_dd_finalize(body: FinalizeIn):
         work_dir=sdir.resolve(),
         ccx_path=ccx,
         inp_name="03_for_beso.inp",
-        mass_goal_ratio=0.4,
+        mass_goal_ratio=0.25,
         filter_radius=2.0,
         optimization_base="failure_index",
     )

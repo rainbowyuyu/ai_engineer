@@ -100,7 +100,7 @@ export function mountResultsViewer() {
         <div class="resultsViewerHdLeft">
           <span class="resultsViewerBadge"></span>
           <div>
-            <div class="resultsViewerTitle" id="resultsViewerTitle">BESO 结果查看器</div>
+            <div class="resultsViewerTitle" id="resultsViewerTitle">拓扑优化结果查看器</div>
             <div class="resultsViewerSub">导入 <span class="mono">runs/&lt;job&gt;/</span> · 筛选后点击文件即可预览 <span class="mono">.step / .stp / .obj / .inp</span></div>
           </div>
         </div>

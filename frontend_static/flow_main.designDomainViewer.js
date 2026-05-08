@@ -123,7 +123,20 @@ export function createDesignDomainViewer(deps) {
       fitted = false;
       const base = normalizedBaseUrl();
       const url = path.startsWith("http") ? path : `${base}${path.startsWith("/") ? path : `/${path}`}`;
-      const resp = await fetch(url, { cache: "no-store" });
+      const OBJ_FETCH_MS = 240000;
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), OBJ_FETCH_MS);
+      let resp;
+      try {
+        resp = await fetch(url, { cache: "no-store", signal: ctrl.signal });
+      } catch (e) {
+        if (e?.name === "AbortError") {
+          throw new Error(`OBJ 下载超时（${Math.round(OBJ_FETCH_MS / 1000)}s），请检查 /runs 是否可访问或文件过大：${url}`);
+        }
+        throw e;
+      } finally {
+        clearTimeout(timer);
+      }
       if (!resp.ok) {
         throw new Error(`OBJ 请求失败 ${resp.status}：${url}`);
       }

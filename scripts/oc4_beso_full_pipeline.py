@@ -53,6 +53,12 @@ def main() -> int:
     ap.add_argument("--ccx", type=Path, default=Path(os.environ.get("CCX_PATH") or r"D:\freecad\bin\ccx.exe"))
     ap.add_argument("--run-beso", action="store_true", help="在 out-dir 下跑少量 BESO 迭代（需 ccx）")
     ap.add_argument("--beso-iter", type=int, default=3, help="--run-beso 时 iterations_limit")
+    ap.add_argument(
+        "--save-every",
+        type=int,
+        default=1,
+        help="beso_conf.save_iteration_results：每 N 轮保存中间 OBJ/INP；1=每轮最密",
+    )
     args = ap.parse_args()
 
     src = args.src.resolve()
@@ -130,15 +136,17 @@ def main() -> int:
     fr_use = max(fr_char, fr_floor)
     if fr_use > fr_char:
         print(f"      [INFO] simple 滤波半径 {fr_char:g} -> {fr_use:g}（保证优化域邻接，避免 prepare2s 除零）")
+    se = max(1, int(args.save_every))
     write_beso_conf_example3_style(
         conf_py,
         work_dir=out_dir,
         ccx_path=args.ccx.resolve(),
         inp_name=final_inp.name,
-        mass_goal_ratio=0.35,
+        mass_goal_ratio=0.25,
         filter_radius=fr_use,
         optimization_base="failure_index",
         iterations_limit=int(args.beso_iter) if args.run_beso else 8,
+        save_iteration_results=se,
     )
     print(f"      -> {conf_py.name}")
 
@@ -157,10 +165,11 @@ def main() -> int:
             work_dir=beso_out,
             ccx_path=args.ccx.resolve(),
             inp_name=final_inp.name,
-            mass_goal_ratio=0.35,
+            mass_goal_ratio=0.25,
             filter_radius=fr_use,
             optimization_base="failure_index",
             iterations_limit=int(args.beso_iter),
+            save_iteration_results=se,
         )
         from backend.tools.beso import run_beso_job
 
@@ -177,10 +186,10 @@ def main() -> int:
             workspace_root=REPO,
             run_dir=beso_out,
             inp_path=str((beso_out / final_inp.name).resolve()),
-            mass_goal_ratio=0.35,
+            mass_goal_ratio=0.25,
             filter_radius=fr_use,
             optimization_base="failure_index",
-            save_every=1,
+            save_every=se,
             cancel_flag=cancel,
             on_log=on_log,
             on_vtk=on_vtk,

@@ -5,6 +5,34 @@ import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 const $ = (id) => document.getElementById(id);
+const LS_TOPOLOGY = "beso.settings.topology.v1";
+function hydrateTopoMain() {
+  try {
+    const o = JSON.parse(localStorage.getItem(LS_TOPOLOGY) || "null");
+    const m = $("massGoal");
+    const s = $("saveEvery");
+    const f = $("filterR");
+    if (m) m.value = o?.mg != null && String(o.mg).trim() !== "" ? String(o.mg) : "0.25";
+    if (s) s.value = o?.se != null && String(o.se).trim() !== "" ? String(o.se) : "1";
+    if (f) f.value = o && o.fr != null ? String(o.fr) : "";
+  } catch {
+    /* ignore */
+  }
+}
+function persistTopoMain() {
+  try {
+    localStorage.setItem(
+      LS_TOPOLOGY,
+      JSON.stringify({
+        mg: $("massGoal")?.value ?? "",
+        fr: $("filterR")?.value ?? "",
+        se: $("saveEvery")?.value ?? "",
+      }),
+    );
+  } catch {
+    /* ignore */
+  }
+}
 const chatEl = $("chat");
 const jobLogsEl = $("jobLogs");
 const vtkLink = $("vtkLink");
@@ -14,6 +42,8 @@ const cancelBtn = $("cancelBtn");
 const fileInput = $("fileInput");
 const pickBtn = $("pickBtn");
 const settingsBtn = $("settingsBtn");
+const settingsShell = $("settingsShell");
+const settingsBackdrop = $("settingsBackdrop");
 const settingsPanel = $("settingsPanel");
 const settingsClose = $("settingsClose");
 const baseUrlInput = $("baseUrl");
@@ -328,12 +358,12 @@ async function createAndRun() {
   if (currentFileId) body.file_id = currentFileId;
 
   // optional manual overrides (settings panel)
-  const mg = $("massGoal").value.trim();
-  const fr = $("filterR").value.trim();
-  const se = $("saveEvery").value.trim();
-  if (mg) body.mass_goal_ratio = Number(mg);
-  if (fr) body.filter_radius = Number(fr);
-  if (se) body.save_every = Number(se);
+  const mg = Number($("massGoal")?.value);
+  const fr = Number($("filterR")?.value);
+  const se = Number($("saveEvery")?.value);
+  body.mass_goal_ratio = Number.isFinite(mg) && mg > 0 && mg < 1 ? mg : 0.25;
+  body.save_every = Number.isFinite(se) && se > 0 ? Math.floor(se) : 1;
+  if (Number.isFinite(fr) && fr > 0) body.filter_radius = fr;
 
   const resp = await fetch(`${base}/api/chat`, {
     method: "POST",
@@ -369,6 +399,7 @@ async function createAndRun() {
     $("massGoal").value = String(parsedParams.mass_goal_ratio ?? "");
     $("filterR").value = String(parsedParams.filter_radius ?? "");
     $("saveEvery").value = String(parsedParams.save_every ?? "");
+    persistTopoMain();
   }
   if (Array.isArray(data.generated_code)) {
     data.generated_code.forEach((f) => upsertCode(f.name, f.url, f.group || "generated"));
@@ -419,8 +450,28 @@ fileInput.addEventListener("change", async (e) => {
   await uploadSelectedFile(f);
 });
 
-settingsBtn.addEventListener("click", () => settingsPanel.classList.remove("hidden"));
-settingsClose.addEventListener("click", () => settingsPanel.classList.add("hidden"));
+function setSettingsDrawer(open) {
+  const on = Boolean(open);
+  if (settingsShell) {
+    settingsShell.setAttribute("aria-hidden", on ? "false" : "true");
+    settingsShell.classList.toggle("settingsShell--open", on);
+    document.body.classList.toggle("settingsDrawerOpen", on);
+  } else if (settingsPanel) {
+    settingsPanel.classList.toggle("hidden", !on);
+  }
+}
+settingsBtn.addEventListener("click", () => {
+  hydrateTopoMain();
+  void refreshQwenStatus();
+  setSettingsDrawer(true);
+});
+settingsClose?.addEventListener("click", () => setSettingsDrawer(false));
+settingsBackdrop?.addEventListener("click", () => setSettingsDrawer(false));
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || !settingsShell?.classList.contains("settingsShell--open")) return;
+  e.preventDefault();
+  setSettingsDrawer(false);
+});
 baseUrlInput.addEventListener("input", () => {
   try {
     baseUrlText.textContent = baseUrlInput.value.replace(/^https?:\/\//, "");
@@ -431,14 +482,17 @@ baseUrlInput.addEventListener("input", () => {
 baseUrlText.textContent = baseUrlInput.value.replace(/^https?:\/\//, "");
 
 async function refreshQwenStatus() {
+  if (!qwenStatus) return;
   try {
     const base = normalizedBaseUrl();
-    const data = await (await fetch(`${base}/api/config/qwen`)).json();
-    qwenStatus.textContent = data.configured ? "已配置" : "未配置";
+    const data = await (await fetch(`${base}/api/config/qwen`, { cache: "no-store" })).json();
+    qwenStatus.textContent = data.configured
+      ? `已配置（${data.model || "qwen"}）`
+      : "未配置：填写 API Key 或设置环境变量 QWEN_API_KEY";
     if (data.base_url) qwenBaseUrl.value = data.base_url;
     if (data.model) qwenModel.value = data.model;
   } catch {
-    qwenStatus.textContent = "不可用";
+    qwenStatus.textContent = "无法连接后端检测 Qwen";
   }
 }
 
@@ -455,7 +509,7 @@ qwenSave.addEventListener("click", async () => {
     body: JSON.stringify(body),
   });
   const data = await resp.json();
-  qwenStatus.textContent = data.configured ? "已配置" : "未配置";
+  await refreshQwenStatus();
   // Persist for convenience on this machine/browser.
   localStorage.setItem("qwen_base_url", qwenBaseUrl.value || "");
   localStorage.setItem("qwen_model", qwenModel.value || "");
@@ -463,6 +517,11 @@ qwenSave.addEventListener("click", async () => {
   addBubble("agent", data.configured ? "已启用 Qwen 参数解析。" : "Qwen 未启用。");
 });
 
+hydrateTopoMain();
+["massGoal", "filterR", "saveEvery"].forEach((id) => {
+  const el = $(id);
+  el?.addEventListener("input", () => persistTopoMain());
+});
 refreshQwenStatus();
 
 // Restore locally-saved Qwen settings (never sent unless user clicks save)

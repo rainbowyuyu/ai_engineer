@@ -6,7 +6,9 @@ export function createLayoutManager(deps) {
   function ensureRailLabels() {
     railStops.forEach((el) => {
       if (!el) return;
-      if (!el.dataset.label) el.dataset.label = el.textContent || "";
+      if (!el.dataset.label) {
+        el.dataset.label = el.getAttribute("data-rail-label") || el.textContent || "";
+      }
     });
   }
 
@@ -36,56 +38,191 @@ export function createLayoutManager(deps) {
       .replaceAll(">", "&gt;");
   }
 
-  // Minimal markdown renderer for orchestration stream.
+  /** Markdown：标题、列表、行内加粗/代码、``` 围栏代码块；流式时用不完整块也可接受 */
   function renderMd(md) {
-    const lines = String(md || "").split("\n");
+    const parts = String(md || "").split("```");
+    let html = "";
+    for (let i = 0; i < parts.length; i++) {
+      if (i % 2 === 0) {
+        html += renderMdParagraph(parts[i]);
+      } else {
+        const rawFence = parts[i];
+        const nl = rawFence.indexOf("\n");
+        const code = nl === -1 ? rawFence : rawFence.slice(nl + 1);
+        const esc = escapeHtml(code.replace(/\n+$/, ""));
+        html += `<pre class="mdFence" tabindex="0"><code class="mdFenceCode">${esc}</code></pre>`;
+      }
+    }
+    return html;
+  }
+
+  function closeList(listKind, out) {
+    if (listKind === "ul") return `${out}</ul>`;
+    if (listKind === "ol") return `${out}</ol>`;
+    return out;
+  }
+
+  function renderMdParagraph(block) {
+    const lines = String(block || "").split("\n");
     let out = "";
-    let inList = false;
+    /** @type {"ul"|"ol"|null} */
+    let listKind = null;
     const inline = (text) =>
       escapeHtml(text)
         .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
         .replace(/`([^`]+)`/g, "<code>$1</code>");
-    for (const raw of lines) {
+    const bulletItem = (line) => line.startsWith("- ") || line.startsWith("* ");
+    const bulletBody = (line) => (line.startsWith("- ") ? line.slice(2) : line.slice(2));
+    const orderedMatch = (line) => line.match(/^(\d+)\.\s(.*)$/);
+
+    /** GFM 风格：表头行 + 对齐分隔行 + 至少一行数据 */
+    function splitTableRow(s) {
+      const raw = String(s || "").trim();
+      if (!raw.includes("|")) return null;
+      const parts = raw.split("|").map((x) => x.trim());
+      const cells = [];
+      for (let p = 0; p < parts.length; p++) {
+        if (p === 0 && parts[p] === "") continue;
+        if (p === parts.length - 1 && parts[p] === "") continue;
+        cells.push(parts[p]);
+      }
+      return cells.length >= 2 ? cells : null;
+    }
+    function isSeparatorCells(cells) {
+      return cells.every((c) => {
+        const x = String(c).replace(/\s/g, "");
+        return /^:?-{3,}:?$/.test(x);
+      });
+    }
+    function tryParseTableAt(i) {
+      const c0 = splitTableRow(lines[i] || "");
+      if (!c0) return null;
+      const c1 = splitTableRow(lines[i + 1] || "");
+      if (!c1 || c1.length !== c0.length || !isSeparatorCells(c1)) return null;
+      const aligns = c1.map((c) => {
+        const x = String(c).replace(/\s/g, "");
+        if (x.startsWith(":") && x.endsWith(":")) return "center";
+        if (x.endsWith(":")) return "right";
+        return "left";
+      });
+      let end = i + 2;
+      const body = [];
+      while (end < lines.length) {
+        const t = String(lines[end] || "").trim();
+        if (!t) break;
+        const row = splitTableRow(lines[end]);
+        if (!row || row.length !== c0.length) break;
+        body.push(row);
+        end += 1;
+      }
+      if (!body.length) return null;
+      let html = '<div class="mdTableWrap"><table class="mdTable"><thead><tr>';
+      c0.forEach((h, j) => {
+        html += `<th style="text-align:${aligns[j] || "left"}">${inline(h)}</th>`;
+      });
+      html += "</tr></thead><tbody>";
+      for (const row of body) {
+        html += "<tr>";
+        row.forEach((cell, j) => {
+          html += `<td style="text-align:${aligns[j] || "left"}">${inline(cell)}</td>`;
+        });
+        html += "</tr>";
+      }
+      html += "</tbody></table></div>";
+      return { html, nextIndex: end };
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+      const raw = lines[i];
       const line = raw.trimEnd();
-      if (!line.trim()) {
-        if (inList) {
-          out += "</ul>";
-          inList = false;
+      const trimmed = line.trim();
+
+      const tbl = tryParseTableAt(i);
+      if (tbl) {
+        if (listKind) {
+          out = closeList(listKind, out);
+          listKind = null;
+        }
+        out += tbl.html;
+        i = tbl.nextIndex - 1;
+        continue;
+      }
+
+      if (!trimmed) {
+        if (listKind) {
+          out = closeList(listKind, out);
+          listKind = null;
         }
         out += '<div class="mdGap"></div>';
         continue;
       }
-      if (line.startsWith("### ")) {
-        if (inList) {
-          out += "</ul>";
-          inList = false;
+      /* 必须按 # 数量从多到少匹配，否则 #### 会被当成 ### */
+      if (line.startsWith("#### ")) {
+        if (listKind) {
+          out = closeList(listKind, out);
+          listKind = null;
         }
-        out += `<h4>${inline(line.slice(4))}</h4>`;
+        out += `<h4 class="mdHeading mdHeading--4">${inline(line.slice(5))}</h4>`;
+        continue;
+      }
+      if (line.startsWith("### ")) {
+        if (listKind) {
+          out = closeList(listKind, out);
+          listKind = null;
+        }
+        out += `<h3 class="mdHeading mdHeading--3">${inline(line.slice(4))}</h3>`;
         continue;
       }
       if (line.startsWith("## ")) {
-        if (inList) {
-          out += "</ul>";
-          inList = false;
+        if (listKind) {
+          out = closeList(listKind, out);
+          listKind = null;
         }
-        out += `<h3>${inline(line.slice(3))}</h3>`;
+        out += `<h2 class="mdHeading mdHeading--2">${inline(line.slice(3))}</h2>`;
         continue;
       }
-      if (line.startsWith("- ")) {
-        if (!inList) {
+      if (line.startsWith("# ")) {
+        if (listKind) {
+          out = closeList(listKind, out);
+          listKind = null;
+        }
+        out += `<h2 class="mdHeading mdHeading--1">${inline(line.slice(2))}</h2>`;
+        continue;
+      }
+      if (/^-{3,}\s*$/.test(trimmed) || /^\*{3,}\s*$/.test(trimmed) || /^_{3,}\s*$/.test(trimmed) || /^=+\s*$/.test(trimmed)) {
+        if (listKind) {
+          out = closeList(listKind, out);
+          listKind = null;
+        }
+        out += '<hr class="mdHr" />';
+        continue;
+      }
+      const om = orderedMatch(trimmed);
+      if (om) {
+        if (listKind !== "ol") {
+          if (listKind) out = closeList(listKind, out);
+          out += "<ol>";
+          listKind = "ol";
+        }
+        out += `<li>${inline(om[2])}</li>`;
+        continue;
+      }
+      if (bulletItem(line)) {
+        if (listKind !== "ul") {
+          if (listKind) out = closeList(listKind, out);
           out += "<ul>";
-          inList = true;
+          listKind = "ul";
         }
-        out += `<li>${inline(line.slice(2))}</li>`;
+        out += `<li>${inline(bulletBody(line))}</li>`;
         continue;
       }
-      if (inList) {
-        out += "</ul>";
-        inList = false;
+      if (listKind) {
+        out = closeList(listKind, out);
+        listKind = null;
       }
       out += `<p>${inline(line)}</p>`;
     }
-    if (inList) out += "</ul>";
+    if (listKind) out = closeList(listKind, out);
     return out;
   }
 
@@ -146,13 +283,294 @@ export function createLayoutManager(deps) {
     refs.chatEl.scrollTop = refs.chatEl.scrollHeight;
   }
 
-  function addLandingBubble(role, text) {
+  let landingBubbleActionsWired = false;
+
+  function wireLandingBubbleActionsOnce() {
+    if (landingBubbleActionsWired || !refs.chatLanding) return;
+    landingBubbleActionsWired = true;
+    refs.chatLanding.addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-bubble-action]");
+      if (!btn || !refs.chatLanding.contains(btn)) return;
+      const turn = btn.closest(".landingTurn");
+      const raw = turn?.dataset?.rawText != null ? String(turn.dataset.rawText) : "";
+      const action = btn.getAttribute("data-bubble-action");
+      if (action === "copy") {
+        try {
+          await navigator.clipboard.writeText(raw);
+          const prev = btn.getAttribute("aria-label");
+          btn.setAttribute("aria-label", "已复制");
+          setTimeout(() => btn.setAttribute("aria-label", prev || "复制"), 1600);
+        } catch {
+          try {
+            const ta = document.createElement("textarea");
+            ta.value = raw;
+            ta.style.position = "fixed";
+            ta.style.left = "-9999px";
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand("copy");
+            ta.remove();
+          } catch {
+            /* ignore */
+          }
+        }
+        return;
+      }
+      if (action === "share") {
+        const title = "AI Engineering";
+        try {
+          if (navigator.share) {
+            await navigator.share({ title, text: raw });
+          } else {
+            await navigator.clipboard.writeText(raw);
+            const prev = btn.getAttribute("aria-label");
+            btn.setAttribute("aria-label", "已复制到剪贴板");
+            setTimeout(() => btn.setAttribute("aria-label", prev || "分享"), 1600);
+          }
+        } catch (err) {
+          if (err && err.name === "AbortError") return;
+          try {
+            await navigator.clipboard.writeText(raw);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    });
+  }
+
+  function bubbleToolbarHtml() {
+    return `
+      <div class="bubbleActions" role="toolbar" aria-label="消息操作">
+        <button type="button" class="bubbleIconBtn" data-bubble-action="copy" title="复制" aria-label="复制">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+            <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+          </svg>
+        </button>
+        <button type="button" class="bubbleIconBtn" data-bubble-action="share" title="分享" aria-label="分享">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v14"/>
+          </svg>
+        </button>
+      </div>
+    `;
+  }
+
+  /**
+   * @param {"user"|"agent"} role
+   * @param {string} text
+   * @param {{ format?: "plain"|"md"; withToolbar?: boolean; debut?: boolean }} [opts]
+   */
+  function addLandingBubble(role, text, opts = {}) {
     if (!refs.chatLanding) return;
-    const b = document.createElement("div");
-    b.className = `bubble ${role}`;
-    b.textContent = text;
-    refs.chatLanding.appendChild(b);
+    wireLandingBubbleActionsOnce();
+    const raw = String(text ?? "");
+    const wrap = document.createElement("div");
+    wrap.className = `landingTurn landingTurn--${role}`;
+    if (opts.debut) wrap.classList.add("landingTurn--debut");
+    wrap.dataset.rawText = raw;
+    const bubble = document.createElement("div");
+    bubble.className = `bubble ${role}`;
+    const inner = document.createElement("div");
+    const useMd = role === "agent" && opts.format === "md";
+    inner.className = useMd ? "bubbleText bubbleText--md" : "bubbleText";
+    if (useMd) {
+      inner.innerHTML = renderMd(raw);
+    } else {
+      inner.textContent = raw;
+    }
+    bubble.appendChild(inner);
+    wrap.appendChild(bubble);
+    const att = role === "user" && opts.attachment && String(opts.attachment.file_name || opts.attachment.name || "").trim();
+    if (att) {
+      const fn = escapeHtml(String(opts.attachment.file_name || opts.attachment.name || "").trim());
+      const row = document.createElement("div");
+      row.className = "landingUserAttachment";
+      row.setAttribute("role", "group");
+      row.setAttribute("aria-label", `附件 ${fn}`);
+      row.innerHTML = `
+        <span class="landingUserAttachmentInner" title="${fn}">
+          <span class="landingUserAttachmentIcon" aria-hidden="true">📎</span>
+          <span class="landingUserAttachmentName">${fn}</span>
+        </span>`;
+      wrap.appendChild(row);
+    }
+    const withToolbar = opts.withToolbar !== false;
+    if (withToolbar && raw.trim()) {
+      const tmp = document.createElement("div");
+      tmp.innerHTML = bubbleToolbarHtml().trim();
+      const barEl = tmp.firstElementChild;
+      if (barEl) wrap.appendChild(barEl);
+    }
+    refs.chatLanding.appendChild(wrap);
     refs.chatLanding.scrollTop = refs.chatLanding.scrollHeight;
+  }
+
+  /** 大模型请求中：高级「思考中」占位，收到流式首包后可 reuseWrap 平滑升级为输出气泡 */
+  function addLandingThinking() {
+    if (!refs.chatLanding) return null;
+    const wrap = document.createElement("div");
+    wrap.className = "landingTurn landingTurn--agent landingTurn--thinking";
+    wrap.setAttribute("aria-live", "polite");
+    wrap.setAttribute("aria-busy", "true");
+    wrap.classList.add("landingTurn--thinkingIn");
+    wrap.innerHTML = `
+      <div class="bubble agent landingThinkingBubble">
+        <div class="landingThinkingTop">
+          <span class="landingThinkingOrb" aria-hidden="true"></span>
+          <div class="landingThinkingTitles">
+            <span class="landingThinkingBrand">AI Engineering</span>
+            <span class="landingThinkingSub">AI 工程助手 · 连接大模型与仿真上下文</span>
+          </div>
+        </div>
+        <div class="landingThinkingHints" aria-hidden="true">
+          <span class="landingThinkingHint">正在建立安全连接…</span>
+          <span class="landingThinkingHint">对齐您的工程语境与术语…</span>
+          <span class="landingThinkingHint">组织专业、可执行的回复…</span>
+        </div>
+        <p class="landingThinkingPrimary">正在思考，请稍候</p>
+        <div class="landingThinkingTrack" aria-hidden="true"><span class="landingThinkingTrackFill"></span></div>
+        <div class="landingThinkingPulse" aria-hidden="true"><i></i><i></i><i></i></div>
+      </div>`;
+    refs.chatLanding.appendChild(wrap);
+    refs.chatLanding.scrollTop = refs.chatLanding.scrollHeight;
+    return wrap;
+  }
+
+  function removeLandingThinking(el) {
+    try {
+      el?.remove();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** @deprecated 使用 addLandingThinking */
+  const addLandingTyping = addLandingThinking;
+  /** @deprecated 使用 removeLandingThinking */
+  const removeLandingTyping = removeLandingThinking;
+
+  /** 流式助手气泡：appendDelta 追加 token，finalize 结束并挂载复制条；opts.reuseWrap 复用「思考中」同一卡片以无缝衔接 */
+  function beginLandingAgentStream(opts = {}) {
+    const reuseWrap = opts && opts.reuseWrap;
+    wireLandingBubbleActionsOnce();
+    if (!refs.chatLanding) return null;
+    let wrap;
+    if (reuseWrap && reuseWrap.parentNode === refs.chatLanding) {
+      wrap = reuseWrap;
+      wrap.classList.remove("landingTurn--thinking", "landingTurn--thinkingIn");
+      wrap.classList.add("landingTurn--streaming");
+      wrap.removeAttribute("aria-busy");
+      wrap.innerHTML = "";
+    } else if (reuseWrap) {
+      return null;
+    } else {
+      wrap = document.createElement("div");
+      wrap.className = "landingTurn landingTurn--agent landingTurn--streaming";
+      refs.chatLanding.appendChild(wrap);
+    }
+    const bubble = document.createElement("div");
+    bubble.className = "bubble agent";
+    const inner = document.createElement("div");
+    inner.className = "bubbleText bubbleText--md landingStreamBody";
+    bubble.appendChild(inner);
+    wrap.appendChild(bubble);
+    if (!reuseWrap) refs.chatLanding.scrollTop = refs.chatLanding.scrollHeight;
+    else refs.chatLanding.scrollTop = refs.chatLanding.scrollHeight;
+    let buf = "";
+    /** 流式阶段避免每 token 跑 renderMd（重排 + 解析卡顿），用纯文本 + rAF 合并绘制；结束时再 renderMd。 */
+    inner.className = "bubbleText landingStreamBody landingStreamBodyLive";
+    /** @type {number|null} */
+    let rafPaint = null;
+    /** @type {ReturnType<typeof setTimeout>|null} */
+    let motionFlushTimer = null;
+    /** @type {number|null} */
+    let rafScroll = null;
+    const reduceMotion =
+      typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const paintPlain = () => {
+      inner.textContent = buf;
+      if (rafScroll != null) cancelAnimationFrame(rafScroll);
+      rafScroll = requestAnimationFrame(() => {
+        rafScroll = null;
+        refs.chatLanding.scrollTop = refs.chatLanding.scrollHeight;
+      });
+    };
+    const schedulePaint = () => {
+      if (reduceMotion) {
+        if (motionFlushTimer != null) return;
+        motionFlushTimer = window.setTimeout(() => {
+          motionFlushTimer = null;
+          paintPlain();
+        }, 140);
+        return;
+      }
+      if (rafPaint != null) return;
+      rafPaint = requestAnimationFrame(() => {
+        rafPaint = null;
+        paintPlain();
+      });
+    };
+    function appendDelta(chunk) {
+      buf += String(chunk || "");
+      schedulePaint();
+    }
+    function finalize(fullText) {
+      if (motionFlushTimer != null) {
+        clearTimeout(motionFlushTimer);
+        motionFlushTimer = null;
+      }
+      if (rafPaint != null) {
+        cancelAnimationFrame(rafPaint);
+        rafPaint = null;
+      }
+      if (rafScroll != null) {
+        cancelAnimationFrame(rafScroll);
+        rafScroll = null;
+      }
+      buf = String(fullText ?? buf);
+      wrap.classList.remove("landingTurn--streaming");
+      wrap.dataset.rawText = buf;
+      inner.className = "bubbleText bubbleText--md landingStreamBody";
+      inner.innerHTML = renderMd(buf);
+      const tmp = document.createElement("div");
+      tmp.innerHTML = bubbleToolbarHtml().trim();
+      const barEl = tmp.firstElementChild;
+      if (barEl && buf.trim()) wrap.appendChild(barEl);
+      refs.chatLanding.scrollTop = refs.chatLanding.scrollHeight;
+    }
+    return { wrap, appendDelta, finalize };
+  }
+
+  /** 对话内可点击子流程卡片（进度条可在外部用 sync 更新） */
+  function addLandingWorkflowCard(model) {
+    wireLandingBubbleActionsOnce();
+    if (!refs.chatLanding) return null;
+    const kind = String(model.kind || "orchestrate") === "design_domain" ? "design_domain" : "orchestrate";
+    const title = model.title || (kind === "design_domain" ? "设计域（OC4）" : "构型优化编排");
+    const step = Number(model.step);
+    const progress = Number(model.progress);
+    const statusLabel = String(model.status || "进行中");
+    const stepTxt = Number.isFinite(step) && step >= 1 ? `步骤 ${Math.min(4, step)}/4` : "";
+    const pct = Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0;
+    const tid = String(model.taskId || "").trim();
+    const wrap = document.createElement("div");
+    wrap.className = "landingTurn landingTurn--card";
+    wrap.innerHTML = `
+      <button type="button" class="landingWorkflowCard" data-workflow-jump="${kind}" ${tid ? `data-task-id="${escapeHtml(tid)}"` : ""} title="在右侧主区域继续：${escapeHtml(title)}">
+        <div class="landingWorkflowCardHd">${escapeHtml(title)}</div>
+        <div class="landingWorkflowCardMeta">
+          <span class="pill landingWorkflowCardStatus">${escapeHtml(statusLabel)}</span>
+          ${stepTxt ? `<span class="landingWorkflowCardStep">${escapeHtml(stepTxt)}</span>` : `<span class="landingWorkflowCardStep"></span>`}
+        </div>
+        <div class="landingWorkflowBar" aria-hidden="true"><span class="landingWorkflowBarFill" style="width:${pct}%"></span></div>
+        <div class="landingWorkflowCardHint">点击进入对应子流程</div>
+      </button>
+    `;
+    refs.chatLanding.appendChild(wrap);
+    refs.chatLanding.scrollTop = refs.chatLanding.scrollHeight;
+    return wrap.querySelector(".landingWorkflowCard");
   }
 
   function showStage(mode) {
@@ -161,6 +579,52 @@ export function createLayoutManager(deps) {
     refs.orchestrateMain?.classList.toggle("hidden", mode !== "orchestrate");
     refs.flowMain?.classList.toggle("hidden", mode !== "flow");
     refs.flowStepper?.classList.toggle("hidden", mode !== "flow");
+  }
+
+  /**
+   * 进入设计域 / 构型优化编排等子流程前：短暂全屏过渡 + 旋转指示，便于用户感知即将跳转。
+   * @param {{ kind?: "design_domain"|"orchestrate", minMs?: number }} opts
+   */
+  function playLandingSubflowBridge(opts = {}) {
+    const kind = String(opts.kind || "design_domain").toLowerCase() === "orchestrate" ? "orchestrate" : "design_domain";
+    const minMs = Math.max(720, Math.min(3400, Number(opts.minMs) > 0 ? Number(opts.minMs) : 1480));
+    const title = kind === "orchestrate" ? "即将进入构型优化编排" : "即将进入设计域（OC4）";
+    const subtitle =
+      kind === "orchestrate" ? "正在切换到编排工作台…" : "正在打开网格与载荷工作台…";
+    const anchor = refs.landingMain;
+    if (!anchor) return Promise.resolve();
+    return new Promise((resolve) => {
+      const ov = document.createElement("div");
+      ov.className = "landingSubflowBridgeOverlay";
+      ov.setAttribute("role", "status");
+      ov.setAttribute("aria-live", "polite");
+      ov.innerHTML = `
+        <div class="landingSubflowBridgeCard">
+          <div class="landingSubflowBridgeRing" aria-hidden="true"></div>
+          <div class="landingSubflowBridgeText">
+            <div class="landingSubflowBridgeTitle">${escapeHtml(title)}</div>
+            <div class="landingSubflowBridgeSub">${escapeHtml(subtitle)}</div>
+          </div>
+        </div>
+      `;
+      anchor.appendChild(ov);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => ov.classList.add("landingSubflowBridgeOverlay--visible"));
+      });
+      const finish = () => {
+        if (!ov.isConnected) {
+          resolve();
+          return;
+        }
+        ov.classList.remove("landingSubflowBridgeOverlay--visible");
+        ov.classList.add("landingSubflowBridgeOverlay--exit");
+        setTimeout(() => {
+          ov.remove();
+          resolve();
+        }, 400);
+      };
+      setTimeout(finish, minMs);
+    });
   }
 
   function goHome() {
@@ -173,22 +637,40 @@ export function createLayoutManager(deps) {
     const phases = [
       {
         text:
-          "## 步骤 1｜搜索相关文件\n- 解析目标与约束，读取上传上下文\n- 扫描工作目录与 `inp`、集合与载荷\n- **IGES**：可进入「设计域」四步；体网格与 CAD 转换共用 **Plan** 弹窗；顶栏「← 设计域」可随时返回调整",
+          "## 步骤 1｜扫描目录并建立运行上下文\n" +
+          "- **锁定工作区**：以当前上传文件所在 `runs/<任务>/` 为根（或你在侧栏/流程里填写的扫描目录），列出目录内 `*.inp`、`*.vtk`、日志与附属 `*INCLUDE` 文件。\n" +
+          "- **主 INP 体检**：检查优化用 `*ELSET`、`*STEP`、`*MATERIAL`、`*SOLID SECTION`、`*BOUNDARY`、`*CLOAD` 等是否与 BESO/CalculiX 预期一致；缺材料或 STEP 顺序错误会在后续执行时报错，本步尽量提前暴露。\n" +
+          "- **几何分流**：若仅有 **IGES/STEP** 而无体网格 INP，应先走 **设计域**（STEP→体网格→`03_for_beso.inp`）；若已是四面体/六面体体网格 INP，则在本步完成后可直接进入「生成代码」。\n" +
+          "- **你可操作**：在流程页确认「自动关联扫描」树、必要时触发 **IGES → INP** 转换；顶栏 **← 设计域** 可随时回去改网格或载荷。",
         active: 1,
         conn: 0,
       },
       {
-        text: "## 步骤 2｜生成代码\n- 构建 `run_generated` 链路与脚本配置",
+        text:
+          "## 步骤 2｜生成运行脚本与任务清单\n" +
+          "- **写入清单**：生成或更新 `task_manifest.json`（或等效描述），记录主 INP、载荷/集合类辅助 INP、`step_mapping` 与扫描路径，供执行器按序拷贝进运行目录。\n" +
+          "- **生成 `beso_conf.py`**：写入 `mass_goal_ratio`（目标保留质量比）、`filter_list` 中 simple 滤波半径、`save_iteration_results`（与「每 N 轮保存中间结果」对应）、`optimization_base`（如 `failure_index`）等；OC4 双域时还会区分 `design_space` / `nondesign_space`。\n" +
+          "- **脚本与入口**：产出 `run_generated` 调用链或包装脚本，使同一工作目录内可重复调用 **CalculiX（ccx）** 与 **BESO（Python）**；本步结束前不会在后台真正开始大规模迭代。\n" +
+          "- **你可操作**：在下一步的「生成代码」面板核对各文件内容，再点 **接受本步骤并继续**。",
         active: 2,
         conn: 1,
       },
       {
-        text: "## 步骤 3｜预览指标\n- 绑定 INP 与载荷映射，准备曲线与网格预览",
+        text:
+          "## 步骤 3｜绑定预览数据（VTK / 指标曲线）\n" +
+          "- **映射绑定**：把清单里的主 INP 与辅助 INP 绑定到 **Mass、FI_mean、FI_max** 等曲线数据源，以及 **VTK 帧序列**（若目录中已有 `file*.vtk` 或运行中会生成）。\n" +
+          "- **分步界面**：为右侧 **3D 预览** 与 **指标曲线** 面板准备路径；优化开始后日志会增量刷新，本步完成意味着「执行阶段」可以正确找到预览文件。\n" +
+          "- **你可操作**：若扫描树缺文件，回到步骤 1 重新扫描或补传；确认无误后 **接受本步骤并继续** 进入汇总。",
         active: 3,
         conn: 2,
       },
       {
-        text: "## 步骤 4｜汇总与执行就绪\n- 校验清单后点击 **执行任务**",
+        text:
+          "## 步骤 4｜产物汇总与一键执行\n" +
+          "- **清单汇总**：在「生成文件和日志汇总」中合并 **输入映射**、**代码/脚本清单**、**日志摘要**，形成可审计的一次「计划运行」视图。\n" +
+          "- **执行前检查**：确认主 INP 已在运行目录、`beso_conf.py` 与 `ccx` 路径可用、磁盘空间足够（`save_every=1` 时每轮都会写 OBJ/INP，体积增长快）。\n" +
+          "- **开始计算**：点击 **执行任务** 启动后台线程：顺序调用 CalculiX 与 BESO；完成后可用 **拓扑优化结果查看器** 浏览 OBJ/STEP 与曲线。\n" +
+          "- **你可操作**：执行期间仍可 **← 设计域** 调整几何后重新「完成并进入编排」再执行任务。",
         active: 4,
         conn: 3,
       },
@@ -213,17 +695,21 @@ export function createLayoutManager(deps) {
 
       let charIdx = 0;
       const line = `${p.text}\n\n`;
+      /** 按块打字 + 较低刷新率，避免每字 renderMd 造成主线程长时间卡顿 */
+      const CHUNK_CHARS = 32;
+      const TICK_MS = 52;
       const t = setInterval(() => {
-        streamMd += line[charIdx] || "";
+        const end = Math.min(charIdx + CHUNK_CHARS, line.length);
+        streamMd += line.slice(charIdx, end);
+        charIdx = end;
         refs.orchestrateStream.innerHTML = renderMd(streamMd);
         refs.orchestrateStream.scrollTop = refs.orchestrateStream.scrollHeight;
-        charIdx += 1;
         if (charIdx >= line.length) {
           clearInterval(t);
           phaseIdx += 1;
-          setTimeout(typePhase, 380);
+          setTimeout(typePhase, 440);
         }
-      }, 16);
+      }, TICK_MS);
     };
     typePhase();
   }
@@ -249,9 +735,10 @@ export function createLayoutManager(deps) {
     refs.landingMain.classList.toggle("sidebarCollapsed", c);
     const btn = refs.toggleSidebarBtn;
     if (btn) {
-      btn.textContent = c ? "\u203a" : "\u2039";
       btn.setAttribute("aria-expanded", c ? "false" : "true");
-      btn.title = c ? "展开任务栏" : "收起侧栏";
+      const label = c ? "展开任务栏" : "收起侧栏";
+      btn.title = label;
+      btn.setAttribute("aria-label", label);
     }
     const aside = refs.landingMain.querySelector(".taskSidebar");
     if (aside) aside.setAttribute("aria-expanded", c ? "false" : "true");
@@ -264,9 +751,16 @@ export function createLayoutManager(deps) {
     setStep,
     addBubble,
     addLandingBubble,
+    addLandingThinking,
+    removeLandingThinking,
+    addLandingTyping,
+    removeLandingTyping,
+    beginLandingAgentStream,
+    addLandingWorkflowCard,
     showStage,
     goHome,
     streamOrchestration,
+    playLandingSubflowBridge,
     renderSelectedInputs,
     setSidebarCollapsed,
   };

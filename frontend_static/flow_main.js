@@ -1,5 +1,5 @@
 import { createLayoutManager } from "./flow_main.layout.js";
-import { createTaskManager } from "./flow_main.tasks.js";
+import { createTaskManager, formatTaskStatus } from "./flow_main.tasks.js";
 import { createViewer } from "./flow_main.viewer.js";
 import { createDesignDomainViewer } from "./flow_main.designDomainViewer.js";
 import { mountResultsViewer } from "./flow_main.resultsViewer.js";
@@ -36,6 +36,11 @@ const refs = {
   acceptStep3: $("acceptStep3"),
   restartFlow: $("restartFlow"),
   runAgentFlow: $("runAgentFlow"),
+  landingSendChatBtn: $("landingSendChatBtn"),
+  newLandingTaskBtn: $("newLandingTaskBtn"),
+  landingSubflowStrip: $("landingSubflowStrip"),
+  landingEnterDesignDomainBtn: $("landingEnterDesignDomainBtn"),
+  landingEnterOrchestrateBtn: $("landingEnterOrchestrateBtn"),
   executePlannedTask: $("executePlannedTask"),
   backHomeFromOrchestrate: $("backHomeFromOrchestrate"),
   backHomeFromFlow: $("backHomeFromFlow"),
@@ -70,6 +75,7 @@ const refs = {
   backToOc4FromOrchestrateBtn: $("backToOc4FromOrchestrateBtn"),
   flowStepper: $("flowStepper"),
   taskListEl: $("taskList"),
+  taskSessionDigest: $("taskSessionDigest"),
   taskSidebarEl: document.querySelector("#landingMain .taskSidebar"),
   refreshTasksBtn: $("refreshTasksBtn"),
   toggleSidebarBtn: $("toggleSidebarBtn"),
@@ -79,10 +85,12 @@ const refs = {
   taskRenameCancel: $("taskRenameCancel"),
   artifactSummary: $("artifactSummary"),
   container: $("vtk"),
-  uploadPreviewCard: $("uploadPreviewCard"),
-  uploadPreviewName: $("uploadPreviewName"),
-  uploadPreviewRemove: $("uploadPreviewRemove"),
+  landingPendingAttachBar: $("landingPendingAttachBar"),
+  landingPendingAttachName: $("landingPendingAttachName"),
+  landingPendingAttachRemove: $("landingPendingAttachRemove"),
   settingsBtn: $("settingsBtn"),
+  settingsShell: $("settingsShell"),
+  settingsBackdrop: $("settingsBackdrop"),
   settingsPanel: $("settingsPanel"),
   settingsClose: $("settingsClose"),
   baseUrlInput: $("baseUrl"),
@@ -91,6 +99,7 @@ const refs = {
   qwenKey: $("qwenKey"),
   qwenSave: $("qwenSave"),
   qwenStatus: $("qwenStatus"),
+  assistantPreferStream: $("assistantPreferStream"),
   massGoal: $("massGoal"),
   filterR: $("filterR"),
   saveEvery: $("saveEvery"),
@@ -129,6 +138,7 @@ const refs = {
   designDomainRightOverlayText: $("designDomainRightOverlayText"),
   ddCutCenter: $("ddCutCenter"),
   ddIncludeSource: $("ddIncludeSource"),
+  ddMeshDensity: $("ddMeshDensity"),
   ddCharMax: $("ddCharMax"),
   ddBtnBuild: $("ddBtnBuild"),
   ddBtnPreview: $("ddBtnPreview"),
@@ -198,6 +208,17 @@ const state = {
   oc4ActivityLog: [],
   /** 设计域收尾后仍可用于「返回 OC4」恢复 session_id（与任务 oc4_design_domain_session_id 一致） */
   oc4DesignDomainSessionIdForResume: "",
+  /** 主页多轮对话（POST /api/assistant/chat），仅 user/assistant；按任务切换时与 localStorage 同步 */
+  assistantThread: [],
+  landingAssistantPending: false,
+  /** 当前流式请求：切换任务 / 离开主页 / 新发送 时中止，避免互相卡住主线程与 UI */
+  landingChatFlight: null,
+  /** 任务标题摘要 /api/assistant/chat 的 AbortController，避免与流式对话并行拖慢后端 */
+  titleSummarizeAbort: null,
+  /** 当前对话参与的子流程摘要（侧栏只读展示） */
+  landingSessionDigest: [],
+  /** 上传成功尚未随下一条用户消息发出的文件（仅用于输入区「待发送」与下一条气泡后的附件展示） */
+  landingAttachmentPending: null,
 };
 
 let designDomainViewer = null;
@@ -245,7 +266,705 @@ function normalizedBaseUrl() {
 }
 refs.baseUrlText && (refs.baseUrlText.textContent = normalizedBaseUrl().replace(/^https?:\/\//, ""));
 
+/** 右侧设置抽屉：遮罩淡入 + 面板滑入；无 shell 时回退旧版 hidden。 */
+function setSettingsDrawer(open) {
+  const on = Boolean(open);
+  if (!on) persistTopologySettingsImmediate();
+  const shell = refs.settingsShell;
+  if (!shell) {
+    refs.settingsPanel?.classList.toggle("hidden", !on);
+    return;
+  }
+  shell.setAttribute("aria-hidden", on ? "false" : "true");
+  shell.classList.toggle("settingsShell--open", on);
+  document.body.classList.toggle("settingsDrawerOpen", on);
+}
+
+const LS_TOPOLOGY = "beso.settings.topology.v1";
+const DEFAULT_TOPO_MG = 0.25;
+const DEFAULT_TOPO_SE = 1;
+let _topologySaveTimer = null;
+
+function persistTopologySettingsImmediate() {
+  try {
+    localStorage.setItem(
+      LS_TOPOLOGY,
+      JSON.stringify({
+        mg: refs.massGoal?.value ?? "",
+        fr: refs.filterR?.value ?? "",
+        se: refs.saveEvery?.value ?? "",
+      }),
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function schedulePersistTopologySettings() {
+  if (_topologySaveTimer != null) clearTimeout(_topologySaveTimer);
+  _topologySaveTimer = setTimeout(() => {
+    _topologySaveTimer = null;
+    persistTopologySettingsImmediate();
+  }, 220);
+}
+
+function hydrateTopologyInputsFromStorage() {
+  let o = null;
+  try {
+    o = JSON.parse(localStorage.getItem(LS_TOPOLOGY) || "null");
+  } catch {
+    o = null;
+  }
+  if (refs.massGoal) {
+    const v = o && o.mg != null && String(o.mg).trim() !== "" ? String(o.mg) : String(DEFAULT_TOPO_MG);
+    refs.massGoal.value = v;
+  }
+  if (refs.saveEvery) {
+    const v = o && o.se != null && String(o.se).trim() !== "" ? String(o.se) : String(DEFAULT_TOPO_SE);
+    refs.saveEvery.value = v;
+  }
+  if (refs.filterR) refs.filterR.value = o && o.fr != null ? String(o.fr) : "";
+}
+
+/** 与 POST /api/chat 对齐：质量比与保存步长始终带默认值；滤波半径仅在有有效正数时发送。 */
+function readTopologyOverridesForChat() {
+  const mg = Number(refs.massGoal?.value);
+  const fr = Number(refs.filterR?.value);
+  const se = Number(refs.saveEvery?.value);
+  const out = {
+    mass_goal_ratio: Number.isFinite(mg) && mg > 0 && mg < 1 ? mg : DEFAULT_TOPO_MG,
+    save_every: Number.isFinite(se) && se > 0 ? Math.floor(se) : DEFAULT_TOPO_SE,
+  };
+  if (Number.isFinite(fr) && fr > 0) out.filter_radius = fr;
+  return out;
+}
+
+async function refreshQwenConfigStatus() {
+  try {
+    const cfg = await (await fetch(`${normalizedBaseUrl()}/api/config/qwen`, { cache: "no-store" })).json();
+    if (refs.qwenStatus) {
+      refs.qwenStatus.textContent = cfg.configured
+        ? `已配置（${cfg.model || "qwen"}）`
+        : "未配置：填写 API Key 或设置环境变量 QWEN_API_KEY";
+    }
+    if (refs.qwenBaseUrl && cfg.base_url) refs.qwenBaseUrl.value = cfg.base_url;
+    if (refs.qwenModel && cfg.model) refs.qwenModel.value = cfg.model;
+    if (cfg.configured) fireAndForgetQwenWarmup();
+    return cfg;
+  } catch {
+    if (refs.qwenStatus) refs.qwenStatus.textContent = "无法连接后端检测 Qwen";
+    return null;
+  }
+}
+
 const layout = createLayoutManager({ refs, state });
+
+function landingThreadStorageKey(tid) {
+  return `beso.landingThread.${String(tid || "").trim()}`;
+}
+
+let _landingThreadServerTimer = null;
+let _landingThreadServerTid = null;
+
+function cancelPendingLandingThreadServerPersist(forTaskId) {
+  const tid = String(forTaskId || "").trim();
+  if (_landingThreadServerTimer && tid && _landingThreadServerTid === tid) {
+    clearTimeout(_landingThreadServerTimer);
+    _landingThreadServerTimer = null;
+    _landingThreadServerTid = null;
+  }
+}
+
+/** 切换任务等场景下立即把当前内存中的对话写入服务端（带 taskId 覆盖，避免已切走 currentTaskId） */
+async function flushLandingAssistantThreadServer(forTaskId) {
+  const tid = String(forTaskId ?? state.currentTaskId ?? "").trim();
+  if (!tid || !taskManager?.upsertTask) return;
+  cancelPendingLandingThreadServerPersist(tid);
+  const threadSnap = (state.assistantThread || []).slice(-120);
+  const digestSnap = (state.landingSessionDigest || []).slice(-40);
+  await taskManager.upsertTask(
+    { assistant_thread: threadSnap, landing_session_digest: digestSnap },
+    { taskId: tid },
+  );
+}
+
+function persistLandingAssistantThread(forTaskId) {
+  const tid = String(forTaskId ?? state.currentTaskId ?? "").trim();
+  if (!tid) return;
+  const threadSnap = (state.assistantThread || []).slice(-120);
+  const digestSnap = (state.landingSessionDigest || []).slice(-40);
+  try {
+    localStorage.setItem(
+      landingThreadStorageKey(tid),
+      JSON.stringify({
+        v: 2,
+        thread: threadSnap.slice(-80),
+        digest: digestSnap.slice(-24),
+      }),
+    );
+  } catch {
+    /* ignore */
+  }
+  _landingThreadServerTid = tid;
+  if (_landingThreadServerTimer) clearTimeout(_landingThreadServerTimer);
+  _landingThreadServerTimer = setTimeout(() => {
+    _landingThreadServerTimer = null;
+    const tm = taskManager;
+    if (!tm?.upsertTask) return;
+    void tm.upsertTask(
+      { assistant_thread: threadSnap, landing_session_digest: digestSnap },
+      { taskId: tid },
+    );
+  }, 650);
+}
+
+function loadLandingAssistantThread(forTaskId) {
+  const tid = String(forTaskId ?? "").trim();
+  if (!tid) {
+    state.assistantThread = [];
+    state.landingSessionDigest = [];
+    return;
+  }
+  try {
+    const raw = localStorage.getItem(landingThreadStorageKey(tid));
+    if (!raw) {
+      state.assistantThread = [];
+      state.landingSessionDigest = [];
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && Number(parsed.v) === 2) {
+      state.assistantThread = Array.isArray(parsed.thread) ? parsed.thread : [];
+      state.landingSessionDigest = Array.isArray(parsed.digest) ? parsed.digest : [];
+      return;
+    }
+    const arr = Array.isArray(parsed) ? parsed : [];
+    state.assistantThread = arr;
+    state.landingSessionDigest = [];
+  } catch {
+    state.assistantThread = [];
+    state.landingSessionDigest = [];
+  }
+}
+
+/** 中止当前主页流式对话（切换任务、离开主页、再次发送），避免请求与 UI 串扰、长时间占用主线程回调 */
+function abortLandingChat(_reason) {
+  try {
+    state.titleSummarizeAbort?.abort();
+  } catch {
+    /* ignore */
+  }
+  state.titleSummarizeAbort = null;
+  const f = state.landingChatFlight;
+  state.landingChatFlight = null;
+  state.landingAssistantPending = false;
+  if (refs.landingSendChatBtn) refs.landingSendChatBtn.disabled = false;
+  if (!f) return;
+  try {
+    f.ac?.abort();
+  } catch {
+    /* ignore */
+  }
+  try {
+    if (f.streamCtrl?.wrap?.classList?.contains("landingTurn--streaming")) {
+      f.streamCtrl.finalize("（已中断：切换对话或离开主页）");
+    } else if (!f.streamCtrl && f.thinkingEl?.isConnected) {
+      layout.removeLandingThinking(f.thinkingEl);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function appendLandingSessionDigest(entry) {
+  if (!entry || !entry.label) return;
+  if (!Array.isArray(state.landingSessionDigest)) state.landingSessionDigest = [];
+  state.landingSessionDigest.push({
+    kind: String(entry.kind || ""),
+    label: String(entry.label || "").slice(0, 80),
+    ts: Number(entry.ts) || Date.now(),
+  });
+  if (state.landingSessionDigest.length > 24) state.landingSessionDigest = state.landingSessionDigest.slice(-24);
+  renderTaskSessionDigest();
+}
+
+function renderTaskSessionDigest() {
+  const el = refs.taskSessionDigest;
+  if (!el) return;
+  const rows = state.landingSessionDigest || [];
+  if (!rows.length) {
+    el.innerHTML = `<div class="taskDigestEmpty" title="尚未从对话进入设计域或构型优化编排">暂无子流程摘要</div>`;
+    return;
+  }
+  el.innerHTML = rows
+    .map(
+      (r) =>
+        `<div class="taskDigestItem" title="${escapeHtml(r.label)}"><span class="taskDigestDot" data-kind="${escapeHtml(r.kind)}"></span><span class="taskDigestItemText">${escapeHtml(r.label)}</span></div>`,
+    )
+    .join("");
+}
+
+/** 用户是否在描述「编排 / 设计域」等可自动跳转的子流程 */
+function detectLandingWorkflowIntent(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+  const orch =
+    /运行\s*智能体|智能体\s*流程|智能体\s*编排|构型\s*优化|运行\s*构型|构型\s*编排|开始\s*编排|编排\s*流程|一键\s*流程|执行任务|跑.*流程|进入\s*编排|打开\s*编排|拓扑\s*优化|结构\s*优化|形状\s*优化|形貌\s*优化|布局\s*优化|优化\s*设计|柔度|应变\s*能|灵敏度|材料\s*插值|密度\s*法|\bSIMP\b|\bBESO\b|beso\s|calculi?x|有限元\s*优化|\bAI\s*Engineering\b/i.test(raw);
+  const dd = /设计域|进入\s*设计域|OC4|oc4|iges.*(流程|步骤)|几何.*设计域/i.test(raw);
+  if (dd && !orch) return "design_domain";
+  if (orch) return "orchestrate";
+  return null;
+}
+
+/**
+ * 消费 SSE 流；对 reader.read 与中止语义加固，避免 Abort / 切任务被误报为「对话失败」。
+ * @returns {{ full: string, status: "complete"|"cancelled"|"error", error?: Error }}
+ */
+async function consumeAssistantChatStream(response, onDelta, opts = {}) {
+  const shouldContinue = typeof opts.shouldContinue === "function" ? opts.shouldContinue : null;
+  const signal = opts.signal;
+  const isAbortLike = (e) =>
+    Boolean(
+      signal?.aborted ||
+        e?.name === "AbortError" ||
+        (typeof DOMException !== "undefined" && e instanceof DOMException && e.name === "AbortError") ||
+        /aborted|abort|bodystreambuffer|user.?abort/i.test(String(e?.message || e || "")),
+    );
+  if (!response.ok) {
+    const t = await response.text().catch(() => "");
+    let msg = `HTTP ${response.status}`;
+    try {
+      const j = JSON.parse(t);
+      const d = j.detail;
+      msg =
+        typeof d === "string"
+          ? d
+          : Array.isArray(d)
+            ? d.map((x) => (typeof x === "string" ? x : x?.msg || JSON.stringify(x))).join("；")
+            : t.slice(0, 400) || msg;
+    } catch {
+      if (t) msg = t.slice(0, 400);
+    }
+    return { full: "", status: "error", error: new Error(msg) };
+  }
+  const reader = response.body?.getReader();
+  if (!reader) return { full: "", status: "error", error: new Error("无法读取模型流") };
+  const dec = new TextDecoder();
+  let carry = "";
+  let full = "";
+  /** 合并 token，减少主线程 layout（参考对话型智能体「批量刷新」思路） */
+  let pendingDelta = "";
+  let flushTimer = null;
+  const DELTA_BATCH_MS = 20;
+  const DELTA_MAX_CHARS = 1200;
+  const fatal = { err: /** @type {Error|null} */ (null) };
+  const flushDeltas = () => {
+    flushTimer = null;
+    if (!pendingDelta) return;
+    if (shouldContinue && !shouldContinue()) {
+      pendingDelta = "";
+      return;
+    }
+    const chunk = pendingDelta;
+    pendingDelta = "";
+    onDelta?.(chunk);
+  };
+  const pushDelta = (piece) => {
+    if (!piece) return;
+    if (shouldContinue && !shouldContinue()) return;
+    full += piece;
+    pendingDelta += piece;
+    if (pendingDelta.length >= DELTA_MAX_CHARS) {
+      if (flushTimer != null) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+      flushDeltas();
+      return;
+    }
+    if (flushTimer == null) {
+      flushTimer = setTimeout(flushDeltas, DELTA_BATCH_MS);
+    }
+  };
+  const processLine = (line) => {
+    const s = String(line || "").trim();
+    if (!s || s.startsWith(":") || !s.startsWith("data:")) return;
+    const payload = s.slice(5).trim();
+    if (payload === "[DONE]") return;
+    try {
+      const j = JSON.parse(payload);
+      if (j.error) {
+        fatal.err = new Error(String(j.error));
+        return;
+      }
+      const piece = j.choices?.[0]?.delta?.content ?? j.choices?.[0]?.message?.content ?? "";
+      pushDelta(piece);
+    } catch (e) {
+      if (!(e instanceof SyntaxError)) fatal.err = e instanceof Error ? e : new Error(String(e));
+    }
+  };
+  let streamCancelled = false;
+  while (true) {
+    if (shouldContinue && !shouldContinue()) {
+      streamCancelled = true;
+      try {
+        await reader.cancel();
+      } catch {
+        /* ignore */
+      }
+      break;
+    }
+    let readDone = false;
+    let value;
+    try {
+      const chunk = await reader.read();
+      readDone = chunk.done;
+      value = chunk.value;
+    } catch (readExc) {
+      if (flushTimer != null) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+      if (pendingDelta && (!shouldContinue || shouldContinue())) onDelta?.(pendingDelta);
+      pendingDelta = "";
+      if (isAbortLike(readExc)) return { full, status: "cancelled" };
+      if (shouldContinue && !shouldContinue()) return { full, status: "cancelled" };
+      return {
+        full,
+        status: "error",
+        error: readExc instanceof Error ? readExc : new Error(String(readExc)),
+      };
+    }
+    if (fatal.err) {
+      if (flushTimer != null) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+      if (pendingDelta && (!shouldContinue || shouldContinue())) onDelta?.(pendingDelta);
+      pendingDelta = "";
+      return { full, status: "error", error: fatal.err };
+    }
+    if (readDone) break;
+    carry += dec.decode(value, { stream: true });
+    for (;;) {
+      const nl = carry.indexOf("\n");
+      if (nl < 0) break;
+      const line = carry.slice(0, nl).trim();
+      carry = carry.slice(nl + 1);
+      processLine(line);
+      if (fatal.err) break;
+    }
+    if (fatal.err) break;
+  }
+  if (!streamCancelled) {
+    carry += dec.decode();
+    for (const line of carry.split("\n")) {
+      processLine(line);
+      if (fatal.err) break;
+    }
+  }
+  if (flushTimer != null) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  if (pendingDelta) {
+    if (!shouldContinue || shouldContinue()) onDelta?.(pendingDelta);
+  }
+  pendingDelta = "";
+  if (fatal.err) return { full, status: "error", error: fatal.err };
+  return { full, status: streamCancelled ? "cancelled" : "complete" };
+}
+
+const LS_ASSISTANT_PREFER_STREAM = "beso.settings.assistantPreferStream";
+
+function readAssistantPreferStream() {
+  try {
+    return localStorage.getItem(LS_ASSISTANT_PREFER_STREAM) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function syncAssistantPreferStreamUi() {
+  try {
+    if (refs.assistantPreferStream) refs.assistantPreferStream.checked = readAssistantPreferStream();
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 非流式整包对话（对齐 Wisdom：单次 JSON，抗代理断流） */
+async function fetchAssistantChatOnce(messages, signal) {
+  try {
+    const r = await fetch(`${normalizedBaseUrl()}/api/assistant/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, temperature: 0.6 }),
+      signal,
+    });
+    const raw = await r.text().catch(() => "");
+    if (!r.ok) {
+      let msg = `请求失败（${r.status}）`;
+      try {
+        const j = JSON.parse(raw);
+        const d = j.detail;
+        msg =
+          typeof d === "string"
+            ? d
+            : Array.isArray(d)
+              ? d.map((x) => (typeof x === "string" ? x : x?.msg || JSON.stringify(x))).join("；")
+              : msg;
+      } catch {
+        if (raw) msg = raw.slice(0, 500);
+      }
+      return { ok: false, reply: "", errorText: msg, aborted: false };
+    }
+    try {
+      const j = JSON.parse(raw);
+      const reply = String(j.reply ?? "").trim();
+      return { ok: true, reply: reply || "（无回复）", errorText: "", aborted: false };
+    } catch {
+      return { ok: false, reply: "", errorText: "响应不是合法 JSON", aborted: false };
+    }
+  } catch (e) {
+    if (signal?.aborted) return { ok: false, reply: "", errorText: "", aborted: true };
+    return { ok: false, reply: "", errorText: `网络错误：${e?.message || e}`, aborted: false };
+  }
+}
+
+/** 拿到整包回复后在本地渐进输出（类比 Wisdom streamTextInto） */
+async function replayAssistantProgressive(streamCtrl, fullText, signal, shouldContinue) {
+  if (!streamCtrl?.appendDelta) return;
+  const text = String(fullText || "");
+  const units = [...text];
+  const reduceMotion =
+    typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const chunkSize = reduceMotion ? Math.max(32, Math.ceil(units.length / 6)) : 4;
+  const tickMs = reduceMotion ? 0 : 16;
+  let i = 0;
+  while (i < units.length) {
+    if (signal?.aborted || (shouldContinue && !shouldContinue())) return;
+    const end = Math.min(i + chunkSize, units.length);
+    streamCtrl.appendDelta(units.slice(i, end).join(""));
+    i = end;
+    if (tickMs > 0) await new Promise((res) => setTimeout(res, tickMs));
+  }
+}
+
+function syncLandingWorkflowCardsFromTasks(items) {
+  const tid = String(state.currentTaskId || "").trim();
+  if (!tid || !refs.chatLanding) return;
+  const t = (items || []).find((x) => String(x.task_id) === tid);
+  if (!t) return;
+  const st = formatTaskStatus(t.status);
+  const stepNum = Number(t.step);
+  const stepLabel = Number.isFinite(stepNum) && stepNum >= 1 && stepNum <= 4 ? `步骤 ${stepNum}/4` : "";
+  const pct = Math.max(0, Math.min(100, Number(t.progress || 0)));
+  const uiStage = String(t.ui_stage || "").toLowerCase();
+  const hasDdSid = Boolean(String(t.oc4_design_domain_session_id || "").trim());
+  for (const btn of refs.chatLanding.querySelectorAll(".landingWorkflowCard[data-task-id]")) {
+    if (btn.getAttribute("data-task-id") !== tid) continue;
+    const kind = String(btn.getAttribute("data-workflow-jump") || "");
+    const pill = btn.querySelector(".landingWorkflowCardStatus");
+    const stepEl = btn.querySelector(".landingWorkflowCardStep");
+    const fill = btn.querySelector(".landingWorkflowBarFill");
+    if (pill) {
+      if (kind === "design_domain") {
+        const inDd = uiStage === "design_domain" || hasDdSid;
+        pill.textContent = inDd ? "进行中" : "待开始";
+      } else {
+        pill.textContent = st.label;
+      }
+    }
+    if (stepEl && stepLabel) stepEl.textContent = stepLabel;
+    if (fill) fill.style.width = `${pct}%`;
+  }
+}
+
+function pushOrchestrateWorkflowCardToLandingThread() {
+  const taskId = String(state.currentTaskId || "").trim();
+  const card = {
+    role: "card",
+    kind: "orchestrate",
+    title: "构型优化编排",
+    status: "编排中",
+    step: 1,
+    progress: 12,
+    taskId,
+  };
+  state.assistantThread.push(card);
+  layout.addLandingWorkflowCard({ ...card });
+  appendLandingSessionDigest({ kind: "orchestrate", label: "构型优化编排" });
+}
+
+function landingThreadHasDesignDomainCard() {
+  return (state.assistantThread || []).some((m) => m.role === "card" && m.kind === "design_domain");
+}
+
+function pushDesignDomainWorkflowCardToLandingThread(patch = {}) {
+  const taskId = String(state.currentTaskId || "").trim();
+  const card = {
+    role: "card",
+    kind: "design_domain",
+    title: "设计域（OC4）",
+    status: patch.status || "进行中",
+    step: Number.isFinite(Number(patch.step)) ? Number(patch.step) : 1,
+    progress: Number.isFinite(Number(patch.progress)) ? Number(patch.progress) : 15,
+    taskId,
+  };
+  state.assistantThread.push(card);
+  layout.addLandingWorkflowCard({ ...card });
+  appendLandingSessionDigest({ kind: "design_domain", label: "设计域（OC4）" });
+}
+
+/** 从主页进入设计域：写入对话卡片与侧栏摘要，再打开设计域舞台 */
+async function openDesignDomainFromLanding(opts = {}) {
+  const { autoPipeline = false, softResume = true, forceNewSession = false } = opts;
+  if (!isOc4IgesFilename(state.currentFileName)) {
+    layout.addLandingBubble("agent", "设计域仅支持已上传的 IGES 文件。");
+    return;
+  }
+  await ensureLandingTaskForWork();
+  await taskManager.loadTasks().catch(() => {});
+  await ensureOc4DesignDomainSessionForResume();
+  dismissLandingHero();
+  if (!landingThreadHasDesignDomainCard()) {
+    pushDesignDomainWorkflowCardToLandingThread({ status: "进行中", step: 1, progress: 14 });
+    persistLandingAssistantThread();
+  }
+  await taskManager.upsertTask({ ui_stage: "design_domain" }).catch(() => {});
+  await enterOc4DesignDomainStage({ autoPipeline, softResume, forceNewSession }).catch((e) => {
+    layout.addLandingBubble("agent", `设计域：${e?.message || e}`);
+  });
+  await taskManager.loadTasks().catch(() => {});
+}
+
+function renderLandingChatFromThread() {
+  if (!refs.chatLanding) return;
+  refs.chatLanding.innerHTML = "";
+  let userTurnIdx = 0;
+  for (const m of state.assistantThread) {
+    if (m.role === "user") {
+      const att = m.attachment && String(m.attachment.file_name || "").trim() ? m.attachment : null;
+      layout.addLandingBubble("user", m.content, {
+        debut: userTurnIdx === 0,
+        attachment: att || undefined,
+      });
+      userTurnIdx += 1;
+    }
+    else if (m.role === "assistant") {
+      const fmt =
+        m.format === "md" ||
+        (!m.format &&
+          /(\*\*|#{1,4}\s|\n[-*]\s|\n\d+\.\s|\x60{3}|^[-=*_]{3,}\s*$|\n\|[^\n]+\|[^\n]*\n\|)/m.test(String(m.content || "")))
+          ? "md"
+          : "plain";
+      layout.addLandingBubble("agent", m.content, { format: fmt });
+    } else if (m.role === "card") {
+      layout.addLandingWorkflowCard({
+        kind: m.kind,
+        title: m.title,
+        status: m.status,
+        step: m.step,
+        progress: m.progress,
+        taskId: m.taskId,
+      });
+    }
+  }
+  renderTaskSessionDigest();
+}
+
+function landingThreadHasVisibleConversation() {
+  const arr = state.assistantThread || [];
+  return arr.some((m) => m.role === "user" || m.role === "assistant" || m.role === "card");
+}
+
+function landingChatSurfaceHasTurns() {
+  return Boolean(refs.chatLanding?.querySelector(".landingTurn"));
+}
+
+/** 无对话气泡、无附件、输入框为空时展示首屏 Hero；否则隐藏并进入对话区 */
+function syncLandingHeroVisibility() {
+  if (!refs.landingMain) return;
+  const draft = String(refs.msgLanding?.value || "").trim();
+  const hasFile = Boolean(state.currentFileId || String(state.currentFileName || "").trim());
+  const hasChat = landingThreadHasVisibleConversation() || landingChatSurfaceHasTurns();
+  const idle = !hasChat && !hasFile && !draft;
+  if (idle) refs.landingMain.classList.remove("landingHeroHidden");
+  else refs.landingMain.classList.add("landingHeroHidden");
+  updateLandingSubflowStrip();
+}
+
+function dismissLandingHero() {
+  refs.landingMain?.classList.add("landingHeroHidden");
+  updateLandingSubflowStrip();
+}
+
+function syncLandingPendingAttachBar() {
+  const bar = refs.landingPendingAttachBar;
+  const n = refs.landingPendingAttachName;
+  const p = state.landingAttachmentPending;
+  if (!bar) return;
+  if (p && String(p.file_id || "").trim() && String(p.file_name || "").trim()) {
+    bar.classList.remove("hidden");
+    if (n) n.textContent = p.file_name;
+  } else {
+    bar.classList.add("hidden");
+    if (n) n.textContent = "";
+  }
+}
+
+/** 删除已绑定文件并清空任务侧记录（主页「待发送」移除与附件解绑共用） */
+async function clearLandingUploadedFileFromTask() {
+  const fid = state.currentFileId;
+  if (fid) {
+    try {
+      await fetch(`${normalizedBaseUrl()}/api/files/${encodeURIComponent(fid)}`, { method: "DELETE" });
+    } catch {
+      /* 仍清除前端与任务绑定 */
+    }
+  }
+  state.currentFileId = null;
+  state.currentFileName = "";
+  state.landingAttachmentPending = null;
+  state.uploadedSourceDir = "";
+  state.oc4DesignDomainSessionIdForResume = "";
+  state.oc4DesignDomainSessionId = "";
+  disposeDesignDomainViewer();
+  resetOc4DesignDomainState();
+  state.oc4DesignDomainFinalized = false;
+  if (refs.scanDirInput) refs.scanDirInput.value = "";
+  if (refs.fileSummaryInline) refs.fileSummaryInline.textContent = "(尚未选择文件)";
+  syncLandingPendingAttachBar();
+  await taskManager?.upsertTask?.({ file_id: "", file_name: "", scan_dir: "", oc4_design_domain_session_id: "" }).catch(() => {});
+  await taskManager?.loadTasks?.().catch(() => {});
+  persistLandingAssistantThread();
+  syncLandingHeroVisibility();
+  updateLandingSubflowStrip();
+}
+
+function updateLandingSubflowStrip() {
+  const el = refs.landingSubflowStrip;
+  if (!el) return;
+  const show = Boolean(refs.landingMain?.classList.contains("landingHeroHidden"));
+  el.classList.toggle("hidden", !show);
+  const dd = refs.landingEnterDesignDomainBtn;
+  const oc = refs.landingEnterOrchestrateBtn;
+  const iges = isOc4IgesFilename(state.currentFileName);
+  const sidAny = String(state.oc4DesignDomainSessionId || state.oc4DesignDomainSessionIdForResume || "").trim();
+  /** 有 IGES 且（已绑定 file_id 或已有设计域会话）即可进入，避免任务 JSON 缺 file_id 时按钮永久灰显 */
+  const canDesignDomain = Boolean(iges && (state.currentFileId || sidAny));
+  if (dd) {
+    dd.disabled = !canDesignDomain;
+    if (!iges) dd.title = "设计域仅支持 IGES";
+    else if (!state.currentFileId && !sidAny) dd.title = "请先上传 IGES，或从含设计域会话的任务进入";
+    else dd.title = "进入设计域";
+  }
+  if (oc) {
+    oc.disabled = !state.currentFileId;
+    oc.title = state.currentFileId ? "进入构型优化编排" : "请先上传文件";
+  }
+}
 
 function clearMetricsEmptyState() {
   const el = refs.imgGrid?.querySelector(".imgEmptyState");
@@ -405,12 +1124,194 @@ function updateOc4ReturnNavVisibility() {
   refs.backToOc4FromOrchestrateBtn?.classList.toggle("hidden", !show);
 }
 
+let _taskTitleSummarizeTimer = null;
+/** 输入时合并 syncLandingHeroVisibility，减轻主线程压力、避免连续布局抖动 */
+let _landingInputHeroRaf = null;
+
+function scheduleTaskTitleSummarize() {
+  if (_taskTitleSummarizeTimer) clearTimeout(_taskTitleSummarizeTimer);
+  _taskTitleSummarizeTimer = setTimeout(() => {
+    _taskTitleSummarizeTimer = null;
+    void summarizeCurrentTaskTitleFromThread();
+  }, 2600);
+}
+
+/** 根据最近用户输入调用助手生成短标题（失败则静默） */
+async function summarizeCurrentTaskTitleFromThread() {
+  const tid = String(state.currentTaskId || "").trim();
+  if (!tid) return;
+  try {
+    state.titleSummarizeAbort?.abort();
+  } catch {
+    /* ignore */
+  }
+  const ac = new AbortController();
+  state.titleSummarizeAbort = ac;
+  const draft = String(refs.msgLanding?.value || "").trim();
+  const users = state.assistantThread.filter((m) => m.role === "user").slice(-5);
+  let blob = users
+    .map((u) => String(u.content || "").trim())
+    .filter(Boolean)
+    .join("\n---\n")
+    .slice(0, 960);
+  if (draft && (!blob || blob.length < 48)) {
+    blob = blob ? `${blob}\n---\n${draft}` : draft;
+  }
+  if (blob.length < 8) {
+    if (state.titleSummarizeAbort === ac) state.titleSummarizeAbort = null;
+    return;
+  }
+  try {
+    const r = await fetch(`${normalizedBaseUrl()}/api/assistant/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [
+          {
+            role: "system",
+            content:
+              "你是「AI Engineering」对话的任务命名模块；角色为工程任务摘要助手。只输出一行简体中文标题，不超过18个字，概括用户在本对话中的核心诉求。不要引号、不要书名号包住全文、不要「任务：」等前缀、不要解释。",
+          },
+          { role: "user", content: `根据下列【用户输入】生成任务栏标题：\n${blob}` },
+        ],
+        temperature: 0.15,
+      }),
+      signal: ac.signal,
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) return;
+    let t = String(data.reply || "")
+      .trim()
+      .split(/\n/)[0]
+      .replace(/^[\"'「『]|["'」』]$/g, "")
+      .replace(/^任务[是为：:]\s*/i, "")
+      .replace(/\s+/g, " ")
+      .slice(0, 72);
+    if (t.length < 2) return;
+    await taskManager.upsertTask({ title: t });
+    await taskManager.loadTasks().catch(() => {});
+  } catch {
+    /* ignore */
+  } finally {
+    if (state.titleSummarizeAbort === ac) state.titleSummarizeAbort = null;
+  }
+}
+
+/** 侧栏角标：进入设计域或构型优化编排（先同步该任务上下文） */
+async function openTaskSubprocessFromBadge(task, kind) {
+  const tid = String(task?.task_id || "").trim();
+  if (!tid) return;
+  const cur = String(state.currentTaskId || "").trim();
+  if (cur && tid !== cur) {
+    abortLandingChat("task-switch-badge");
+    persistLandingAssistantThread(cur);
+    await flushLandingAssistantThreadServer(cur);
+    state.landingAttachmentPending = null;
+    syncLandingPendingAttachBar();
+  }
+  const nextKey = tid;
+  if (state.activeTaskKey !== nextKey) {
+    resetTaskRuntimeView();
+    state.activeTaskKey = nextKey;
+  }
+  state.currentTaskId = tid;
+  state.jobId = task.job_id || null;
+  state.uploadedSourceDir = String(task.scan_dir || "");
+  state.currentFileName = String(task.file_name || "");
+  state.currentFileId = task.file_id || null;
+  const sid = String(task.oc4_design_domain_session_id || "").trim();
+  state.oc4DesignDomainSessionIdForResume = sid;
+  state.oc4DesignDomainSessionId = sid;
+  state.currentTaskStatus = String(task.status || "");
+  state.maxReachedStep = deriveMaxReachedStepFromTask(task);
+  ingestTaskOc4Activity(task);
+  if (refs.scanDirInput) refs.scanDirInput.value = state.uploadedSourceDir;
+  if (refs.fileSummaryInline) {
+    refs.fileSummaryInline.textContent = `已上传文件：${state.currentFileName || "(未知)"}\n扫描目录：${state.uploadedSourceDir || "(未知)"}`;
+  }
+  if (refs.msgLanding && task.title) refs.msgLanding.value = task.title;
+  await hydrateLandingFromTask(task);
+  const k = String(kind || "");
+  if (k === "design_domain") {
+    if (!isOc4IgesFilename(state.currentFileName)) {
+      layout.addLandingBubble("agent", "该任务文件不是 IGES，无法进入设计域。");
+      return;
+    }
+    if (!state.currentFileId) {
+      layout.addLandingBubble("agent", "缺少有效上传文件，请在该对话中重新上传 IGES。");
+      return;
+    }
+    await taskManager.upsertTask({ ui_stage: "design_domain" }).catch(() => {});
+    await enterOc4DesignDomainStage({ softResume: true, forceNewSession: false }).catch((e) =>
+      layout.addLandingBubble("agent", String(e?.message || e)),
+    );
+    await taskManager.loadTasks().catch(() => {});
+    return;
+  }
+  if (k === "orchestrate") {
+    if (!state.currentFileId) {
+      layout.addLandingBubble("agent", "该对话没有已保存的上传文件，请先上传后再进入构型优化编排。");
+      return;
+    }
+    if (isOc4IgesFilename(state.currentFileName) && !state.oc4DesignDomainFinalized) {
+      layout.addLandingBubble("agent", "IGES 需先完成设计域；正在打开设计域。");
+      await enterOc4DesignDomainStage({ softResume: true, autoPipeline: false }).catch((e) =>
+        layout.addLandingBubble("agent", String(e?.message || e)),
+      );
+      return;
+    }
+    layout.showStage("orchestrate");
+    const st = String(state.currentTaskStatus || "").toLowerCase();
+    if (st === "orchestrating") {
+      if (refs.executePlannedTask) refs.executePlannedTask.disabled = true;
+      const preambleMd = buildOc4OrchestratePreambleMd();
+      layout.streamOrchestration(async () => {
+        if (refs.executePlannedTask) refs.executePlannedTask.disabled = false;
+        layout.addLandingBubble("agent", "构型优化编排完成，点击「执行任务」进入分步执行。");
+        await taskManager.upsertTask({ progress: 20, step: 1, status: "ready_to_execute" });
+        await taskManager.loadTasks();
+      }, { preambleMd });
+    } else if (st === "ready_to_execute" || st === "completed" || st === "done") {
+      if (refs.executePlannedTask) refs.executePlannedTask.disabled = false;
+    } else if (refs.executePlannedTask) {
+      refs.executePlannedTask.disabled = false;
+    }
+    await taskManager.upsertTask({ ui_stage: "orchestrate" }).catch(() => {});
+    await taskManager.loadTasks().catch(() => {});
+  }
+}
+
 let taskManager = null;
 taskManager = createTaskManager({
   refs,
   state,
   normalizedBaseUrl,
-  onTasksListUpdated: () => updateOc4ReturnNavVisibility(),
+  onTaskRemoved: (removedId) => {
+    try {
+      localStorage.removeItem(landingThreadStorageKey(removedId));
+    } catch {
+      /* ignore */
+    }
+  },
+  onTasksListUpdated: (items) => {
+    updateOc4ReturnNavVisibility();
+    syncLandingWorkflowCardsFromTasks(items || []);
+  },
+  onBeforeSelectTask: async (nextTaskId) => {
+    const cur = String(state.currentTaskId || "").trim();
+    const next = String(nextTaskId || "").trim();
+    /** 再次点击当前任务也会走此回调：不得中止正在进行的流式对话 */
+    if (cur && next && cur !== next) {
+      abortLandingChat("task-switch");
+      persistLandingAssistantThread(cur);
+      await flushLandingAssistantThreadServer(cur);
+      state.landingAttachmentPending = null;
+      syncLandingPendingAttachBar();
+    }
+  },
+  onTaskBadgeClick: async (task, kind) => {
+    await openTaskSubprocessFromBadge(task, kind);
+  },
   onOpenTask: async (task) => {
     const tid = String(task?.task_id || "").trim();
     const nextTaskKey = tid || String(task?.job_id || "").trim();
@@ -422,65 +1323,22 @@ taskManager = createTaskManager({
     state.currentTaskStatus = String(task.status || "");
     state.maxReachedStep = deriveMaxReachedStepFromTask(task);
     ingestTaskOc4Activity(task);
-    state.oc4DesignDomainSessionIdForResume = String(task?.oc4_design_domain_session_id || "").trim();
+    const sid = String(task?.oc4_design_domain_session_id || "").trim();
+    state.oc4DesignDomainSessionIdForResume = sid;
+    /** 无字段时清空，避免沿用上一条任务的 session 导致错绑或反复建会话 */
+    state.oc4DesignDomainSessionId = sid;
+    state.jobId = task?.job_id ?? null;
+    state.uploadedSourceDir = String(task?.scan_dir || "");
+    state.currentFileName = String(task?.file_name || "");
+    state.currentFileId = String(task?.file_id || "").trim() || null;
     if (refs.scanDirInput) refs.scanDirInput.value = state.uploadedSourceDir;
     if (refs.fileSummaryInline) {
       refs.fileSummaryInline.textContent = `已上传文件：${state.currentFileName || "(未知)"}\n扫描目录：${state.uploadedSourceDir || "(未知)"}`;
     }
     if (refs.msgLanding && task.title) refs.msgLanding.value = task.title;
 
-    const uiStage = String(task.ui_stage || "").toLowerCase();
-    const routeByUi = async () => {
-      if (uiStage === "orchestrate") {
-        layout.showStage("orchestrate");
-        const st = String(state.currentTaskStatus || "").toLowerCase();
-        if (st === "ready_to_execute" || st === "completed" || st === "done") {
-          if (refs.executePlannedTask) refs.executePlannedTask.disabled = false;
-        } else if (st === "orchestrating") {
-          if (refs.executePlannedTask) refs.executePlannedTask.disabled = true;
-          const preambleMd = buildOc4OrchestratePreambleMd();
-          layout.streamOrchestration(async () => {
-            if (refs.executePlannedTask) refs.executePlannedTask.disabled = false;
-            layout.addLandingBubble("agent", "编排完成，点击“执行任务”进入分步执行。");
-            await taskManager.upsertTask({ progress: 20, step: 1, status: "ready_to_execute" });
-            await taskManager.loadTasks();
-          }, { preambleMd });
-        } else if (refs.executePlannedTask) {
-          refs.executePlannedTask.disabled = false;
-        }
-        return;
-      }
-      if (uiStage === "design_domain") {
-        const sid = String(task.oc4_design_domain_session_id || "").trim();
-        if (sid) state.oc4DesignDomainSessionId = sid;
-        if (!state.currentFileId) {
-          layout.showStage("landing");
-          layout.addLandingBubble("agent", "缺少上传记录，无法恢复设计域。已回主页。");
-          return;
-        }
-        renderDesignDomainChatFromState();
-        await enterOc4DesignDomainStage({ softResume: Boolean(state.oc4DesignDomainSessionId) });
-        return;
-      }
-      if (uiStage === "flow") {
-        layout.showStage("flow");
-        const sn = Number(task.step);
-        layout.setStep(Number.isFinite(sn) && sn >= 1 && sn <= 4 ? sn : 1);
-        return;
-      }
-      if (uiStage === "landing") {
-        layout.showStage("landing");
-        return;
-      }
-      const sn = Number(task.step);
-      if (Number.isFinite(sn) && sn >= 1 && sn <= 4) {
-        layout.showStage("flow");
-        layout.setStep(sn);
-      } else {
-        layout.showStage("landing");
-      }
-    };
-    await routeByUi();
+    /* 侧栏只切换「对话上下文」，不根据 ui_stage 跳入编排 / 设计域 / 分步流；子流程由对话内卡片或顶栏入口进入 */
+    layout.showStage("landing");
 
     if (state.jobId) {
       refs.jobIdEl && (refs.jobIdEl.textContent = state.jobId);
@@ -513,8 +1371,418 @@ taskManager = createTaskManager({
       } catch {}
     }
     updateStepperClickableState();
+    await hydrateLandingFromTask(task);
   },
 });
+
+async function ensureLandingTaskForWork() {
+  if (state.currentTaskId) return;
+  const tid = crypto?.randomUUID?.() || `${Date.now()}`;
+  state.currentTaskId = tid;
+  const title =
+    String(refs.msgLanding?.value || "").trim().slice(0, 80) ||
+    String(state.currentFileName || "").slice(0, 80) ||
+    "新对话";
+  await taskManager.upsertTask({ title, status: "pending", progress: 0, step: 1 });
+  await taskManager.loadTasks().catch(() => {});
+}
+
+async function hydrateLandingFromTask(task) {
+  const tid = String(task?.task_id || "").trim();
+  /** 同任务流式进行中时重hydrate 会清空 chat DOM，导致「思考中」节点脱离文档，流式 UI 失效 */
+  const inflightSameTask =
+    Boolean(state.landingChatFlight) && String(state.landingChatFlight.taskId || "") === tid;
+  if (!inflightSameTask) {
+    let loadedFromServer = false;
+    if (tid) {
+      try {
+        const r = await fetch(`${normalizedBaseUrl()}/api/tasks/${encodeURIComponent(tid)}`, { cache: "no-store" });
+        if (r.ok) {
+          const full = await r.json().catch(() => ({}));
+          const th = full?.assistant_thread;
+          if (Array.isArray(th) && th.length) {
+            state.assistantThread = th.slice(-120);
+            state.landingSessionDigest = Array.isArray(full?.landing_session_digest)
+              ? full.landing_session_digest.slice(-40)
+              : [];
+            loadedFromServer = true;
+            try {
+              localStorage.setItem(
+                landingThreadStorageKey(tid),
+                JSON.stringify({
+                  v: 2,
+                  thread: state.assistantThread.slice(-80),
+                  digest: (state.landingSessionDigest || []).slice(-24),
+                }),
+              );
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!loadedFromServer && tid) {
+      loadLandingAssistantThread(tid);
+      if ((state.assistantThread || []).length && taskManager?.upsertTask) {
+        void taskManager.upsertTask(
+          {
+            assistant_thread: state.assistantThread.slice(-120),
+            landing_session_digest: (state.landingSessionDigest || []).slice(-40),
+          },
+          { taskId: tid },
+        );
+      }
+    }
+    if (!tid && !loadedFromServer) {
+      state.assistantThread = [];
+      state.landingSessionDigest = [];
+    }
+    renderLandingChatFromThread();
+  }
+  const fid = String(task?.file_id || "").trim();
+  state.currentFileId = fid || null;
+  state.currentFileName = String(task?.file_name || "").trim();
+  state.landingAttachmentPending = null;
+  syncLandingPendingAttachBar();
+  state.uploadedSourceDir = String(task?.scan_dir || state.uploadedSourceDir || "");
+  state.jobId = task?.job_id || state.jobId || null;
+  syncLandingHeroVisibility();
+  updateLandingSubflowStrip();
+}
+
+/** 仅含后端 /api/assistant/chat* 允许的 role，排除对话里持久化的 card 等结构 */
+let _qwenWarmupLastAt = 0;
+function fireAndForgetQwenWarmup() {
+  try {
+    const now = Date.now();
+    if (now - _qwenWarmupLastAt < 40000) return;
+    _qwenWarmupLastAt = now;
+    const u = `${normalizedBaseUrl()}/api/assistant/qwen-warmup`;
+    void fetch(u, { method: "GET", cache: "no-store" }).catch(() => {});
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 连续两帧再 resolve，确保「思考中」卡片已绘制再发请求 */
+function nextPaintFrame2() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  });
+}
+
+function sliceAssistantThreadForApi(maxMsgs = 48) {
+  const allowed = new Set(["system", "user", "assistant"]);
+  const out = [];
+  for (const m of (state.assistantThread || []).slice(-maxMsgs)) {
+    const role = String(m?.role || "").trim();
+    if (!allowed.has(role)) continue;
+    const content = String(m?.content ?? "").trim();
+    if (!content) continue;
+    out.push({ role, content });
+  }
+  return out;
+}
+
+async function sendLandingAssistantChat() {
+  const text = String(refs.msgLanding?.value || "").trim();
+  if (!text) return;
+  abortLandingChat("send");
+  await ensureLandingTaskForWork();
+  const myTaskId = String(state.currentTaskId || "").trim();
+  dismissLandingHero();
+  state.landingAssistantPending = true;
+  if (refs.landingSendChatBtn) refs.landingSendChatBtn.disabled = true;
+  const debutUser = !state.assistantThread.some((m) => String(m?.role || "") === "user");
+  const pendingAtt = state.landingAttachmentPending;
+  const userBubbleOpts = { debut: debutUser };
+  if (pendingAtt?.file_id && String(pendingAtt.file_name || "").trim()) {
+    userBubbleOpts.attachment = {
+      file_id: pendingAtt.file_id,
+      file_name: String(pendingAtt.file_name || "").trim(),
+    };
+  }
+  layout.addLandingBubble("user", text, userBubbleOpts);
+  const userMsg = { role: "user", content: text };
+  if (pendingAtt?.file_id && String(pendingAtt.file_name || "").trim()) {
+    userMsg.attachment = {
+      file_id: String(pendingAtt.file_id).trim(),
+      file_name: String(pendingAtt.file_name || "").trim(),
+    };
+  }
+  state.assistantThread.push(userMsg);
+  state.landingAttachmentPending = null;
+  syncLandingPendingAttachBar();
+  refs.msgLanding.value = "";
+  persistLandingAssistantThread();
+  const intent = detectLandingWorkflowIntent(text);
+
+  try {
+    if (intent === "design_domain" && !isOc4IgesFilename(state.currentFileName)) {
+      const msg = "设计域仅支持 IGES：请先上传 IGES 文件。";
+      layout.addLandingBubble("agent", msg);
+      state.assistantThread.push({ role: "assistant", content: msg, format: "plain" });
+      return;
+    }
+
+    const messages = sliceAssistantThreadForApi(48);
+    const ac = new AbortController();
+    const flight = { taskId: myTaskId, thinkingEl: null, streamCtrl: null, ac };
+    state.landingChatFlight = flight;
+    const thinkingEl = layout.addLandingThinking();
+    flight.thinkingEl = thinkingEl;
+    let streamCtrl = null;
+    const stillMine = () => state.landingChatFlight === flight;
+    const shouldContinue = () =>
+      stillMine() && String(state.currentTaskId || "").trim() === myTaskId;
+
+    const runOrchestrateFromIntent = async () => {
+      if (!state.currentFileId) {
+        const msg = "请先上传文件，再运行构型优化编排。";
+        layout.addLandingBubble("agent", msg);
+        state.assistantThread.push({ role: "assistant", content: msg, format: "plain" });
+        return;
+      }
+      if (isOc4IgesFilename(state.currentFileName) && !state.oc4DesignDomainFinalized) {
+        layout.addLandingBubble("agent", "IGES 需先完成设计域流程；已为您打开设计域。");
+        state.assistantThread.push({
+          role: "assistant",
+          content: "IGES 需先完成设计域流程；已为您打开设计域。",
+          format: "plain",
+        });
+        persistLandingAssistantThread();
+        await layout.playLandingSubflowBridge({ kind: "design_domain", minMs: 1520 });
+        if (!shouldContinue()) return;
+        await openDesignDomainFromLanding({ autoPipeline: true, softResume: true });
+        return;
+      }
+      await layout.playLandingSubflowBridge({ kind: "orchestrate", minMs: 1520 });
+      if (!shouldContinue()) return;
+      await beginOrchestrationAfterLanding({ skipUserBubble: true, userMessage: text });
+    };
+
+    const runDesignDomainBlock = async () => {
+      if (intent !== "design_domain") return;
+      try {
+        if (!shouldContinue()) return;
+        await layout.playLandingSubflowBridge({ kind: "design_domain", minMs: 1520 });
+        if (!shouldContinue()) return;
+        await openDesignDomainFromLanding({
+          autoPipeline: /自动|一键|直接/.test(text),
+          softResume: true,
+          forceNewSession: false,
+        });
+        if (!shouldContinue()) return;
+        const ack = "已根据您的描述打开设计域，可在右侧主区域继续各步。";
+        layout.addLandingBubble("agent", ack);
+        state.assistantThread.push({ role: "assistant", content: ack, format: "plain" });
+        persistLandingAssistantThread();
+      } catch (e2) {
+        if (!shouldContinue()) return;
+        const t = `模型已回复，但进入设计域时出错：${e2?.message || e2}`;
+        layout.addLandingBubble("agent", t);
+        state.assistantThread.push({ role: "assistant", content: t, format: "plain" });
+      }
+    };
+
+    const thinkT0 = performance.now();
+    await nextPaintFrame2();
+    if (!stillMine()) return;
+    try {
+      const MIN_THINKING_MS = 520;
+      const bumpThinkWait = async () => {
+        const thinkWait = MIN_THINKING_MS - (performance.now() - thinkT0);
+        if (thinkWait > 0 && stillMine()) await new Promise((res) => setTimeout(res, thinkWait));
+      };
+      const openStreamSurfaceOrBail = () => {
+        streamCtrl = layout.beginLandingAgentStream({ reuseWrap: thinkingEl });
+        flight.streamCtrl = streamCtrl;
+        if (!streamCtrl) {
+          layout.removeLandingThinking(thinkingEl);
+          const msg = "对话区域不可用，无法显示流式回复。";
+          layout.addLandingBubble("agent", msg);
+          state.assistantThread.push({ role: "assistant", content: msg, format: "plain" });
+          return false;
+        }
+        return true;
+      };
+      const runOrchestrateBlock = async () => {
+        if (intent !== "orchestrate") return;
+        try {
+          if (!shouldContinue()) return;
+          await runOrchestrateFromIntent();
+          if (!shouldContinue()) return;
+        } catch (e2) {
+          if (!shouldContinue()) return;
+          const t = `模型已回复，但进入构型优化编排时出错：${e2?.message || e2}`;
+          layout.addLandingBubble("agent", t);
+          state.assistantThread.push({ role: "assistant", content: t, format: "plain" });
+        }
+      };
+      const finishExchange = async (replyRaw, viaProgressive) => {
+        const reply = String(replyRaw || "").trim() || "（无回复）";
+        if (!shouldContinue()) return;
+        if (viaProgressive && streamCtrl) {
+          await replayAssistantProgressive(streamCtrl, reply, ac.signal, shouldContinue);
+          if (!shouldContinue()) return;
+        }
+        streamCtrl?.finalize(reply);
+        state.assistantThread.push({ role: "assistant", content: reply, format: "md" });
+        await runOrchestrateBlock();
+        await runDesignDomainBlock();
+      };
+
+      const preferStream = readAssistantPreferStream();
+      if (!preferStream) {
+        const once = await fetchAssistantChatOnce(messages, ac.signal);
+        if (!stillMine()) return;
+        if (once.aborted || ac.signal.aborted) return;
+        if (!once.ok) {
+          layout.removeLandingThinking(thinkingEl);
+          layout.addLandingBubble("agent", once.errorText || "请求失败");
+          state.assistantThread.push({
+            role: "assistant",
+            content: once.errorText || "请求失败",
+            format: "plain",
+          });
+          return;
+        }
+        await bumpThinkWait();
+        if (!stillMine()) return;
+        if (!openStreamSurfaceOrBail()) return;
+        await finishExchange(once.reply, true);
+        return;
+      }
+
+      let r;
+      try {
+        r = await fetch(`${normalizedBaseUrl()}/api/assistant/chat/stream`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages, temperature: 0.6 }),
+          signal: ac.signal,
+        });
+      } catch (fe) {
+        if (!stillMine()) return;
+        if (ac.signal.aborted) return;
+        layout.removeLandingThinking(thinkingEl);
+        const msg = `网络错误：${fe?.message || fe}`;
+        layout.addLandingBubble("agent", msg);
+        state.assistantThread.push({ role: "assistant", content: msg, format: "plain" });
+        return;
+      }
+      if (!stillMine()) return;
+      if (!r.ok) {
+        layout.removeLandingThinking(thinkingEl);
+        const errText = await r.text().catch(() => "");
+        let msg = `请求失败（${r.status}）`;
+        try {
+          const j = JSON.parse(errText);
+          const d = j.detail;
+          msg =
+            typeof d === "string"
+              ? d
+              : Array.isArray(d)
+                ? d.map((x) => (typeof x === "string" ? x : x?.msg || JSON.stringify(x))).join("；")
+                : msg;
+        } catch {
+          if (errText) msg = errText.slice(0, 500);
+        }
+        layout.addLandingBubble("agent", msg);
+        state.assistantThread.push({ role: "assistant", content: msg, format: "plain" });
+        return;
+      }
+      await bumpThinkWait();
+      if (!stillMine()) return;
+      if (!openStreamSurfaceOrBail()) return;
+
+      const consumed = await consumeAssistantChatStream(
+        r,
+        (delta) => {
+          if (!shouldContinue()) return;
+          streamCtrl.appendDelta(delta);
+        },
+        { shouldContinue, signal: ac.signal },
+      );
+      if (!stillMine()) return;
+      if (consumed.status === "cancelled" || ac.signal.aborted) return;
+      if (consumed.status === "error") {
+        if (!shouldContinue()) return;
+        const fb = await fetchAssistantChatOnce(messages, ac.signal);
+        if (!stillMine() || fb.aborted || ac.signal.aborted) return;
+        if (fb.ok) {
+          await finishExchange(fb.reply, false);
+          return;
+        }
+        const errLine = `对话失败：${fb.errorText || consumed.error?.message || "未知错误"}`;
+        streamCtrl.finalize(errLine);
+        state.assistantThread.push({ role: "assistant", content: errLine, format: "plain" });
+        return;
+      }
+      await finishExchange(consumed.full, false);
+    } catch (e) {
+      if (!stillMine()) return;
+      const aborted =
+        e?.name === "AbortError" ||
+        (typeof DOMException !== "undefined" && e instanceof DOMException && e.name === "AbortError") ||
+        /aborted|abort/i.test(String(e?.message || ""));
+      if (aborted || ac.signal.aborted) return;
+      const errText = `对话失败：${e?.message || e}`;
+      if (streamCtrl) streamCtrl.finalize(errText);
+      else layout.removeLandingThinking(thinkingEl);
+      if (!streamCtrl) layout.addLandingBubble("agent", errText);
+      state.assistantThread.push({ role: "assistant", content: errText, format: "plain" });
+    } finally {
+      if (state.landingChatFlight === flight) state.landingChatFlight = null;
+    }
+  } catch (e) {
+    const errText = `网络错误：${e?.message || e}`;
+    layout.addLandingBubble("agent", errText);
+    state.assistantThread.push({ role: "assistant", content: errText, format: "plain" });
+  } finally {
+    state.landingAssistantPending = false;
+    if (refs.landingSendChatBtn) refs.landingSendChatBtn.disabled = false;
+    persistLandingAssistantThread();
+    updateLandingSubflowStrip();
+    if (state.assistantThread.some((m) => m.role === "user")) scheduleTaskTitleSummarize();
+    syncLandingHeroVisibility();
+  }
+}
+
+async function startNewLandingTask() {
+  abortLandingChat("new-task");
+  if (_taskTitleSummarizeTimer) {
+    clearTimeout(_taskTitleSummarizeTimer);
+    _taskTitleSummarizeTimer = null;
+  }
+  persistLandingAssistantThread();
+  const tid = crypto?.randomUUID?.() || `${Date.now()}`;
+  state.currentTaskId = tid;
+  state.currentFileId = null;
+  state.currentFileName = "";
+  state.uploadedSourceDir = "";
+  state.jobId = null;
+  state.assistantThread = [];
+  state.landingSessionDigest = [];
+  state.activeTaskKey = "";
+  state.landingAttachmentPending = null;
+  syncLandingPendingAttachBar();
+  if (refs.msgLanding) refs.msgLanding.value = "";
+  if (refs.chatLanding) refs.chatLanding.innerHTML = "";
+  syncLandingHeroVisibility();
+  renderTaskSessionDigest();
+  updateLandingSubflowStrip();
+  await taskManager.upsertTask({
+    title: "新对话",
+    status: "pending",
+    progress: 0,
+    step: 1,
+  });
+  await taskManager.loadTasks().catch(() => {});
+}
 
 (function wireLayoutTaskSync() {
   let uiStageTimer = null;
@@ -526,6 +1794,7 @@ taskManager = createTaskManager({
   }
   const origShow = layout.showStage.bind(layout);
   layout.showStage = (mode) => {
+    if (mode !== "landing") abortLandingChat("leave-landing");
     origShow(mode);
     queueMicrotask(() => updateOc4ReturnNavVisibility());
     if (mode === "landing") taskManager.loadTasks().catch(() => {});
@@ -539,6 +1808,17 @@ taskManager = createTaskManager({
   layout.goHome = () => {
     origGo();
     taskManager.loadTasks().catch(() => {});
+    queueMicrotask(() => {
+      if (state.currentTaskId) {
+        void hydrateLandingFromTask({
+          task_id: state.currentTaskId,
+          file_id: state.currentFileId,
+          file_name: state.currentFileName,
+          scan_dir: state.uploadedSourceDir,
+          job_id: state.jobId,
+        });
+      }
+    });
   };
 })();
 document.addEventListener("visibilitychange", () => {
@@ -741,14 +2021,14 @@ function appendDdNlLog(role, text) {
 }
 
 const DD_NL_TOPIC_META = {
-  design: { title: "步骤 1 · 设计域", intro: "选项讨论后点「1 构建设计域」。" },
-  preview: { title: "步骤 2 · OBJ", intro: "可调三角化疏密；应用后点「2 导出 OBJ」。" },
+  design: { title: "AI Engineering · 步骤 1 · 设计域", intro: "选项讨论后点「1 构建设计域」。" },
+  preview: { title: "AI Engineering · 步骤 2 · OBJ", intro: "可调三角化疏密；应用后点「2 导出 OBJ」。" },
   mesh: {
-    title: "步骤 3 · 体网格",
+    title: "AI Engineering · 步骤 3 · 体网格",
     intro: "与主页相同 Plan 弹窗确认参数；char_max 可覆盖方案。步骤条可回溯。",
   },
   loads: {
-    title: "步骤 4 · 载荷",
+    title: "AI Engineering · 步骤 4 · 载荷",
     intro: "描述载荷意图；可选自然语言。应用后点「4 划分载荷」。",
   },
 };
@@ -1129,12 +2409,23 @@ async function focusDesignDomainRailStep(idx) {
 async function fetchOc4DesignDomainSessionJson() {
   const sid = state.oc4DesignDomainSessionId;
   if (!sid) return { ok: false, data: {} };
-  const resp = await fetch(
-    `${normalizedBaseUrl()}/api/oc4/design-domain/session/${encodeURIComponent(sid)}`,
-    { cache: "no-store" },
-  );
-  const data = await resp.json().catch(() => ({}));
-  return { ok: resp.ok, data };
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 45000);
+  try {
+    const resp = await fetch(
+      `${normalizedBaseUrl()}/api/oc4/design-domain/session/${encodeURIComponent(sid)}`,
+      { cache: "no-store", signal: ctrl.signal },
+    );
+    const data = await resp.json().catch(() => ({}));
+    return { ok: resp.ok, data };
+  } catch (e) {
+    if (e?.name === "AbortError") {
+      return { ok: false, data: { detail: "拉取设计域会话超时（45s），请检查后端或网络。" } };
+    }
+    return { ok: false, data: { detail: String(e?.message || e) } };
+  } finally {
+    clearTimeout(t);
+  }
 }
 
 function ingestDdSessionPayload(data) {
@@ -1151,22 +2442,28 @@ async function runDdSourcePreviewOnly() {
   const sid = state.oc4DesignDomainSessionId;
   if (!sid) throw new Error("缺少会话，请先上传 IGES 并进入本页。");
   setDesignDomainOverlay("left", true, "正在将源几何转为 STEP 并生成预览…");
+  let urls;
   try {
-    const urls = await oc4DesignDomainApi(
+    urls = await oc4DesignDomainApi(
       "/export-source-preview",
       { session_id: sid },
       { timeoutMs: 900000 },
     );
-    await deferTwoFrames();
-    const v = ensureDesignDomainViewer();
-    if (v && urls.source_obj) {
-      await v.loadLeft(urls.source_obj);
-      v.resizeAll?.();
-    }
-    return urls;
   } finally {
+    /** API 已返回即结束转圈；OBJ 拉取/解析若卡住不再挡住整页 */
     setDesignDomainOverlay("left", false);
   }
+  await deferTwoFrames();
+  const v = ensureDesignDomainViewer();
+  if (v && urls?.source_obj) {
+    try {
+      await v.loadLeft(urls.source_obj);
+      v.resizeAll?.();
+    } catch (e) {
+      appendDesignDomainChat("agent", `左侧 OBJ 预览加载失败：${e?.message || e}`);
+    }
+  }
+  return urls;
 }
 
 async function refreshDesignDomainPreviewsFromSession() {
@@ -1197,9 +2494,7 @@ async function refreshDesignDomainPreviewsFromSession() {
     }
     v.resizeAll?.();
     if (errs.length) appendDesignDomainChat("agent", errs.join("；"));
-    if (!data.source_obj_url && !data.design_obj_url) {
-      appendDesignDomainChat("agent", "会话中尚无 OBJ 预览，请先点击「1 构建设计域」。");
-    }
+    /** 无 OBJ 时不刷屏：顶部步骤条与 designDomainStepHint 已提示「1 构建设计域」 */
   } catch (e) {
     appendDesignDomainChat("agent", `恢复预览失败：${e?.message || e}`);
   }
@@ -1219,42 +2514,56 @@ async function runDdBuildAndExportObj() {
       },
       { timeoutMs: 900000 },
     );
-    setDesignDomainOverlay("right", true, "正在导出设计域 OBJ 预览…");
-    const urls = await oc4DesignDomainApi(
+  } finally {
+    setDesignDomainOverlay("right", false);
+  }
+  setDesignDomainOverlay("right", true, "正在导出设计域 OBJ 预览…");
+  let urls;
+  try {
+    urls = await oc4DesignDomainApi(
       "/export-obj",
       { session_id: sid, design_only: true },
       { timeoutMs: 900000 },
     );
-    await deferTwoFrames();
-    const v = ensureDesignDomainViewer();
-    if (v) {
-      try {
-        if (urls.design_obj) await v.loadRight(urls.design_obj);
-      } catch (loadErr) {
-        appendDesignDomainChat("agent", `右侧 OBJ 加载失败：${loadErr?.message || loadErr}`);
-        throw loadErr;
-      }
-      v.resizeAll?.();
-    }
-    return urls;
   } finally {
     setDesignDomainOverlay("right", false);
   }
+  await deferTwoFrames();
+  const v = ensureDesignDomainViewer();
+  if (v && urls?.design_obj) {
+    try {
+      await v.loadRight(urls.design_obj);
+      v.resizeAll?.();
+    } catch (loadErr) {
+      appendDesignDomainChat("agent", `右侧 OBJ 加载失败：${loadErr?.message || loadErr}`);
+      throw loadErr;
+    }
+  }
+  return urls;
 }
 
+/** 串行化进入设计域，避免「运行流程 + 点卡片」等并发触发双次 POST /session */
+let _oc4EnterDdChain = Promise.resolve();
+
 async function enterOc4DesignDomainStage(opts = {}) {
+  const op = _oc4EnterDdChain.then(() => enterOc4DesignDomainStageImpl(opts));
+  _oc4EnterDdChain = op.catch(() => {});
+  return op;
+}
+
+async function enterOc4DesignDomainStageImpl(opts = {}) {
   const { autoPipeline = false, forceNewSession = false, softResume = false, resumeHint = "" } = opts;
+  if (!forceNewSession) {
+    await ensureOc4DesignDomainSessionForResume();
+  }
   const sidHas = Boolean(String(state.oc4DesignDomainSessionId || "").trim());
   const canSoftResume = Boolean(softResume && sidHas && !forceNewSession);
   if (canSoftResume) {
     layout.showStage("designDomain");
     await deferTwoFrames();
     await refreshDesignDomainPreviewsFromSession();
-    appendDesignDomainChat(
-      "agent",
-      resumeHint ||
-        "继续：体网格与载荷完成后点「完成并进入编排」；或返回调整。",
-    );
+    const hint = String(resumeHint || "").trim();
+    if (hint) appendDesignDomainChat("agent", hint);
     return;
   }
   if (!state.currentFileId) {
@@ -1265,7 +2574,6 @@ async function enterOc4DesignDomainStage(opts = {}) {
     layout.addLandingBubble("agent", "当前文件不是 IGES，设计域步骤不适用。");
     return;
   }
-  layout.showStage("designDomain");
   const hadSession = Boolean(state.oc4DesignDomainSessionId) && !forceNewSession;
   if (!hadSession && refs.designDomainFlowLog) refs.designDomainFlowLog.innerHTML = "";
   if (!hadSession) {
@@ -1277,16 +2585,31 @@ async function enterOc4DesignDomainStage(opts = {}) {
   }
   try {
     if (!state.oc4DesignDomainSessionId || forceNewSession) {
-      const sess = await oc4DesignDomainApi("/session", { file_id: state.currentFileId });
-      state.oc4DesignDomainSessionId = sess.session_id;
-      state.oc4DesignDomainSessionIdForResume = state.oc4DesignDomainSessionId;
-      appendDesignDomainChat("agent", `已创建设计域会话（${sess.session_id.slice(0, 8)}…）。几何摘要已写入服务端。`);
-      if (state.currentTaskId) {
-        taskManager.upsertTask({ oc4_design_domain_session_id: state.oc4DesignDomainSessionId }).catch(() => {});
+      if (!forceNewSession) {
+        await taskManager.loadTasks().catch(() => {});
+        await ensureOc4DesignDomainSessionForResume();
+      }
+      if (!state.oc4DesignDomainSessionId || forceNewSession) {
+        const sess = await oc4DesignDomainApi("/session", { file_id: state.currentFileId });
+        state.oc4DesignDomainSessionId = sess.session_id;
+        state.oc4DesignDomainSessionIdForResume = state.oc4DesignDomainSessionId;
+        appendDesignDomainChat("agent", `已创建设计域会话（${sess.session_id.slice(0, 8)}…）。几何摘要已写入服务端。`);
+        if (state.currentTaskId) {
+          await taskManager.upsertTask({ oc4_design_domain_session_id: state.oc4DesignDomainSessionId }).catch(() => {});
+          await taskManager.loadTasks().catch(() => {});
+        }
+      } else {
+        appendDesignDomainChat(
+          "agent",
+          `继续会话 ${state.oc4DesignDomainSessionId.slice(0, 8)}…（已从任务列表恢复，未新建会话）`,
+        );
       }
     } else {
       appendDesignDomainChat("agent", `继续会话 ${state.oc4DesignDomainSessionId.slice(0, 8)}…（重新上传文件可开启新会话）`);
     }
+    /** 会话就绪后再进入舞台，避免 /session 失败时卡在「无会话」空白页 */
+    layout.showStage("designDomain");
+    applyDesignDomainStepUi();
     await deferTwoFrames();
     if (autoPipeline) {
       appendDesignDomainChat("agent", "先生成源几何 STEP 预览（左侧）…");
@@ -1296,12 +2619,20 @@ async function enterOc4DesignDomainStage(opts = {}) {
       appendDesignDomainChat("agent", "预览已更新。步骤条「AI」打开专步对话；体网格默认偏粗以控制 INP 体积。");
     } else {
       await refreshDesignDomainPreviewsFromSession();
+      const p = state.ddProgress ?? readDdProgressFromPayload({});
+      if (!p.has_source_preview_obj) {
+        appendDesignDomainChat("agent", "下一步：点击工具栏「1 构建设计域」生成源预览与设计域几何。");
+      }
     }
   } catch (e) {
     setDesignDomainOverlay("left", false);
     setDesignDomainOverlay("right", false);
     appendDesignDomainChat("agent", String(e?.message || e));
     layout.addLandingBubble("agent", `设计域：${e?.message || e}`);
+    /** 仅会话未建立时退回主页，避免「尚无会话」空白卡死；已有会话则留在本页便于重试 */
+    if (!String(state.oc4DesignDomainSessionId || "").trim()) {
+      layout.showStage("landing");
+    }
   } finally {
     await syncDesignDomainSessionProgress().catch(() => {});
   }
@@ -1353,14 +2684,39 @@ async function goBackToOc4DesignDomainFromPipeline(opts = {}) {
   await taskManager.loadTasks().catch(() => {});
 }
 
-async function beginOrchestrationAfterLanding() {
+async function beginOrchestrationAfterLanding(opts = {}) {
+  const { skipUserBubble = false, userMessage = "" } = opts;
   if (!isOc4IgesFilename(state.currentFileName)) state.oc4ActivityLog = [];
-  if (!state.currentTaskId) state.currentTaskId = (crypto?.randomUUID?.() || `${Date.now()}`);
+  if (!state.currentTaskId) state.currentTaskId = crypto?.randomUUID?.() || `${Date.now()}`;
+  const uMsg = String(userMessage || refs.msgLanding?.value || refs.msgEl?.value || "").trim();
+  if (refs.msgEl) refs.msgEl.value = uMsg || refs.msgEl.value;
+  if (!skipUserBubble) {
+    const shown = String(uMsg || refs.msgEl?.value || "").trim();
+    if (shown) {
+      const pend = state.landingAttachmentPending;
+      const bubbleOpts = {};
+      const row = { role: "user", content: shown };
+      if (pend?.file_id && String(pend.file_name || "").trim()) {
+        bubbleOpts.attachment = {
+          file_id: String(pend.file_id).trim(),
+          file_name: String(pend.file_name || "").trim(),
+        };
+        row.attachment = { ...bubbleOpts.attachment };
+      }
+      layout.addLandingBubble("user", shown, bubbleOpts);
+      state.assistantThread.push(row);
+    }
+    state.landingAttachmentPending = null;
+    syncLandingPendingAttachBar();
+  } else {
+    state.landingAttachmentPending = null;
+    syncLandingPendingAttachBar();
+  }
   state.currentTaskStatus = "orchestrating";
-  if (refs.msgEl) refs.msgEl.value = (refs.msgLanding?.value || "").trim() || refs.msgEl.value;
-  layout.addLandingBubble("user", refs.msgEl?.value || "");
+  pushOrchestrateWorkflowCardToLandingThread();
+  persistLandingAssistantThread();
   await taskManager.upsertTask({
-    title: (refs.msgEl?.value || "").slice(0, 80),
+    title: uMsg.slice(0, 80) || String(refs.msgEl?.value || "").slice(0, 80),
     progress: 12,
     step: 1,
     status: "orchestrating",
@@ -1373,10 +2729,39 @@ async function beginOrchestrationAfterLanding() {
   const preambleMd = buildOc4OrchestratePreambleMd();
   layout.streamOrchestration(async () => {
     if (refs.executePlannedTask) refs.executePlannedTask.disabled = false;
-    layout.addLandingBubble("agent", "编排完成，点击“执行任务”进入分步执行。");
+    layout.addLandingBubble("agent", "构型优化编排完成，点击「执行任务」进入分步执行。");
     await taskManager.upsertTask({ progress: 20, step: 1, status: "ready_to_execute" });
     await taskManager.loadTasks();
   }, { preambleMd });
+}
+
+async function handleLandingWorkflowCardClick(kind) {
+  const k = String(kind || "");
+  if (k === "orchestrate") {
+    if (!state.currentFileId) {
+      layout.addLandingBubble("agent", "请先上传文件。");
+      layout.showStage("landing");
+      return;
+    }
+    if (isOc4IgesFilename(state.currentFileName) && !state.oc4DesignDomainFinalized) {
+      layout.addLandingBubble("agent", "请先完成设计域流程，再进入构型优化编排。");
+      return;
+    }
+    await layout.playLandingSubflowBridge({ kind: "orchestrate", minMs: 1280 });
+    layout.showStage("orchestrate");
+    return;
+  }
+  if (k === "design_domain") {
+    if (!isOc4IgesFilename(state.currentFileName)) {
+      layout.addLandingBubble("agent", "设计域需要 IGES 文件。");
+      return;
+    }
+    /** 与顶栏「设计域」入口一致，避免漏 persist / 会话分支与重复逻辑导致点击无反应 */
+    await layout.playLandingSubflowBridge({ kind: "design_domain", minMs: 1280 });
+    await openDesignDomainFromLanding({ autoPipeline: false, softResume: true, forceNewSession: false }).catch((err) =>
+      layout.addLandingBubble("agent", String(err?.message || err)),
+    );
+  }
 }
 
 function focusCadConvertGuide() {
@@ -1469,8 +2854,13 @@ async function uploadSelectedFile(file) {
     layout.addBubble("agent", `上传失败（${resp.status}）：${msg || "未知错误"}`);
     throw new Error(msg || `HTTP ${resp.status}`);
   }
+  await ensureLandingTaskForWork();
+  const prevFileId = state.currentFileId;
   state.currentFileId = data.file_id;
   state.currentFileName = data.name || file?.name || "";
+  if (prevFileId && prevFileId !== state.currentFileId) {
+    fetch(`${normalizedBaseUrl()}/api/files/${encodeURIComponent(prevFileId)}`, { method: "DELETE" }).catch(() => {});
+  }
   layout.addBubble("agent", `已上传文件：${data.name}`);
   const rawPath = file && typeof file.path === "string" ? file.path : "";
   if (rawPath) {
@@ -1485,26 +2875,39 @@ async function uploadSelectedFile(file) {
     refs.scanDirInput && (refs.scanDirInput.value = state.uploadedSourceDir);
   }
   if (refs.fileSummaryInline) refs.fileSummaryInline.textContent = `已上传文件：${file.name}\n扫描目录：${refs.scanDirInput?.value || "(自动识别失败，请手动填写)"}`;
-  if (refs.uploadPreviewName) refs.uploadPreviewName.textContent = state.currentFileName || file.name;
-  refs.uploadPreviewCard?.classList.remove("hidden");
+  state.landingAttachmentPending = {
+    file_id: state.currentFileId,
+    file_name: state.currentFileName || file.name || "",
+  };
+  syncLandingPendingAttachBar();
+  dismissLandingHero();
   layout.addLandingBubble("agent", state.uploadedSourceDir ? `已自动识别扫描目录：${state.uploadedSourceDir}` : "自动识别目录失败，请手动填写扫描目录。");
-  await taskManager.upsertTask({ file_name: state.currentFileName, scan_dir: state.uploadedSourceDir, status: "uploaded", progress: 8, step: 1 });
+  await taskManager.upsertTask({
+    file_id: state.currentFileId,
+    file_name: state.currentFileName,
+    scan_dir: state.uploadedSourceDir,
+    status: "uploaded",
+    progress: 8,
+    step: 1,
+  });
   await taskManager.loadTasks();
+  persistLandingAssistantThread();
+  updateLandingSubflowStrip();
   if (isOc4IgesFilename(state.currentFileName)) {
     state.oc4DesignDomainSessionIdForResume = "";
     resetOc4DesignDomainState();
     state.oc4DesignDomainFinalized = false;
     disposeDesignDomainViewer();
-    layout.addLandingBubble("agent", "已识别 IGES：进入设计域（构建、预览、体网格、载荷）。");
-    await enterOc4DesignDomainStage({ autoPipeline: true }).catch((e) => {
-      layout.addLandingBubble("agent", `设计域步骤启动失败：${e?.message || e}`);
-    });
+    /** 新 IGES 与旧设计域会话解绑，否则 ensureOc4 会从任务 JSON 拉回已失效的 session_id，造成重复 POST /session */
+    await taskManager.upsertTask({ oc4_design_domain_session_id: "" }).catch(() => {});
   } else {
     state.oc4DesignDomainSessionIdForResume = "";
     state.oc4DesignDomainFinalized = true;
     resetOc4DesignDomainState();
     disposeDesignDomainViewer();
+    await taskManager.upsertTask({ oc4_design_domain_session_id: "" }).catch(() => {});
   }
+  syncLandingHeroVisibility();
 }
 
 function firstIgesNameFromScan(data) {
@@ -1535,7 +2938,7 @@ function refreshCadGateAfterScan(data) {
       block.classList.remove("hidden");
       if (refs.cadConvertBlockHint) {
         refs.cadConvertBlockHint.textContent =
-          "当前仅有几何（IGES）无主 INP：必须先完成格式转换得到 INP，才能点击「接受智能体本步骤」。请使用下方按钮（Esc 退出自动转换后也可在此重试）。";
+          "当前仅有几何（IGES）无主 INP：必须先完成格式转换得到 INP，才能点击「接受本步骤并继续」。请使用下方按钮（Esc 退出自动转换后也可在此重试）。";
       }
       btn.classList.add("cadConvertGuidePulse");
     } else {
@@ -1565,11 +2968,12 @@ function hideCadConvertModal() {
 }
 
 const CAD_MESH_PRESETS = {
-  auto: { max: null, min: null },
-  fine: { max: 3000, min: 0.05 },
-  medium: { max: 12000, min: 0.1 },
-  coarse: { max: 40000, min: 1 },
-  xlarge: { max: 80000, min: 5 },
+  auto: { max: null, min: null, curvature: undefined },
+  /** max 越大越粗；curvature 为 FreeCAD MeshSizeFromCurvature，越大曲面处越密 */
+  fine: { max: 3000, min: 0.05, curvature: 28 },
+  medium: { max: 12000, min: 0.1, curvature: 14 },
+  coarse: { max: 40000, min: 1, curvature: 4 },
+  xlarge: { max: 80000, min: 5, curvature: 0 },
 };
 
 const CAD_PLAN_SUBTITLE_IGES_HTML =
@@ -1582,6 +2986,16 @@ function resetCadPlanModalChrome() {
   if (refs.cadPlanStartBtn) refs.cadPlanStartBtn.textContent = "开始转换";
 }
 
+/** 设计域工具栏「疏密」→ Plan 弹窗：在 loadCadPlanDefaults 之后调用，覆盖默认以反映用户当前选择 */
+function syncCadPlanFromDesignDomainToolbar() {
+  const density = String(refs.ddMeshDensity?.value || "modal").trim();
+  if (density && density !== "modal" && CAD_MESH_PRESETS[density] && refs.cadPlanPreset) {
+    refs.cadPlanPreset.value = density;
+  }
+  const cm = String(refs.ddCharMax?.value || "").trim();
+  if (cm && refs.cadPlanCharMax) refs.cadPlanCharMax.value = cm;
+}
+
 function showCadPlanModal(config) {
   const {
     sourceLabel = "IGES 文件",
@@ -1591,6 +3005,7 @@ function showCadPlanModal(config) {
     modalSubtitleHtml = null,
     primaryButtonText = "开始转换",
     fallbackPlan = null,
+    syncMeshToolbarIntoCadPlan = false,
   } = config;
   return new Promise((resolve) => {
     const modal = refs.cadConvertPlanModal;
@@ -1617,6 +3032,7 @@ function showCadPlanModal(config) {
     }
     if (refs.cadPlanStartBtn) refs.cadPlanStartBtn.textContent = primaryButtonText;
     loadCadPlanDefaults();
+    if (syncMeshToolbarIntoCadPlan) syncCadPlanFromDesignDomainToolbar();
     modal.classList.remove("hidden");
     modal.setAttribute("aria-hidden", "false");
     const finish = (plan) => {
@@ -1654,6 +3070,7 @@ function showOc4MeshPlanModal() {
     modalTitle: "体网格方案",
     modalSubtitleText: "FreeCAD + Gmsh 生成 02_mesh_body.inp；char_max 越大越粗。需 FREECAD_CMD。",
     primaryButtonText: "开始体网格",
+    syncMeshToolbarIntoCadPlan: true,
   });
 }
 
@@ -1708,6 +3125,8 @@ function collectCadPlanOptions() {
   if (curStr !== "") {
     const c = parseInt(curStr, 10);
     if (!Number.isNaN(c)) mesh_size_from_curvature = c;
+  } else if (preset !== "auto" && pr.curvature !== undefined && pr.curvature !== null) {
+    mesh_size_from_curvature = pr.curvature;
   }
   const tRaw = parseFloat(String(refs.cadPlanTimeout?.value || "120"));
   const timeout_minutes = Number.isFinite(tRaw) ? Math.min(720, Math.max(5, tRaw)) : 120;
@@ -2441,12 +3860,10 @@ async function createAndRun() {
   const body = { message: refs.msgEl?.value || "", auto_start: true };
   if (refs.scanDirInput?.value.trim()) body.scan_dir = refs.scanDirInput.value.trim();
   if (state.currentFileId) body.file_id = state.currentFileId;
-  const mg = Number(refs.massGoal?.value);
-  const fr = Number(refs.filterR?.value);
-  const se = Number(refs.saveEvery?.value);
-  if (Number.isFinite(mg) && mg > 0 && mg < 1) body.mass_goal_ratio = mg;
-  if (Number.isFinite(fr) && fr > 0) body.filter_radius = fr;
-  if (Number.isFinite(se) && se > 0) body.save_every = Math.floor(se);
+  const topo = readTopologyOverridesForChat();
+  body.mass_goal_ratio = topo.mass_goal_ratio;
+  body.save_every = topo.save_every;
+  if (topo.filter_radius != null) body.filter_radius = topo.filter_radius;
   const resp = await fetch(`${normalizedBaseUrl()}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const rawText = await resp.text();
   let data = {};
@@ -2483,6 +3900,13 @@ async function createAndRun() {
   await taskManager.upsertTask({ job_id: state.jobId, status: "running", progress: 55, step: 2 });
   await taskManager.loadTasks();
   connectWs();
+  const pp = data.parsed_params;
+  if (pp && typeof pp === "object") {
+    if (refs.massGoal && pp.mass_goal_ratio != null) refs.massGoal.value = String(pp.mass_goal_ratio);
+    if (refs.filterR && pp.filter_radius != null) refs.filterR.value = String(pp.filter_radius);
+    if (refs.saveEvery && pp.save_every != null) refs.saveEvery.value = String(pp.save_every);
+    persistTopologySettingsImmediate();
+  }
 }
 
 async function buildSummary() {
@@ -2598,19 +4022,68 @@ refs.fileInputLanding?.addEventListener("change", async (e) => {
   const f = e.target.files && e.target.files[0];
   if (!f) return;
   await uploadSelectedFile(f);
-  layout.addLandingBubble("agent", `已上传文件：${f.name}`);
+});
+refs.landingSendChatBtn?.addEventListener("click", () => {
+  void sendLandingAssistantChat();
+});
+refs.msgLanding?.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  if (e.shiftKey) return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.isComposing) return;
+  e.preventDefault();
+  void sendLandingAssistantChat();
+});
+refs.msgLanding?.addEventListener("input", () => {
+  const v = String(refs.msgLanding?.value || "").trim();
+  if (state.currentTaskId && v.length >= 12) scheduleTaskTitleSummarize();
+  if (_landingInputHeroRaf != null) cancelAnimationFrame(_landingInputHeroRaf);
+  _landingInputHeroRaf = requestAnimationFrame(() => {
+    _landingInputHeroRaf = null;
+    syncLandingHeroVisibility();
+  });
 });
 refs.runAgentFlow?.addEventListener("click", async () => {
-  if (!state.currentFileId) return layout.addLandingBubble("agent", "请先上传文件，再运行智能体流程。");
-  if (isOc4IgesFilename(state.currentFileName) && !state.oc4DesignDomainFinalized) {
-    layout.addLandingBubble("agent", "IGES 需先完成设计域流程；已打开设计域。");
-    await enterOc4DesignDomainStage({ autoPipeline: true, softResume: true }).catch((e) => {
-      layout.addLandingBubble("agent", `设计域步骤：${e?.message || e}`);
-    });
-    return;
+  if (!state.currentFileId) return layout.addLandingBubble("agent", "请先上传文件，再运行构型优化流程。");
+  try {
+    if (isOc4IgesFilename(state.currentFileName) && !state.oc4DesignDomainFinalized) {
+      layout.addLandingBubble("agent", "IGES 需先完成设计域流程；已打开设计域。");
+      await layout.playLandingSubflowBridge({ kind: "design_domain", minMs: 1280 });
+      await openDesignDomainFromLanding({ autoPipeline: true, softResume: true }).catch((e) => {
+        layout.addLandingBubble("agent", `设计域步骤：${e?.message || e}`);
+      });
+      return;
+    }
+    await layout.playLandingSubflowBridge({ kind: "orchestrate", minMs: 1280 });
+    await beginOrchestrationAfterLanding();
+  } catch (e) {
+    layout.addLandingBubble("agent", String(e?.message || e));
   }
-  await beginOrchestrationAfterLanding();
 });
+refs.landingMain?.addEventListener("click", (e) => {
+  const chip = e.target.closest?.("[data-landing-prompt]");
+  if (!chip || !refs.landingMain?.contains(chip)) return;
+  const p = chip.getAttribute("data-landing-prompt");
+  if (!p || !refs.msgLanding) return;
+  refs.msgLanding.value = p;
+  refs.msgLanding.dispatchEvent(new Event("input", { bubbles: true }));
+  refs.msgLanding.focus();
+  syncLandingHeroVisibility();
+});
+/** 在 chatLanding 上捕获委托：确保点在卡片上时一定命中（避免 landingMain 子层叠或 pointer-events 影响） */
+refs.chatLanding?.addEventListener(
+  "click",
+  (e) => {
+    const wf = e.target.closest?.(".landingWorkflowCard[data-workflow-jump]");
+    if (!wf || !refs.chatLanding?.contains(wf)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const kind = wf.getAttribute("data-workflow-jump");
+    if (!kind) return;
+    void handleLandingWorkflowCardClick(kind);
+  },
+  true,
+);
 
 refs.designDomainBackBtn?.addEventListener("click", () => {
   setDesignDomainOverlay("left", false);
@@ -2618,6 +4091,12 @@ refs.designDomainBackBtn?.addEventListener("click", () => {
   closeDdNlModal();
   disposeDesignDomainViewer();
   layout.goHome();
+});
+refs.ddMeshDensity?.addEventListener("change", () => {
+  const v = String(refs.ddMeshDensity?.value || "modal");
+  if (v === "modal" || !refs.ddCharMax) return;
+  const pr = CAD_MESH_PRESETS[v];
+  if (pr && pr.max != null) refs.ddCharMax.value = String(pr.max);
 });
 refs.ddBtnBuild?.addEventListener("click", async () => {
   try {
@@ -2644,10 +4123,16 @@ refs.ddBtnPreview?.addEventListener("click", async () => {
       if (Number.isFinite(ld) && ld >= 1) body.linear_deflection_design = ld;
     }
     const urls = await oc4DesignDomainApi("/export-obj", body, { timeoutMs: 900000 });
+    setDesignDomainOverlay("left", false);
+    setDesignDomainOverlay("right", false);
     const v = ensureDesignDomainViewer();
     if (v) {
-      if (urls.source_obj) await v.loadLeft(urls.source_obj);
-      if (urls.design_obj) await v.loadRight(urls.design_obj);
+      try {
+        if (urls.source_obj) await v.loadLeft(urls.source_obj);
+        if (urls.design_obj) await v.loadRight(urls.design_obj);
+      } catch (loadErr) {
+        appendDesignDomainChat("agent", `OBJ 预览加载失败：${loadErr?.message || loadErr}`);
+      }
     }
     appendDesignDomainChat("agent", "OBJ 预览已刷新（未重新执行 build）。");
   } catch (e) {
@@ -2736,7 +4221,7 @@ refs.ddBtnFinalize?.addEventListener("click", async () => {
   try {
     const prog = state.ddProgress ?? readDdProgressFromPayload({});
     if (!prog.has_for_beso_inp) {
-      const tip = "请先完成 1→3→4 步并生成 03_for_beso.inp，再进入编排。";
+      const tip = "请先完成 1→3→4 步并生成 03_for_beso.inp，再进入构型优化编排。";
       appendDesignDomainChat("agent", tip);
       layout.addLandingBubble("agent", tip);
       return;
@@ -2767,6 +4252,7 @@ refs.ddBtnFinalize?.addEventListener("click", async () => {
       ...(sidKeep ? { oc4_design_domain_session_id: sidKeep } : {}),
     });
     await taskManager.loadTasks();
+    await layout.playLandingSubflowBridge({ kind: "orchestrate", minMs: 1480 });
     await beginOrchestrationAfterLanding();
   } catch (e) {
     layout.addLandingBubble("agent", `无法完成收尾：${e?.message || e}`);
@@ -2854,18 +4340,80 @@ refs.backToOc4FromFlowBtn?.addEventListener("click", () => {
 refs.backHomeFromOrchestrate?.addEventListener("click", () => layout.goHome());
 refs.backHomeFromFlow?.addEventListener("click", () => layout.goHome());
 refs.backHomeFloating?.addEventListener("click", () => layout.goHome());
-refs.refreshTasksBtn?.addEventListener("click", () => taskManager.loadTasks());
-refs.toggleSidebarBtn?.addEventListener("click", () => layout.setSidebarCollapsed(!(refs.landingMain?.classList.contains("sidebarCollapsed"))));
+refs.refreshTasksBtn?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  taskManager.loadTasks();
+});
+refs.toggleSidebarBtn?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  layout.setSidebarCollapsed(!refs.landingMain?.classList.contains("sidebarCollapsed"));
+});
+refs.newLandingTaskBtn?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  void startNewLandingTask();
+});
 refs.taskSidebarEl?.addEventListener("click", (e) => {
-  if (!refs.landingMain?.classList.contains("sidebarCollapsed")) return;
-  if (e.target?.id === "toggleSidebarBtn" || e.target?.closest?.("#toggleSidebarBtn")) {
-    layout.setSidebarCollapsed(false);
+  if (e.target?.closest?.("#taskSessionDigest")) return;
+  if (
+    e.target?.closest?.("#refreshTasksBtn") ||
+    e.target?.closest?.("#toggleSidebarBtn") ||
+    e.target?.closest?.("#newLandingTaskBtn")
+  ) {
     return;
   }
+  if (!refs.landingMain?.classList.contains("sidebarCollapsed")) return;
   layout.setSidebarCollapsed(false);
 });
-refs.settingsBtn?.addEventListener("click", () => refs.settingsPanel?.classList.remove("hidden"));
-refs.settingsClose?.addEventListener("click", () => refs.settingsPanel?.classList.add("hidden"));
+refs.landingEnterDesignDomainBtn?.addEventListener("click", async () => {
+  try {
+    await layout.playLandingSubflowBridge({ kind: "design_domain", minMs: 1280 });
+    await openDesignDomainFromLanding({ autoPipeline: false, softResume: true, forceNewSession: false });
+  } catch (err) {
+    layout.addLandingBubble("agent", String(err?.message || err));
+  }
+});
+refs.landingEnterOrchestrateBtn?.addEventListener("click", async () => {
+  if (!state.currentFileId) return layout.addLandingBubble("agent", "请先上传文件。");
+  try {
+    if (isOc4IgesFilename(state.currentFileName) && !state.oc4DesignDomainFinalized) {
+      layout.addLandingBubble("agent", "IGES 需先完成设计域流程；正在打开设计域。");
+      await layout.playLandingSubflowBridge({ kind: "design_domain", minMs: 1280 });
+      await openDesignDomainFromLanding({ autoPipeline: true, softResume: true }).catch((e) => {
+        layout.addLandingBubble("agent", `设计域步骤：${e?.message || e}`);
+      });
+      return;
+    }
+    await layout.playLandingSubflowBridge({ kind: "orchestrate", minMs: 1280 });
+    await beginOrchestrationAfterLanding();
+  } catch (e) {
+    layout.addLandingBubble("agent", String(e?.message || e));
+  }
+});
+refs.settingsBtn?.addEventListener("click", () => {
+  syncAssistantPreferStreamUi();
+  hydrateTopologyInputsFromStorage();
+  void refreshQwenConfigStatus();
+  setSettingsDrawer(true);
+});
+refs.settingsClose?.addEventListener("click", () => setSettingsDrawer(false));
+refs.settingsBackdrop?.addEventListener("click", () => setSettingsDrawer(false));
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (!refs.settingsShell?.classList.contains("settingsShell--open")) return;
+  e.preventDefault();
+  setSettingsDrawer(false);
+});
+refs.assistantPreferStream?.addEventListener("change", () => {
+  try {
+    localStorage.setItem(LS_ASSISTANT_PREFER_STREAM, refs.assistantPreferStream?.checked ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+});
+[refs.massGoal, refs.filterR, refs.saveEvery].forEach((el) => {
+  el?.addEventListener("input", () => schedulePersistTopologySettings());
+  el?.addEventListener("change", () => persistTopologySettingsImmediate());
+});
 refs.baseUrlInput?.addEventListener("change", () => {
   refs.baseUrlText && (refs.baseUrlText.textContent = normalizedBaseUrl().replace(/^https?:\/\//, ""));
 });
@@ -2892,8 +4440,13 @@ refs.qwenSave?.addEventListener("click", async () => {
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data?.detail || "保存失败");
-    if (refs.qwenStatus) refs.qwenStatus.textContent = data.configured ? `已连接 (${data.model || "qwen"})` : "未配置";
-    layout.addLandingBubble("agent", data.configured ? "Qwen 已启用，后续参数解析与生成将走大模型。" : "Qwen 未配置，将使用默认规则。");
+    await refreshQwenConfigStatus();
+    layout.addLandingBubble(
+      "agent",
+      data.configured
+        ? "Qwen 已启用：侧栏对话、意图/参数解析、设计域自然语言说明与任务标题摘要将优先使用大模型。"
+        : "Qwen 未配置：上述能力将退回规则解析或受限模式（标题摘要等可能不可用）。",
+    );
   } catch (e) {
     if (refs.qwenStatus) refs.qwenStatus.textContent = "连接失败";
     layout.addLandingBubble("agent", `Qwen 配置失败：${e?.message || e}`);
@@ -2920,19 +4473,9 @@ refs.cadConvertPauseBtn?.addEventListener("click", () => {
   }
 });
 
-refs.uploadPreviewRemove?.addEventListener("click", () => {
-  state.currentFileId = null;
-  state.currentFileName = "";
-  state.uploadedSourceDir = "";
-  state.oc4DesignDomainSessionIdForResume = "";
-  disposeDesignDomainViewer();
-  resetOc4DesignDomainState();
-  state.oc4DesignDomainFinalized = false;
-  if (refs.scanDirInput) refs.scanDirInput.value = "";
-  if (refs.fileSummaryInline) refs.fileSummaryInline.textContent = "(尚未选择文件)";
-  if (refs.uploadPreviewName) refs.uploadPreviewName.textContent = "(暂无文件)";
-  refs.uploadPreviewCard?.classList.add("hidden");
-  layout.addLandingBubble("agent", "已移除当前上传文件。");
+refs.landingPendingAttachRemove?.addEventListener("click", async () => {
+  await clearLandingUploadedFileFromTask();
+  layout.addLandingBubble("agent", "已移除文件：服务端已删除，本对话不再绑定该附件。");
 });
 refs.spinToggleBtn?.addEventListener("click", () => {
   const next = !viewer.getAutoRotate?.();
@@ -2940,7 +4483,7 @@ refs.spinToggleBtn?.addEventListener("click", () => {
   updateSpinToggleUi();
 });
 [refs.backHomeFromOrchestrate, refs.backHomeFromFlow, refs.backHomeFloating].forEach((el) => {
-  el?.addEventListener("click", () => refs.settingsPanel?.classList.add("hidden"));
+  el?.addEventListener("click", () => setSettingsDrawer(false));
 });
 [refs.flowStep1, refs.flowStep2, refs.flowStep3, refs.flowStep4].forEach((el, i) => {
   if (!el) return;
@@ -2962,7 +4505,8 @@ refs.spinToggleBtn?.addEventListener("click", () => {
 layout.setStep(1);
 layout.showStage("landing");
 updateLogDockVisibility();
-layout.addLandingBubble("agent", "上传文件并输入需求，点「运行智能体流程」开始编排。");
+syncLandingHeroVisibility();
+updateLandingSubflowStrip();
 try {
   if (refs.baseUrlInput) {
     const stored = localStorage.getItem("beso.settings.baseUrl") || "";
@@ -2972,19 +4516,29 @@ try {
   }
   if (refs.qwenBaseUrl) refs.qwenBaseUrl.value = localStorage.getItem("beso.settings.qwenBaseUrl") || refs.qwenBaseUrl.value || "";
   if (refs.qwenModel) refs.qwenModel.value = localStorage.getItem("beso.settings.qwenModel") || refs.qwenModel.value || "";
+  syncAssistantPreferStreamUi();
   refs.baseUrlText && (refs.baseUrlText.textContent = normalizedBaseUrl().replace(/^https?:\/\//, ""));
+  hydrateTopologyInputsFromStorage();
 } catch {}
-fetch(`${normalizedBaseUrl()}/api/config/qwen`, { cache: "no-store" })
-  .then((r) => r.json())
-  .then((cfg) => {
-    if (refs.qwenStatus) refs.qwenStatus.textContent = cfg.configured ? `已连接 (${cfg.model || "qwen"})` : "未配置";
-    if (refs.qwenBaseUrl && cfg.base_url) refs.qwenBaseUrl.value = cfg.base_url;
-    if (refs.qwenModel && cfg.model) refs.qwenModel.value = cfg.model;
-  })
-  .catch(() => {
-    if (refs.qwenStatus) refs.qwenStatus.textContent = "未配置";
-  });
-try { layout.setSidebarCollapsed(localStorage.getItem("beso.sidebar.collapsed") === "1"); } catch {}
+void refreshQwenConfigStatus();
+queueMicrotask(() => fireAndForgetQwenWarmup());
+try {
+  document.addEventListener(
+    "visibilitychange",
+    () => {
+      if (document.visibilityState === "visible") fireAndForgetQwenWarmup();
+    },
+    { passive: true },
+  );
+  refs.msgLanding?.addEventListener("focus", () => fireAndForgetQwenWarmup(), { passive: true });
+} catch {
+  /* ignore */
+}
+try {
+  const raw = localStorage.getItem("beso.sidebar.collapsed");
+  const collapsed = raw === null ? true : raw === "1";
+  layout.setSidebarCollapsed(collapsed);
+} catch {}
 updateStepperClickableState();
 wireLogFloatDock();
 refreshLogSummaryViews();

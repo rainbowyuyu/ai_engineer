@@ -26,8 +26,32 @@ export function formatTaskStatus(status) {
   return { label: status || "-", tone: "muted" };
 }
 
+/** 侧栏角标：是否曾进入设计域 / 编排或拓扑分步流 */
+function taskSubprocessBadges(task) {
+  const ui = String(task?.ui_stage || "").toLowerCase();
+  const st = String(task?.status || "").toLowerCase();
+  const sid = String(task?.oc4_design_domain_session_id || "").trim();
+  const designDomain = Boolean(sid) || ui === "design_domain";
+  const orchestrate =
+    ui === "orchestrate" ||
+    ui === "flow" ||
+    st === "orchestrating" ||
+    st === "ready_to_execute" ||
+    (st === "running" && Boolean(task?.job_id));
+  return { designDomain, orchestrate };
+}
+
 export function createTaskManager(deps) {
-  const { refs, state, normalizedBaseUrl, onOpenTask, onTasksListUpdated } = deps;
+  const {
+    refs,
+    state,
+    normalizedBaseUrl,
+    onOpenTask,
+    onTasksListUpdated,
+    onBeforeSelectTask,
+    onTaskBadgeClick,
+    onTaskRemoved,
+  } = deps;
 
   function formatTaskTime(v) {
     if (!v) return "-";
@@ -43,21 +67,26 @@ export function createTaskManager(deps) {
     return 100;
   }
 
-  async function upsertTask(patch = {}) {
-    if (!state.currentTaskId) return;
+  async function upsertTask(patch = {}, opts = {}) {
+    const taskIdOverride = String(opts.taskId || "").trim() || null;
+    const tid = taskIdOverride || state.currentTaskId;
+    if (!tid) return;
     const keys = [
       "title",
       "progress",
       "step",
       "status",
       "file_name",
+      "file_id",
       "job_id",
       "scan_dir",
       "ui_stage",
       "oc4_design_domain_session_id",
       "oc4_activity",
+      "assistant_thread",
+      "landing_session_digest",
     ];
-    const body = { task_id: state.currentTaskId };
+    const body = { task_id: tid };
     for (const k of keys) {
       if (patch[k] !== undefined) body[k] = patch[k];
     }
@@ -65,13 +94,21 @@ export function createTaskManager(deps) {
     const onlyStagePersist =
       pk.length > 0 &&
       pk.every((k) =>
-        ["ui_stage", "oc4_design_domain_session_id", "oc4_activity"].includes(k),
+        [
+          "ui_stage",
+          "oc4_design_domain_session_id",
+          "oc4_activity",
+          "assistant_thread",
+          "landing_session_digest",
+        ].includes(k),
       );
     if (!onlyStagePersist) {
       if (body.title === undefined) {
-        body.title = String(refs.msgLanding?.value || refs.msgEl?.value || "未命名任务").slice(0, 80);
+        const fromUi = String(refs.msgLanding?.value || refs.msgEl?.value || "").trim();
+        if (fromUi) body.title = fromUi.slice(0, 80);
       }
       if (body.file_name === undefined) body.file_name = patch.file_name ?? state.currentFileName ?? undefined;
+      if (body.file_id === undefined) body.file_id = patch.file_id ?? state.currentFileId ?? undefined;
       if (body.job_id === undefined) body.job_id = patch.job_id ?? state.jobId ?? undefined;
       if (body.scan_dir === undefined) body.scan_dir = patch.scan_dir ?? state.uploadedSourceDir ?? undefined;
     }
@@ -98,7 +135,18 @@ export function createTaskManager(deps) {
   }
 
   async function removeTask(taskId) {
-    await fetch(`${normalizedBaseUrl()}/api/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" });
+    try {
+      const r = await fetch(`${normalizedBaseUrl()}/api/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" });
+      if (r.ok) {
+        try {
+          onTaskRemoved?.(taskId);
+        } catch {
+          /* ignore */
+        }
+      }
+    } catch {
+      /* ignore */
+    }
     if (state.currentTaskId === taskId) {
       state.currentTaskId = null;
       state.jobId = null;
@@ -209,6 +257,30 @@ export function createTaskManager(deps) {
       const stepNum = Number(t.step);
       const stepLabel = Number.isFinite(stepNum) && stepNum >= 1 && stepNum <= 4 ? `步骤 ${stepNum}/4` : "步骤 —";
       const oc4Note = lastOc4ActivitySnippet(t.oc4_activity);
+      const { designDomain: hasDd, orchestrate: hasOrb } = taskSubprocessBadges(t);
+      const svgDd =
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>';
+      const svgOrb =
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="6" r="2"/><circle cx="6" cy="16" r="2"/><circle cx="18" cy="16" r="2"/><path d="M12 8v4M8 15l-2 1m10-1l2 1"/></svg>';
+      const svgRename =
+        '<svg class="taskIconSvg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
+      const svgDelete =
+        '<svg class="taskIconSvg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/><path d="M10 11v6M14 11v6"/></svg>';
+      const badgeHtml =
+        hasDd || hasOrb
+          ? `<div class="taskItemBadgeRow" role="group" aria-label="子流程快捷入口">
+          ${
+            hasDd
+              ? `<button type="button" class="taskBadgeBtn taskBadgeBtn--dd" data-task-badge="design_domain" title="进入设计域">${svgDd}</button>`
+              : ""
+          }
+          ${
+            hasOrb
+              ? `<button type="button" class="taskBadgeBtn taskBadgeBtn--orc" data-task-badge="orchestrate" title="进入构型优化编排 / 拓扑流程">${svgOrb}</button>`
+              : ""
+          }
+        </div>`
+          : "";
       const row = document.createElement("div");
       row.className = `taskItem${t.task_id === state.currentTaskId ? " active" : ""}`;
       row.setAttribute("role", "listitem");
@@ -224,26 +296,48 @@ export function createTaskManager(deps) {
           <span class="taskItemTime">${escapeHtml(formatTaskTime(t.updated_at || t.created_at))}</span>
         </div>
         ${oc4Note ? `<div class="taskItemOc4" title="${escapeHtml(oc4Note)}">OC4：${escapeHtml(oc4Note)}</div>` : ""}
+        ${badgeHtml}
         <div class="taskProgress" aria-hidden="true"><span style="width:${Math.max(0, Math.min(100, Number(t.progress || 0)))}%"></span></div>
-        <div class="taskActions">
-          <button type="button" class="taskIconBtn taskRename" title="重命名">✎</button>
-          <button type="button" class="taskIconBtn taskDelete" title="删除">🗑</button>
+        <div class="taskActions" role="toolbar" aria-label="任务操作">
+          <button type="button" class="taskIconBtn taskRename" title="重命名任务" aria-label="重命名任务">${svgRename}</button>
+          <span class="taskActionsSpacer" aria-hidden="true"></span>
+          <button type="button" class="taskIconBtn taskDelete" title="删除任务" aria-label="删除任务">${svgDelete}</button>
         </div>
       `;
       row.querySelector(".taskDelete")?.addEventListener("click", async (e) => {
         e.stopPropagation();
+        if (!window.confirm("确定删除该任务？此操作无法撤销。")) return;
         await removeTask(t.task_id);
       });
       row.querySelector(".taskRename")?.addEventListener("click", async (e) => {
         e.stopPropagation();
         openRenameDialog(t.task_id, t.title);
       });
+      row.querySelectorAll("[data-task-badge]").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          const kind = btn.getAttribute("data-task-badge");
+          if (!kind || !onTaskBadgeClick) return;
+          try {
+            await onTaskBadgeClick(t, kind);
+          } catch {
+            /* ignore */
+          }
+        });
+      });
       row.addEventListener("click", async (ev) => {
         if (ev.target?.closest?.("button")) return;
+        try {
+          await onBeforeSelectTask?.(t.task_id);
+        } catch {
+          /* ignore */
+        }
         state.currentTaskId = t.task_id;
         state.jobId = t.job_id || null;
         state.uploadedSourceDir = t.scan_dir || "";
         state.currentFileName = t.file_name || "";
+        state.currentFileId = t.file_id || null;
         await onOpenTask?.(t);
         await loadTasks();
       });
@@ -260,16 +354,19 @@ export function createTaskManager(deps) {
   async function loadTasks() {
     if (!refs.taskListEl) return;
     refs.taskListEl.setAttribute("aria-busy", "true");
+    let items = [];
     try {
       const resp = await fetch(`${normalizedBaseUrl()}/api/tasks`);
       const data = await resp.json();
-      renderTaskList(data.items || []);
+      items = data.items || [];
+      renderTaskList(items);
     } catch {
       renderTaskList([]);
+      items = [];
     } finally {
       refs.taskListEl.removeAttribute("aria-busy");
       try {
-        onTasksListUpdated?.();
+        onTasksListUpdated?.(items);
       } catch {
         /* ignore */
       }

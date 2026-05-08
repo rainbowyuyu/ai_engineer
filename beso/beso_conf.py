@@ -35,7 +35,7 @@ domain_same_state[elset_name] = False  # False - element states can differ,
                                        # "average" - domain elements have common state given by average sensitivity
 # copy this block for defining properties of the next domain (if elset_name is not 1)
 
-mass_goal_ratio = 0.4  # the goal mass as a fragment of the full mass of optimized domains,
+mass_goal_ratio = 0.25  # the goal mass as a fragment of the full mass of optimized domains,
                        # i.e. fragment of mass evaluated from effective density and volumes of optimized elements in the highest state
 
 continue_from = ""  # if not "", optimization will load element states from the given files,
@@ -109,7 +109,7 @@ displacement_graph = []  # plot maximal displacement of the given node set, e.g.
                          # [] - do not plot it
                          # [["nset1", "ux"], ["nset2", "uy"]] - plot maximal x displacement of node set nset1 and maximal y displacement of node set nset2
                          # [["nset1", "total"]] - plot maximal total displacement of node set nset1, same as [["nset", "sqrt(ux**2 + uy**2 + uz**2)"]]
-save_iteration_results = 10  # every i-th iteration save temporary results, 0 - save only final results
+save_iteration_results = 1  # every i-th iteration save temporary results, 0 - save only final results (1 = 每轮保存，结果查看器最密)
 save_solver_files = ""  # not removed outputs from the solver, e.g. "inp frd dat cvg sta" will preserve all outputs in iterations defined by save_iteration_results
 save_resulting_format = "inp vtk" # "frd" or "inp" format of resulting meshes (each state separately in own mesh file)
                                   # "vtk" output for viewing in Paraview (renumbered mesh, states, sensitivity numbers, failure indices)

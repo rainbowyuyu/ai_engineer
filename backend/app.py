@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import shutil
 import threading
 import time
 import uuid
@@ -20,7 +22,7 @@ for _root in (_repo_root, Path(os.environ.get("WORKSPACE_ROOT", _repo_root)).res
         load_dotenv(_dotenv_file, override=False)
 
 from fastapi import FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -29,7 +31,8 @@ from pydantic import BaseModel
 from backend.agent import decide_params
 from backend.generator import scan_input_directory, build_generated_code
 from backend.jobs.manager import jobs
-from backend.models import ChatRequest, ChatResponse
+from backend.models import AssistantChatRequest, AssistantChatResponse, ChatRequest, ChatResponse
+from backend.qwen_client import QwenClient, assistant_chat_http_read_timeout_s
 from backend.qwen_runtime_config import get_qwen_config, set_qwen_config
 from backend.pydantic_compat import model_to_dict
 from backend.tools.files import preview_inp, resolve_file, store_upload, uploads_root
@@ -40,6 +43,8 @@ from backend.tools.cad_iges_to_inp import (
     suggest_char_length_max,
 )
 from backend.routes.oc4_design_domain_api import router as oc4_design_domain_router
+
+logger = logging.getLogger(__name__)
 
 
 WORKSPACE_ROOT = Path(os.environ.get("WORKSPACE_ROOT", r"D:\python_project\beso_ai")).resolve()
@@ -56,7 +61,7 @@ CAD_CONVERT_ROOT.mkdir(parents=True, exist_ok=True)
 _cad_convert_registry: dict[str, dict] = {}
 _cad_convert_registry_lock = threading.Lock()
 
-app = FastAPI(title="BESO Agent Web")
+app = FastAPI(title="AI Engineering Web")
 app.include_router(oc4_design_domain_router, prefix="/api/oc4/design-domain")
 
 app.add_middleware(
@@ -253,6 +258,98 @@ def _iges_to_inp_for_job(iges_path: Path) -> str:
     return str(dest.resolve())
 
 
+@app.post("/api/assistant/chat", response_model=AssistantChatResponse)
+def assistant_chat(body: AssistantChatRequest):
+    """
+    通用多轮对话，走 .env / 运行时配置中的 QWEN_*（DashScope 兼容 OpenAI Chat）。
+    与下方编排用的 ``POST /api/chat`` 不同。
+    """
+    qwen = QwenClient(timeout_s=assistant_chat_http_read_timeout_s())
+    if not qwen.api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="未配置大模型密钥：请在项目根目录 .env 中设置 QWEN_API_KEY，或在设置页保存 API Key。",
+        )
+    msgs = _assistant_messages_for_qwen(body)
+    try:
+        data = qwen.chat(msgs, temperature=float(body.temperature if body.temperature is not None else 0.6))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("assistant_chat failed")
+        raise HTTPException(
+            status_code=503,
+            detail=f"模型请求异常: {e}。请查看本机后端控制台日志；若经反向代理，请确认 QWEN_BASE_URL 与网络可达。",
+        ) from e
+    try:
+        content = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+    except Exception:
+        content = ""
+    if not str(content).strip():
+        content = "（模型无有效输出，请重试或缩短上文。）"
+    return AssistantChatResponse(reply=str(content), model=qwen.model)
+
+
+def _assistant_messages_for_qwen(body: AssistantChatRequest) -> list[dict[str, str]]:
+    msgs: list[dict[str, str]] = [{"role": m.role, "content": m.content} for m in body.messages]
+    if not msgs or msgs[0]["role"] != "system":
+        msgs = [
+            {
+                "role": "system",
+                "content": (
+                    "你是「AI Engineering」的对话助手；角色为 AI 工程与结构仿真方向的专家，熟悉结构/拓扑优化（含 BESO、SIMP）、CalculiX、"
+                    "INP 网格与边界条件、以及本产品中设计域—拓扑优化编排—任务流程。"
+                    "用简洁中文回答；需要时分点说明，可使用 Markdown；不要编造不存在的文件路径。"
+                ),
+            },
+            *msgs,
+        ]
+    return msgs
+
+
+@app.post("/api/assistant/chat/stream")
+def assistant_chat_stream(body: AssistantChatRequest):
+    """流式对话，直接透传上游 SSE 行（``data:`` JSON 与 ``data: [DONE]``）。"""
+
+    def gen():
+        qwen = QwenClient(timeout_s=assistant_chat_http_read_timeout_s())
+        if not qwen.api_key:
+            yield (
+                "data: "
+                + json.dumps(
+                    {"error": "未配置大模型密钥：请在项目根目录 .env 中设置 QWEN_API_KEY，或在设置页保存 API Key。"},
+                    ensure_ascii=False,
+                )
+                + "\n\n"
+            )
+            return
+        msgs = _assistant_messages_for_qwen(body)
+        try:
+            for line in qwen.chat_stream(msgs, temperature=float(body.temperature if body.temperature is not None else 0.6)):
+                yield line
+        except RuntimeError as e:
+            yield "data: " + json.dumps({"error": str(e)}, ensure_ascii=False) + "\n\n"
+        except Exception as e:
+            yield "data: " + json.dumps({"error": f"模型请求失败: {e}"}, ensure_ascii=False) + "\n\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.get("/api/assistant/qwen-warmup")
+def assistant_qwen_warmup():
+    """前端进入页或聚焦输入时调用：预热到 DashScope 的连接，不阻塞主对话路径。"""
+    qwen = QwenClient()
+    return qwen.warmup()
+
+
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
     # Resolve inp path: prefer scan_dir for multi-inp merged mode.
@@ -318,10 +415,12 @@ def chat(req: ChatRequest):
     parsed = decide_params(req.message, effective_inp_path=eff_inp, scan_dir=req.scan_dir)
 
     mass_goal_ratio = req.mass_goal_ratio if req.mass_goal_ratio is not None else parsed.mass_goal_ratio
+    mass_goal_ratio = max(0.05, min(0.99, float(mass_goal_ratio)))
     filter_radius = req.filter_radius if req.filter_radius is not None else parsed.filter_radius
     optimization_base_raw = req.optimization_base if req.optimization_base is not None else parsed.optimization_base
     optimization_base = _sanitize_optimization_base(optimization_base_raw)
     save_every = req.save_every if req.save_every is not None else parsed.save_every
+    save_every = max(1, int(save_every))
 
     generated_bundle = None
     generated_code_meta: list[dict] = []
@@ -512,6 +611,28 @@ async def upload(file: UploadFile = File(...)):
     }
 
 
+def _safe_upload_file_id(file_id: str) -> str:
+    s = "".join(ch for ch in str(file_id or "").strip().lower() if ch in "0123456789abcdef")
+    if len(s) != 32:
+        raise HTTPException(status_code=400, detail="invalid file_id")
+    return s
+
+
+@app.delete("/api/files/{file_id}")
+def delete_uploaded_file(file_id: str):
+    """删除上传目录（用户从对话中移除附件时调用）。"""
+    fid = _safe_upload_file_id(file_id)
+    base = uploads_root(WORKSPACE_ROOT).resolve()
+    root = (base / fid).resolve()
+    try:
+        root.relative_to(base)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="invalid path") from e
+    if root.is_dir():
+        shutil.rmtree(root, ignore_errors=True)
+    return {"ok": True, "file_id": fid}
+
+
 def _task_file(task_id: str) -> Path:
     safe = "".join(ch for ch in str(task_id) if ch.isalnum() or ch in {"-", "_"})
     return TASKS_ROOT / f"{safe}.json"
@@ -572,6 +693,21 @@ def _remove_task(task_id: str) -> None:
     idx_file.write_text(json.dumps(ids, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+_TASK_LIST_STRIP_KEYS = ("assistant_thread", "landing_session_digest")
+
+
+def _task_summary_for_list(task: dict) -> dict:
+    """侧栏列表不携带大体量对话字段，避免 /api/tasks 响应过大。"""
+    out = {k: v for k, v in task.items() if k not in _TASK_LIST_STRIP_KEYS}
+    th = task.get("assistant_thread")
+    if isinstance(th, list):
+        out["assistant_thread_len"] = len(th)
+    dg = task.get("landing_session_digest")
+    if isinstance(dg, list):
+        out["landing_session_digest_len"] = len(dg)
+    return out
+
+
 @app.get("/api/tasks")
 def list_tasks():
     ids = _read_task_index_ids()
@@ -579,8 +715,16 @@ def list_tasks():
     for task_id in ids[:200]:
         task = _load_task(task_id)
         if task:
-            items.append(task)
+            items.append(_task_summary_for_list(task))
     return {"items": items}
+
+
+@app.get("/api/tasks/{task_id}")
+def get_task(task_id: str):
+    task = _load_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    return task
 
 
 class TaskUpsertIn(BaseModel):
@@ -590,12 +734,27 @@ class TaskUpsertIn(BaseModel):
     step: int | None = None
     status: str | None = None
     file_name: str | None = None
+    """与 /api/files/upload 返回的 file_id 一致，写入任务以便下次打开对话仍关联附件"""
+    file_id: str | None = None
     job_id: str | None = None
     scan_dir: str | None = None
     ui_stage: str | None = None
     oc4_design_domain_session_id: str | None = None
     # OC4 设计域：助手 / 用户轨迹（前端为 list[{"ts","role","text"}]，最多由前端裁剪）
     oc4_activity: list | None = None
+    # 主页助手多轮对话（与任务同生命周期，删任务即删）
+    assistant_thread: list | None = None
+    landing_session_digest: list | None = None
+
+
+def _task_upsert_patch_dict(body: TaskUpsertIn) -> dict[str, object]:
+    md = getattr(body, "model_dump", None)
+    if callable(md):
+        return md(exclude_unset=True)
+    d = getattr(body, "dict", None)
+    if callable(d):
+        return d(exclude_unset=True)
+    raise TypeError("expected Pydantic BaseModel")
 
 
 @app.post("/api/tasks/upsert")
@@ -603,9 +762,20 @@ def upsert_task(body: TaskUpsertIn):
     try:
         existing = _load_task(body.task_id) or {}
         payload = dict(existing)
-        for k, v in model_to_dict(body).items():
-            if v is not None:
+        incoming = _task_upsert_patch_dict(body)
+        for k, v in incoming.items():
+            if k == "task_id":
+                continue
+            if k == "file_id" and (v is None or v == ""):
+                payload.pop("file_id", None)
+            elif k == "oc4_design_domain_session_id" and (v is None or v == ""):
+                payload.pop("oc4_design_domain_session_id", None)
+            elif v is not None:
                 payload[k] = v
+        if isinstance(payload.get("assistant_thread"), list):
+            payload["assistant_thread"] = payload["assistant_thread"][-200:]
+        if isinstance(payload.get("landing_session_digest"), list):
+            payload["landing_session_digest"] = payload["landing_session_digest"][-80:]
         _save_task(body.task_id, payload)
         return {"ok": True, "task": payload}
     except Exception as e:
@@ -614,6 +784,17 @@ def upsert_task(body: TaskUpsertIn):
 
 @app.delete("/api/tasks/{task_id}")
 def delete_task(task_id: str):
+    prev = _load_task(task_id)
+    fid = str((prev or {}).get("file_id") or "").strip().lower()
+    if len(fid) == 32 and all(c in "0123456789abcdef" for c in fid):
+        base = uploads_root(WORKSPACE_ROOT).resolve()
+        root = (base / fid).resolve()
+        try:
+            root.relative_to(base)
+            if root.is_dir():
+                shutil.rmtree(root, ignore_errors=True)
+        except ValueError:
+            pass
     _remove_task(task_id)
     run_dir = RUNS_ROOT / task_id
     if run_dir.exists() and run_dir.is_dir():
@@ -658,27 +839,30 @@ class QwenConfigIn(BaseModel):
     model: str | None = None
 
 
+def _qwen_status_payload() -> dict[str, str | bool]:
+    """合并进程内配置与 ``QWEN_*`` 环境变量（与 ``QwenClient`` 解析顺序一致，不把密钥回传给前端）。"""
+    cfg = get_qwen_config()
+    key = (cfg.api_key or "").strip() or (os.environ.get("QWEN_API_KEY") or "").strip()
+    base_url = (cfg.base_url or "").strip() or (os.environ.get("QWEN_BASE_URL") or "").strip()
+    if not base_url:
+        base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    model = (cfg.model or "").strip() or (os.environ.get("QWEN_MODEL") or "").strip()
+    if not model:
+        model = "qwen-plus"
+    return {"configured": bool(key), "base_url": base_url, "model": model}
+
+
 @app.get("/api/config/qwen")
 def get_qwen():
-    cfg = get_qwen_config()
-    return {
-        "configured": bool(cfg.api_key),
-        "base_url": cfg.base_url,
-        "model": cfg.model,
-    }
+    return _qwen_status_payload()
 
 
 @app.post("/api/config/qwen")
 def set_qwen(body: QwenConfigIn):
     # stored in-memory only
     set_qwen_config(body.api_key, body.base_url, body.model)
-    cfg = get_qwen_config()
-    return {
-        "ok": True,
-        "configured": bool(cfg.api_key),
-        "base_url": cfg.base_url,
-        "model": cfg.model,
-    }
+    out = _qwen_status_payload()
+    return {"ok": True, **out}
 
 
 @app.post("/api/jobs/{job_id}/start")

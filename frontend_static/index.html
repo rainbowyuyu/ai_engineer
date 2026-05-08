@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BESO 智能体</title>
+    <title>AI Engineering</title>
     <link rel="icon" href="./assets/beso-agent-mark.svg" type="image/svg+xml" />
     <script type="importmap">
       {
@@ -609,188 +609,6 @@
         .rightGrid{ grid-template-rows: auto auto auto auto; }
       }
 
-      /* Home page final overrides (avoid legacy style interference) */
-      #landingMain{
-        height: calc(100vh - 56px);
-        min-height: 0;
-        display:flex;
-        align-items:center;
-        justify-content:center;
-        padding: 14px;
-        position: relative;
-      }
-      #landingMain .taskSidebar{
-        position: fixed;
-        left: 10px;
-        top: 210px;
-        width: 300px;
-        z-index: 9;
-        border:1px solid var(--border);
-        border-radius: 18px;
-        background: rgba(255,255,255,.90);
-        box-shadow: 0 20px 48px rgba(15,23,42,.10);
-        display:flex;
-        flex-direction:column;
-        min-height:0;
-        transition: width .25s ease, opacity .2s ease, transform .25s ease;
-      }
-      #landingMain .taskSidebarHd{
-        padding: 12px;
-        border-bottom:1px solid var(--border);
-        display:flex;
-        align-items:center;
-        justify-content:space-between;
-        gap: 8px;
-      }
-      #landingMain .taskList{
-        padding: 10px;
-        overflow:auto;
-        min-height:0;
-        max-height: 360px;
-        display:flex;
-        flex-direction:column;
-        gap:8px;
-      }
-      #landingMain.sidebarCollapsed .taskSidebar{
-        width: 48px;
-        overflow: hidden;
-      }
-      #landingMain.sidebarCollapsed .taskSidebar .title,
-      #landingMain.sidebarCollapsed .taskSidebar #refreshTasksBtn,
-      #landingMain.sidebarCollapsed .taskSidebar .taskList{
-        opacity: 0;
-        pointer-events: none;
-      }
-      #landingMain .sidebarToggle{
-        width: 30px;
-        height: 30px;
-        border-radius: 9px;
-        border:1px solid var(--border);
-        background:#fff;
-        cursor:pointer;
-        font-size: 12px;
-        color: #334155;
-      }
-      #landingMain .taskItem{
-        border:1px solid var(--border);
-        border-radius: 12px;
-        padding: 8px;
-        background: rgba(255,255,255,.86);
-        cursor:pointer;
-      }
-      #landingMain .taskItem.active{
-        border-color: rgba(43,93,247,.45);
-        background: rgba(43,93,247,.08);
-      }
-      #landingMain .taskItemTitle{
-        font-size: 13px;
-        font-weight: 700;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      #landingMain .taskItemMeta{
-        margin-top: 4px;
-        font-size: 11px;
-        color: var(--muted);
-        display:flex;
-        justify-content:space-between;
-      }
-      #landingMain .taskProgress{
-        margin-top: 6px;
-        height: 6px;
-        border-radius: 999px;
-        background: rgba(15,23,42,.10);
-        overflow:hidden;
-      }
-      #landingMain .taskProgress > span{
-        display:block;
-        height:100%;
-        background: linear-gradient(90deg, #2563eb, #10b981);
-      }
-      #landingMain .taskActions{
-        margin-top: 6px;
-        display:flex;
-        justify-content:flex-end;
-      }
-      #landingMain .taskDelete{
-        border:none;
-        background: transparent;
-        color:#ef4444;
-        cursor:pointer;
-        font-size: 12px;
-      }
-      #landingMain .introStage{
-        width:min(960px, 76vw);
-        height:min(720px, calc(100vh - 110px));
-        border:1px solid var(--border);
-        border-radius: 22px;
-        background: rgba(255,255,255,.90);
-        box-shadow: 0 20px 48px rgba(15,23,42,.10);
-        padding: 16px;
-        display:grid;
-        grid-template-rows: auto 1fr auto;
-        min-height:0;
-      }
-      #landingMain .homeHero{
-        margin-bottom: 18px;
-      }
-      #landingMain .homeComposer{
-        border-radius: 20px;
-      }
-      #landingMain #chatLanding{
-        min-height: 0;
-        overflow:auto;
-        padding: 8px;
-        border:1px solid var(--border);
-        border-radius: 14px;
-        background: rgba(248,250,252,.72);
-      }
-      #landingMain .card{
-        border-radius: 16px;
-        background: rgba(255,255,255,.72);
-      }
-      #landingMain .fieldLabel{
-        letter-spacing:.2px;
-      }
-      #landingMain #chatLanding .bubble{
-        max-width: 100%;
-        border-radius: 12px;
-        box-shadow:none;
-        border:1px solid rgba(15,23,42,.08);
-      }
-      #landingMain #chatLanding .bubble.user{
-        background: rgba(37,99,235,.10);
-      }
-      #landingMain #chatLanding .bubble.agent{
-        background:#fff;
-      }
-      #landingMain .homeComposer{
-        margin-top: 10px;
-        border-radius: 14px;
-        box-shadow: none;
-      }
-      #landingMain .homeTextarea{
-        min-height: 72px;
-        max-height: 140px;
-      }
-      @media (max-width: 980px){
-        #landingMain{
-          height: auto;
-          min-height: calc(100vh - 56px);
-          padding-left: 8px;
-          padding-right: 8px;
-        }
-        #landingMain .taskSidebar{
-          position: static;
-          width: 100%;
-          margin-bottom: 8px;
-        }
-        #landingMain .introStage{
-          width: 100%;
-          height: calc(100vh - 220px);
-        }
-      }
       #orchestrateMain{
         height: auto;
         min-height: calc(100vh - 96px);
@@ -818,23 +636,23 @@
   <body>
     <div class="app">
       <div class="top">
-        <div class="brand" title="BESO 拓扑优化智能体">
-          <img class="brandLogo" src="./assets/beso-agent-lockup.svg" width="180" height="28" alt="" aria-hidden="true" />
-          <span class="brandName">BESO 智能体</span>
+        <div class="brand" title="AI Engineering · 设计域与拓扑优化工作流">
+          <img class="brandLogo" src="./assets/beso-agent-lockup.svg" width="200" height="28" alt="" aria-hidden="true" />
+          <span class="brandName">AI Engineering</span>
         </div>
         <div class="topRight">
           <span class="chip">后端：<span id="baseUrlText">127.0.0.1:8000</span></span>
           <span class="chip">Job：<span id="jobId">(未启动)</span></span>
           <span class="chip">状态：<span id="status">-</span></span>
-          <button type="button" class="btn resultsViewerTopBtn" id="resultsViewerBtn" title="打开本地结果查看器（文件夹）">结果查看器</button>
-          <button class="iconBtn" id="settingsBtn" title="设置">⚙</button>
+          <button type="button" class="btn resultsViewerTopBtn" id="resultsViewerBtn" title="打开拓扑优化结果查看器">结果查看器</button>
+          <button class="iconBtn" id="settingsBtn" title="连接与偏好">⚙</button>
         </div>
       </div>
 
       <div class="panelHd hidden" id="flowStepper" style="margin:12px 14px 0;border-radius:14px;border:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
         <div class="btnRow" style="flex-wrap:wrap;gap:8px;align-items:center;">
         <button class="btn backHomeBtn" id="backHomeFloating">&lt; 返回主页</button>
-        <button type="button" class="btn oc4ReturnToDesignBtn hidden" id="backToOc4FromFlowBtn" title="返回设计域：调整网格与载荷后再进入编排">
+        <button type="button" class="btn oc4ReturnToDesignBtn hidden" id="backToOc4FromFlowBtn" title="返回设计域：调整网格与载荷后再进入构型优化编排">
           ← 设计域
         </button>
         </div>
@@ -846,45 +664,110 @@
         </div>
       </div>
 
-      <div class="main chatgptHome" id="landingMain">
-        <div class="taskSidebar">
+      <div class="main chatgptHome sidebarCollapsed" id="landingMain">
+        <aside class="taskSidebar" aria-label="任务列表" aria-expanded="false">
           <div class="taskSidebarHd">
             <div class="taskSidebarBrand">
               <img class="taskSidebarBrandMark" src="./assets/beso-agent-mark.svg" width="22" height="22" alt="" />
               <div class="title">任务</div>
             </div>
-            <div class="taskSidebarTools btnRow">
-              <button class="sidebarToggle" id="toggleSidebarBtn" title="折叠/展开任务栏">◀</button>
-              <button class="btn" id="refreshTasksBtn">刷新</button>
+            <div class="taskSidebarTools taskSidebarToolStrip">
+              <button type="button" class="sidebarNavBtn taskNewChatBtn" id="newLandingTaskBtn" title="新建对话" aria-label="新建对话">
+                <svg class="navIcon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14" />
+                </svg>
+                <span class="taskNewChatLabel">新建</span>
+              </button>
+              <button
+                type="button"
+                class="sidebarNavBtn sidebarToggle"
+                id="toggleSidebarBtn"
+                aria-expanded="false"
+                aria-controls="taskList"
+                title="展开任务栏"
+                aria-label="展开任务栏"
+              >
+                <svg class="navIcon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 6l6 6-6 6" />
+                </svg>
+              </button>
+              <button type="button" class="sidebarNavBtn sidebarRefreshBtn" id="refreshTasksBtn" title="刷新任务" aria-label="刷新任务">
+                <svg class="navIcon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M21 12a9 9 0 00-9-9 9.75 9.75 0 00-6.74 2.74L3 8M3 3v5h5M3 12a9 9 0 009 9 9.75 9.75 0 006.74-2.74L21 16M21 21v-5h-5"
+                  />
+                </svg>
+                <span class="sidebarRefreshText">刷新</span>
+              </button>
             </div>
           </div>
+          <div id="taskSessionDigest" class="taskSessionDigest" aria-label="本对话参与的子流程（仅摘要，请在对话中点击卡片进入）"></div>
           <div class="taskList" id="taskList"></div>
-        </div>
+        </aside>
 
-        <div class="introStage panel">
-          <div class="homeHero">
-            <div class="heroTitleRow">
-              <img class="heroLockup" src="./assets/beso-agent-lockup.svg" width="120" height="24" alt="" aria-hidden="true" />
-              <div class="heroTitle">BESO 智能体</div>
+        <div class="landingMainCenter">
+          <div class="introStage introStage--landing">
+            <header class="homeHero" id="landingHomeHero">
+              <img class="homeHeroMark" src="./assets/beso-agent-mark.svg" width="36" height="36" alt="" aria-hidden="true" />
+              <h1 class="heroTitle">今天想做什么工程优化？</h1>
+              <p class="homeHeroTagline">AI Engineering：上传几何或有限元模型，描述目标与约束；一键串联「设计域」与「拓扑优化编排」（底层集成 BESO / CalculiX）。</p>
+            </header>
+
+            <div id="chatLanding" class="chat landingChatScroll" role="log" aria-live="polite" aria-relevant="additions"></div>
+
+            <div id="landingSubflowStrip" class="landingSubflowStrip hidden" aria-label="从对话进入子流程">
+              <span class="landingSubflowStripLabel">子流程</span>
+              <button type="button" class="landingSubflowBtn" id="landingEnterDesignDomainBtn" title="进入设计域（需已上传 IGES）">设计域</button>
+              <button type="button" class="landingSubflowBtn landingSubflowBtn--primary" id="landingEnterOrchestrateBtn" title="进入构型优化编排（需已上传文件）">构型优化编排</button>
             </div>
-          </div>
 
-          <div id="chatLanding" class="chat"></div>
-
-          <div class="homeComposer">
-            <div class="uploadPreview hidden" id="uploadPreviewCard">
-              <span class="uploadPreviewTag">已上传</span>
-              <span class="uploadPreviewName" id="uploadPreviewName">(暂无文件)</span>
-              <button class="uploadPreviewRemove" id="uploadPreviewRemove" title="移除上传文件">×</button>
-            </div>
-            <textarea class="homeTextarea" id="msgLanding" placeholder="例如：帮我对这个 inp 做拓扑优化，目标质量 0.4，每 10 次保存并实时展示演化过程。">帮我对这个 inp 做 topo 优化，每 10 次保存，并实时展示。</textarea>
-            <div class="homeToolbar">
-              <div class="btnRow">
-                <button class="uploadChip uploadChipStrong" id="pickBtnLanding">上传文件</button>
-                <input id="fileInputLanding" type="file" accept=".inp,.vtk,.obj,.py,.log,.igs,.iges,.stp,.step" class="hidden" />
-                <span class="chip">任务与进度保存在 runs 目录</span>
+            <div class="landingComposerDock">
+              <div class="landingPendingAttachBar hidden" id="landingPendingAttachBar" role="status" aria-live="polite">
+                <span class="landingPendingAttachTag">待发送</span>
+                <span class="landingPendingAttachName" id="landingPendingAttachName"></span>
+                <button type="button" class="landingPendingAttachRemove" id="landingPendingAttachRemove" title="移除文件" aria-label="移除上传文件">×</button>
               </div>
-              <button class="btn btnPrimary runBtn" id="runAgentFlow">运行智能体流程</button>
+              <div class="homeComposer landingComposer">
+                <div class="composerPill">
+                  <button type="button" class="composerAttachBtn" id="pickBtnLanding" title="上传文件" aria-label="上传文件">
+                    <svg class="navIcon" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+                      <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14" />
+                    </svg>
+                  </button>
+                  <input id="fileInputLanding" type="file" accept=".inp,.vtk,.obj,.py,.log,.igs,.iges,.stp,.step" class="hidden" />
+                  <textarea
+                    class="homeTextarea"
+                    id="msgLanding"
+                    rows="1"
+                    placeholder="描述构型/拓扑优化、网格或载荷需求…"
+                  ></textarea>
+                  <button type="button" class="composerSendFab" id="landingSendChatBtn" title="发送对话（Enter）" aria-label="发送对话">
+                    <svg class="composerSendIcon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                      <path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6v6.55L16.65 12 3.4 13.85z" />
+                    </svg>
+                  </button>
+                </div>
+                <div class="landingQuickRow" role="toolbar" aria-label="快捷意图">
+                  <button type="button" class="landingQuickChip" data-landing-prompt="帮我审阅当前 inp 的网格、材料与边界条件，列出风险与改进建议。">
+                    审阅模型
+                  </button>
+                  <button type="button" class="landingQuickChip" data-landing-prompt="从 STEP/IGES 开始：生成设计域体网格并输出可用于 BESO 的 INP 流程说明。">
+                    几何到网格
+                  </button>
+                  <button type="button" class="landingQuickChip" data-landing-prompt="帮我对这个 inp 做拓扑优化：默认质量比约 0.25、每轮保存中间 OBJ 方便结果查看器回放，并说明如何看演化曲线与应力指标。">
+                    拓扑优化
+                  </button>
+                  <button type="button" class="landingRunAgentBtn" id="runAgentFlow">运行构型优化流程</button>
+                </div>
+                <p class="landingRunsHint">
+                  回车发送对话 · Shift+Enter 换行 · 任务与进度在 <code>runs</code> 目录
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -895,7 +778,6 @@
           <header class="designDomainHeader">
             <div class="designDomainHeaderMain">
               <div class="stageBrandRow">
-                <img class="stageLockup" src="./assets/beso-agent-mark.svg" width="26" height="26" alt="" aria-hidden="true" />
                 <div>
                   <div class="designDomainBadge">设计域</div>
                   <h1 class="designDomainTitle">几何与预览</h1>
@@ -957,28 +839,69 @@
                 </div>
               </div>
               <div class="designDomainToolbar" id="designDomainToolbar">
-                <label class="designDomainCheck"><input type="checkbox" id="ddCutCenter" checked /> 挖除中心柱</label>
-                <label class="designDomainCheck"><input type="checkbox" id="ddIncludeSource" /> 合并源几何（对照）</label>
-                <input type="number" id="ddCharMax" class="designDomainInput" placeholder="char_max（可选）" />
-                <button type="button" class="btn btnPrimary ddTbarBtn ddTbarStep ddTbarStep--1" id="ddBtnBuild">1 构建设计域</button>
-                <button type="button" class="btn ddTbarBtn ddTbarStep ddTbarStep--2" id="ddBtnPreview">2 导出 OBJ 预览</button>
-                <button type="button" class="btn btnPrimary ddTbarBtn ddTbarStep ddTbarStep--3" id="ddBtnMesh">3 FreeCAD 体网格</button>
-                <button type="button" class="btn ddTbarBtn ddTbarStep ddTbarStep--4" id="ddBtnLoads">4 划分载荷</button>
-                <button type="button" class="btn btnPrimary ddTbarBtn ddTbarFinalize" id="ddBtnFinalize">完成并进入编排</button>
+                <div class="designDomainToolbarTop">
+                  <div class="designDomainToolbarChecks">
+                    <label class="designDomainCheck designDomainCheck--pill"
+                      ><input type="checkbox" id="ddCutCenter" checked /> 挖除中心柱</label
+                    >
+                    <label class="designDomainCheck designDomainCheck--pill"
+                      ><input type="checkbox" id="ddIncludeSource" /> 合并源几何（对照）</label
+                    >
+                  </div>
+                  <div class="designDomainToolbarMeshRow">
+                    <label class="designDomainToolbarMesh">
+                      <span class="designDomainToolbarMeshTxt">FreeCAD 疏密</span>
+                      <select
+                        id="ddMeshDensity"
+                        class="designDomainInput designDomainMeshSelect"
+                        title="预设会写入 char_max 与曲率加密；点「3」打开 Plan 时带入，仍可再改"
+                      >
+                        <option value="modal">与 Plan 弹窗一致</option>
+                        <option value="fine">细 · 更密</option>
+                        <option value="medium">中等</option>
+                        <option value="coarse">粗 · 试算快</option>
+                        <option value="xlarge">最粗 · 超大稀疏</option>
+                      </select>
+                    </label>
+                    <input
+                      type="number"
+                      id="ddCharMax"
+                      class="designDomainInput designDomainCharField"
+                      placeholder="char_max（可选）"
+                      title="Gmsh CharacteristicLengthMax（mm），数值越大网格越粗；可覆盖上方预设"
+                    />
+                  </div>
+                </div>
+                <div class="designDomainToolbarSteps" role="toolbar" aria-label="设计域操作步骤">
+                  <button type="button" class="btn ddTbarBtn ddTbarStep ddTbarStep--1" id="ddBtnBuild">1 构建设计域</button>
+                  <button type="button" class="btn ddTbarBtn ddTbarStep ddTbarStep--2" id="ddBtnPreview">2 导出 OBJ 预览</button>
+                  <button type="button" class="btn ddTbarBtn ddTbarStep ddTbarStep--3" id="ddBtnMesh">3 FreeCAD 体网格</button>
+                  <button type="button" class="btn ddTbarBtn ddTbarStep ddTbarStep--4" id="ddBtnLoads">4 划分载荷</button>
+                </div>
+                <div class="designDomainToolbarFinalizeWrap">
+                  <button type="button" class="btn btnPrimary ddTbarBtn ddTbarFinalize" id="ddBtnFinalize">完成并进入编排</button>
+                </div>
               </div>
             </div>
-            <aside class="designDomainAgentCol" aria-label="设计域 Agent 对话与轨迹">
+            <aside class="designDomainAgentCol" aria-label="AI Engineering 设计域对话与轨迹">
               <div class="designDomainAgentPanel">
                 <div class="designDomainAgentPanelHd">
-                  <span class="designDomainAgentAvatar" aria-hidden="true"></span>
+                  <img
+                    class="designDomainAgentLogo"
+                    src="./assets/beso-agent-mark.svg"
+                    width="32"
+                    height="32"
+                    alt=""
+                    aria-hidden="true"
+                  />
                   <div class="designDomainAgentPanelTitles">
-                    <div class="designDomainAgentName">设计域助手</div>
-                    <div class="designDomainAgentSub">各步「AI」专窗对话</div>
+                    <div class="designDomainAgentName">AI Engineering</div>
+                    <div class="designDomainAgentSub">设计域 · 网格与载荷的工程对话</div>
                   </div>
                   <span class="designDomainAgentPulse" title="会话进行中"></span>
                 </div>
                 <div class="designDomainFlowLog designDomainFlowLog--rail" id="designDomainFlowLog" aria-live="polite"></div>
-                <p class="designDomainAgentFoot">与任务、编排页同步记录。</p>
+                <p class="designDomainAgentFoot">与任务、拓扑优化编排页同步记录。</p>
               </div>
             </aside>
           </div>
@@ -986,7 +909,7 @@
         <dialog class="ddStepNlDialog" id="ddStepNlDialog" aria-labelledby="ddStepNlTitle">
           <div class="ddStepNlDialogPanel" id="ddStepNlDialogPanel">
             <div class="ddStepNlDialogHead">
-              <h2 class="ddStepNlTitle" id="ddStepNlTitle">步骤助手</h2>
+              <h2 class="ddStepNlTitle" id="ddStepNlTitle">AI Engineering</h2>
               <button type="button" class="btn ddStepNlClose" id="ddStepNlClose" aria-label="关闭">×</button>
             </div>
             <p class="ddStepNlIntro" id="ddStepNlIntro"></p>
@@ -1015,22 +938,28 @@
               <div class="stageBrandRow">
                 <img class="stageLockup" src="./assets/beso-agent-mark.svg" width="26" height="26" alt="" aria-hidden="true" />
                 <div>
-                  <div class="title">编排流程</div>
-                  <div class="fieldLabel">生成流程图后确认执行。</div>
+                  <div class="title">AI Engineering · 拓扑优化编排</div>
+                  <div class="fieldLabel orchestrateHeaderSub">
+                    四步：扫描清单 → 生成 BESO 配置与脚本 → 绑定预览 → 汇总后执行任务。下列轨道与左侧流式说明一一对应。
+                  </div>
                 </div>
               </div>
             </div>
-            <span class="agentPulse" title="编排中"></span>
+            <span class="agentPulse" title="AI Engineering 编排进行中"></span>
           </div>
           <div class="rail">
             <div class="railLine">
-              <div class="railStop active" id="railStop1">1 搜索相关文件</div>
+              <div
+                class="railStop active"
+                id="railStop1"
+                data-rail-label="1 扫描与上下文&#10;目录、主 INP、IGES 分流"
+              ></div>
               <div class="railConn" id="railConn1"></div>
-              <div class="railStop" id="railStop2">2 生成代码</div>
+              <div class="railStop" id="railStop2" data-rail-label="2 生成配置&#10;清单、beso_conf、脚本"></div>
               <div class="railConn" id="railConn2"></div>
-              <div class="railStop" id="railStop3">3 预览指标</div>
+              <div class="railStop" id="railStop3" data-rail-label="3 绑定预览&#10;VTK、Mass/FI 曲线"></div>
               <div class="railConn" id="railConn3"></div>
-              <div class="railStop" id="railStop4">4 文件日志汇总</div>
+              <div class="railStop" id="railStop4" data-rail-label="4 汇总执行&#10;校验后点执行任务"></div>
             </div>
           </div>
           <div id="orchestrateStream" class="orchestrateStream"></div>
@@ -1039,7 +968,7 @@
               <button type="button" class="btn oc4ReturnToDesignBtn hidden" id="backToOc4FromOrchestrateBtn" title="返回设计域调整网格与载荷">
                 ← 设计域
               </button>
-              <span class="orchestrateHint">确认编排后再执行任务。</span>
+              <span class="orchestrateHint">流式说明走完后请核对清单，再点「执行任务」启动 CalculiX + BESO。</span>
             </div>
             <div class="btnRow">
               <button class="btn backHomeBtn" id="backHomeFromOrchestrate">返回主页</button>
@@ -1083,7 +1012,7 @@
               <span class="chip">最新产物：<a id="vtkLink" href="#" target="_blank">(暂无)</a></span>
             </div>
             <div class="btnRow" style="margin-top:10px;">
-              <button class="btn btnPrimary" id="acceptStep1" disabled>接受智能体本步骤内容并进入下一步</button>
+              <button class="btn btnPrimary" id="acceptStep1" disabled>接受本步骤并继续</button>
             </div>
           </div>
         </div>
@@ -1125,7 +1054,7 @@
                 </aside>
               </div>
               <div class="btnRow" style="margin-top:10px;">
-                <button class="btn btnPrimary" id="acceptStep3" disabled>接受智能体本步骤内容并进入下一步</button>
+                <button class="btn btnPrimary" id="acceptStep3" disabled>接受本步骤并继续</button>
               </div>
             </div>
           </div>
@@ -1158,40 +1087,133 @@
               <div class="previewBox" id="codePreview" style="margin-top:10px; max-height:240px;">(尚未生成代码)</div>
               <div id="codeStreamWrap" style="margin-top:10px;"></div>
               <div class="btnRow" style="margin-top:10px;">
-                <button class="btn btnPrimary" id="acceptStep2" disabled>接受智能体本步骤内容并进入下一步</button>
+                <button class="btn btnPrimary" id="acceptStep2" disabled>接受本步骤并继续</button>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="panel hidden" id="settingsPanel" style="position:fixed; right:16px; top:70px; width:360px; z-index:10;">
-        <div class="panelHd">
-          <div class="title">设置</div>
-          <button class="iconBtn" id="settingsClose" title="关闭">✕</button>
-        </div>
-        <div class="panelBd">
-          <div class="fieldLabel">后端地址</div>
-          <input id="baseUrl" type="text" value="" placeholder="留空默认使用当前页面地址" />
-          <div class="fieldLabel" style="margin-top:10px">阿里云 Qwen API（仅内存保存）</div>
-          <input id="qwenBaseUrl" type="text" placeholder="base_url (默认兼容模式)" />
-          <input id="qwenModel" type="text" placeholder="model (例如 qwen-plus)" style="margin-top:8px" />
-          <input id="qwenKey" type="text" placeholder="api_key（不会写入磁盘）" style="margin-top:8px" />
-          <div class="fieldLabel" style="margin-top:6px" title="首次配置后点保存并启用">密钥仅存于本机浏览器。</div>
-          <div class="btnRow" style="margin-top:8px">
-            <button class="btn btnPrimary" id="qwenSave">保存并启用</button>
-            <span class="chip">状态：<span id="qwenStatus">未配置</span></span>
+      <div id="settingsShell" class="settingsShell" aria-hidden="true">
+        <button type="button" class="settingsBackdrop" id="settingsBackdrop" tabindex="-1" aria-label="关闭设置"></button>
+        <div
+          class="panel settingsPanel"
+          id="settingsPanel"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="settingsPanelTitle"
+        >
+          <div class="settingsPanelHd">
+            <div class="settingsPanelHdText">
+              <div class="settingsPanelKicker">工作区</div>
+              <div class="title" id="settingsPanelTitle">连接与优化参数</div>
+              <p class="settingsPanelLead">
+                统一配置后端地址、Qwen 与拓扑优化默认参数。侧栏对话、设计域、拓扑优化编排与分步执行均会读取此处（拓扑三项会存浏览器并在启动任务时随
+                <code>/api/chat</code> 提交；Qwen API Key 勿提交到 Git）。
+              </p>
+            </div>
+            <button type="button" class="settingsPanelClose iconBtn" id="settingsClose" title="关闭 (Esc)">✕</button>
           </div>
-          <div class="fieldLabel" style="margin-top:10px">解析参数（可覆盖）</div>
-          <div class="btnRow">
-            <input id="massGoal" type="text" placeholder="mass_goal_ratio" />
-            <input id="filterR" type="text" placeholder="filter_radius" />
-            <input id="saveEvery" type="text" placeholder="save_every" />
+          <div class="settingsPanelBody">
+            <section class="settingsSection" aria-labelledby="settingsSecApi">
+              <h3 class="settingsSectionTitle" id="settingsSecApi">服务与模型</h3>
+              <p class="settingsSectionHint">REST、WebSocket、上传与 <code>runs</code> 静态资源均基于此后端。</p>
+              <label class="settingsLabel" for="baseUrl">服务后端地址</label>
+              <input
+                id="baseUrl"
+                class="settingsInput"
+                type="text"
+                value=""
+                placeholder="留空 = 当前页面 origin（推荐同源）"
+                title="REST、WebSocket、文件上传均指向此地址"
+                autocomplete="url"
+              />
+              <h3 class="settingsSectionTitle settingsSectionTitle--sub" id="settingsSecQwen">通义千问 Qwen</h3>
+              <p class="settingsSectionHint">
+                兼容 OpenAI 接口。用于 AI Engineering 侧栏对话、意图与拓扑参数解析、设计域载荷说明拆分、任务标题摘要。密钥可填在下方或配置服务端环境变量
+                <code>QWEN_API_KEY</code>（页面会显示「已配置」）；点「保存并启用」将浏览器中的密钥写入服务端进程内存。
+              </p>
+              <label class="settingsLabel" for="qwenBaseUrl">Base URL</label>
+              <input
+                id="qwenBaseUrl"
+                class="settingsInput"
+                type="text"
+                placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
+                title="DashScope 或其它 OpenAI 兼容网关"
+              />
+              <label class="settingsLabel" for="qwenModel">模型名</label>
+              <input id="qwenModel" class="settingsInput" type="text" placeholder="qwen-plus、qwen-turbo …" />
+              <label class="settingsLabel" for="qwenKey">API Key</label>
+              <input
+                id="qwenKey"
+                class="settingsInput settingsInput--mono"
+                type="password"
+                autocomplete="off"
+                placeholder="可不填：若服务端已设 QWEN_API_KEY 则沿用；填写则与 Base URL、模型一并保存到服务端会话"
+              />
+              <div class="settingsActions">
+                <button type="button" class="btn btnPrimary" id="qwenSave">保存并启用</button>
+                <span class="settingsStatusChip">Qwen <span id="qwenStatus">检测中…</span></span>
+              </div>
+              <label class="settingsCheck">
+                <input type="checkbox" id="assistantPreferStream" />
+                <span>优先 SSE 流式侧栏对话（经代理易断；默认关，用整包 + 本地渐进展示更稳）</span>
+              </label>
+            </section>
+
+            <section class="settingsSection" aria-labelledby="settingsSecBeso">
+              <h3 class="settingsSectionTitle" id="settingsSecBeso">拓扑优化（BESO）默认</h3>
+              <p class="settingsSectionHint">
+                启动「构型优化编排」中的任务（POST <code>/api/chat</code>）时：<strong>mass_goal_ratio</strong> 与 <strong>save_every</strong> 始终按下方值发送（默认
+                0.25 与 1）；<strong>filter_radius</strong> 仅在为正数时发送，留空则由服务端结合网格自动抬升，避免滤波除零。
+                修改后会自动保存到本机浏览器。
+              </p>
+              <div class="settingsFieldGrid">
+                <div class="settingsField">
+                  <label class="settingsLabel" for="massGoal">mass_goal_ratio</label>
+                  <input
+                    id="massGoal"
+                    class="settingsInput"
+                    type="text"
+                    inputmode="decimal"
+                    value="0.25"
+                    placeholder="0.25"
+                    title="目标保留质量/体积比 0~1；越小越镂空；过小易不收敛"
+                  />
+                </div>
+                <div class="settingsField">
+                  <label class="settingsLabel" for="filterR">filter_radius</label>
+                  <input
+                    id="filterR"
+                    class="settingsInput"
+                    type="text"
+                    inputmode="decimal"
+                    placeholder="留空=由服务端按网格自动抬升"
+                    title="simple 滤波半径（与 INP 坐标同单位）；大模型可留空，由服务端与 beso 运行前再抬底"
+                  />
+                </div>
+                <div class="settingsField settingsField--wide">
+                  <label class="settingsLabel" for="saveEvery">save_every</label>
+                  <input
+                    id="saveEvery"
+                    class="settingsInput"
+                    type="text"
+                    inputmode="numeric"
+                    value="1"
+                    placeholder="1"
+                    title="每 N 轮写 OBJ/INP；1=最密；大体网格可 2~5 省磁盘"
+                  />
+                </div>
+              </div>
+            </section>
+
+            <section class="settingsSection settingsSection--muted" aria-labelledby="settingsSecFile">
+              <h3 class="settingsSectionTitle" id="settingsSecFile">当前文件</h3>
+              <div class="previewBox settingsPreview" id="fileSummary">（尚未选择或未上传 .inp）</div>
+              <div class="settingsLabel" id="filePreviewLabel">.inp 预览（前 200 行）</div>
+              <div class="previewBox settingsPreview settingsPreview--scroll" id="filePreview" aria-labelledby="filePreviewLabel"></div>
+            </section>
           </div>
-          <div class="fieldLabel" style="margin-top:10px">文件</div>
-          <div class="previewBox" id="fileSummary">(尚未选择文件)</div>
-          <div class="fieldLabel" style="margin-top:10px">.inp 预览（前 200 行）</div>
-          <div class="previewBox" id="filePreview"></div>
         </div>
       </div>
     </div>

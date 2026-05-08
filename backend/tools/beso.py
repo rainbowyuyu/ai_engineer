@@ -381,6 +381,7 @@ def run_beso_job(
                 filter_radius=fr_use,
                 optimization_base=optimization_base,
                 iterations_limit=iter_lim,
+                save_iteration_results=max(1, int(save_every)),
             )
             oc4_dual_applied = True
             on_log("[INFO] OC4 双域：已写入 design_space/nondesign_space 的 beso_conf.py（覆盖单域模板）")

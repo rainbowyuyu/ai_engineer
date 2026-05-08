@@ -996,6 +996,7 @@ def write_beso_conf_example3_style(
     filter_radius: float,
     optimization_base: str,
     iterations_limit: int | str = 8,
+    save_iteration_results: int = 1,
 ) -> None:
     """双域 ``design_space`` + ``nondesign_space``，与 wiki example_3 beso_conf 结构一致。"""
     work_dir = work_dir.resolve()
@@ -1032,7 +1033,7 @@ domain_same_state[elset_name] = False
 mass_goal_ratio = {mass_goal_ratio}
 filter_list = [["simple", {filter_radius}]]
 optimization_base = "{optimization_base}"
-save_iteration_results = 2
+save_iteration_results = {max(1, int(save_iteration_results))}
 save_resulting_format = "inp vtk"
 '''
     target.write_text(txt, encoding="utf-8")

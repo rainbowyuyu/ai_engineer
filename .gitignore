@@ -3,8 +3,8 @@
 __pycache__/
 **/__pycache__/
 .venv/
-runs/
 # BESO 本地产出（体积大，勿提交）
 examples/base/beso_output/
 # 本地大模型密钥与覆盖配置（勿提交）
 .env
+/runs/

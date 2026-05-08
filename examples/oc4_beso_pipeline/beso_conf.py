@@ -26,8 +26,8 @@ domain_FI[elset_name] = [[("stress_von_Mises", 450.0e6)], [("stress_von_Mises", 
 domain_material[elset_name] = ["*ELASTIC \n210000e-6,  0.3", "*ELASTIC \n210000,  0.3"]
 domain_same_state[elset_name] = False
 
-mass_goal_ratio = 0.35
+mass_goal_ratio = 0.25
 filter_list = [["simple", 4500.0]]
 optimization_base = "failure_index"
-save_iteration_results = 2
+save_iteration_results = 1
 save_resulting_format = "inp vtk"
