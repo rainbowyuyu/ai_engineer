@@ -81,12 +81,16 @@ def runs_file_url(workspace_root: Path, file_abs: Path) -> str:
 
 def session_progress_flags(sdir: Path) -> dict[str, bool]:
     """会话目录内关键产物是否存在（供前端分步引导与按钮禁用）。"""
+    meta = read_session_meta(sdir)
     return {
         "has_source_preview_obj": (sdir / "source_preview.obj").is_file(),
         "has_design_domain_step": (sdir / "01_design_domain.step").is_file(),
         "has_design_preview_obj": (sdir / "design_preview.obj").is_file(),
         "has_mesh_body_inp": (sdir / "02_mesh_body.inp").is_file(),
         "has_for_beso_inp": (sdir / "03_for_beso.inp").is_file(),
+        "design_domain_full_build_done": bool(meta.get("design_domain_full_build_done")),
+        "has_build_plan_md": (sdir / "build_plan.md").is_file(),
+        "has_build_history_md": (sdir / "build_history.md").is_file(),
     }
 
 
@@ -137,6 +141,9 @@ def invalidate_oc4_downstream_from_rail_step(sdir: Path, *, rail_step: int) -> d
             "01_design_domain.step",
             "design_preview.obj",
             "01b_design_domain_volume.msh",
+            "build_plan.md",
+            "build_history.md",
+            "agent_build_plan.json",
         ):
             rm(sdir / pat)
         for p in sorted(sdir.glob("01_design_domain.*")):
@@ -152,6 +159,7 @@ def invalidate_oc4_downstream_from_rail_step(sdir: Path, *, rail_step: int) -> d
                 "last_nl_load_reply": None,
                 "scan_dir": None,
                 "finalized": False,
+                "design_domain_full_build_done": False,
             }
         )
     if rail_step <= 2:
@@ -170,6 +178,7 @@ def invalidate_oc4_downstream_from_rail_step(sdir: Path, *, rail_step: int) -> d
                 "design_domain_iges": None,
                 "design_domain_step": None,
                 "design_obj_url": None,
+                "design_domain_full_build_done": False,
             }
         )
     if patch:

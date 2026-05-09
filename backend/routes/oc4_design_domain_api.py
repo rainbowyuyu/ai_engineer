@@ -7,9 +7,11 @@ import re
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from backend.oc4_methodology_chen2026 import LLM_CONTEXT_BLOCK_ZH
 from backend.oc4_design_domain_service import (
     create_session_from_upload,
     geometry_summary,
@@ -26,8 +28,18 @@ from backend.oc4_design_domain_service import (
     session_progress_flags,
 )
 from backend.qwen_client import QwenClient
+from backend.oc4_design_domain_agent import (
+    iter_design_domain_agent_events,
+    iter_design_domain_plan_build_events,
+    iter_design_domain_plan_draft_events,
+)
 
 router = APIRouter(tags=["oc4-design-domain"])
+
+_DD_FILE_SKIP_DIRS = frozenset({".git", "__pycache__", ".venv", ".venv_web", "node_modules"})
+_DD_FILE_MAX_DEPTH_CAP = 20
+_DD_FILE_MAX_ENTRIES = 900
+_DD_READ_TEXT_MAX_BYTES = 512 * 1024
 
 
 def _workspace_root() -> Path:
@@ -161,6 +173,202 @@ def oc4_dd_get_session(session_id: str):
     sdir = _get_session(session_id)
     meta = read_session_meta(sdir)
     return {"session_id": session_id, **meta, **session_progress_flags(sdir)}
+
+
+@router.get("/session/{session_id}/files")
+def oc4_dd_session_files(session_id: str, max_depth: int = Query(10, ge=1, le=_DD_FILE_MAX_DEPTH_CAP)):
+    """递归列出会话目录内文件与文件夹（相对会话根的路径，供 IDE 文件树）。"""
+    sdir = _get_session(session_id).resolve()
+    out: list[dict[str, Any]] = []
+    truncated = False
+
+    def walk(rel: Path, depth: int) -> None:
+        nonlocal truncated
+        if truncated:
+            return
+        cur = sdir / rel if rel != Path(".") else sdir
+        try:
+            entries = sorted(cur.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+        except OSError:
+            return
+        for item in entries:
+            if len(out) >= _DD_FILE_MAX_ENTRIES:
+                truncated = True
+                return
+            name = item.name
+            if item.is_dir():
+                if name in _DD_FILE_SKIP_DIRS or name.startswith("."):
+                    continue
+                sub = rel / name if rel != Path(".") else Path(name)
+                out.append({"path": str(sub).replace("\\", "/"), "kind": "dir", "size": None})
+                if depth + 1 <= max_depth:
+                    walk(sub, depth + 1)
+            else:
+                sub = rel / name if rel != Path(".") else Path(name)
+                try:
+                    sz = int(item.stat().st_size)
+                except OSError:
+                    sz = None
+                out.append({"path": str(sub).replace("\\", "/"), "kind": "file", "size": sz})
+
+    walk(Path("."), 0)
+    return {"session_id": session_id, "files": out, "truncated": truncated}
+
+
+@router.get("/session/{session_id}/file")
+def oc4_dd_session_read_file(session_id: str, rel_path: str = Query(..., alias="path", min_length=1, max_length=2048)):
+    """读取会话目录内单个文本类文件（大小上限 ``_DD_READ_TEXT_MAX_BYTES``）。"""
+    sdir = _get_session(session_id).resolve()
+    raw = (rel_path or "").strip().replace("\\", "/").lstrip("/")
+    if ".." in Path(raw).parts:
+        raise HTTPException(status_code=400, detail="invalid path")
+    target = (sdir / raw).resolve()
+    try:
+        target.relative_to(sdir)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="path outside session") from e
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="not a file")
+    if not _path_ok(target):
+        raise HTTPException(status_code=400, detail="invalid path")
+    try:
+        sz = int(target.stat().st_size)
+    except OSError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    if sz > _DD_READ_TEXT_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"file too large for preview ({sz} bytes; max {_DD_READ_TEXT_MAX_BYTES})",
+        )
+    try:
+        text = target.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {
+        "session_id": session_id,
+        "path": raw,
+        "size": sz,
+        "encoding": "utf-8",
+        "content": text,
+    }
+
+
+class FileWriteIn(BaseModel):
+    path: str = Field(..., min_length=1, max_length=2048)
+    content: str = Field("", description="UTF-8 文本内容；空字符串可创建空文件")
+
+
+@router.put("/session/{session_id}/file")
+def oc4_dd_session_write_file(session_id: str, body: FileWriteIn):
+    """写入或创建会话目录内文本文件（与读取相同的大小上限）。"""
+    sdir = _get_session(session_id).resolve()
+    raw = (body.path or "").strip().replace("\\", "/").lstrip("/")
+    if ".." in Path(raw).parts:
+        raise HTTPException(status_code=400, detail="invalid path")
+    target = (sdir / raw).resolve()
+    try:
+        target.relative_to(sdir)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="path outside session") from e
+    if not _path_ok(target):
+        raise HTTPException(status_code=400, detail="invalid path")
+    content_bytes = (body.content or "").encode("utf-8")
+    if len(content_bytes) > _DD_READ_TEXT_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"content too large ({len(content_bytes)} bytes; max {_DD_READ_TEXT_MAX_BYTES})",
+        )
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content_bytes)
+        sz = int(target.stat().st_size)
+    except OSError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "session_id": session_id, "path": raw, "size": sz}
+
+
+class MkdirIn(BaseModel):
+    path: str = Field(..., min_length=1, max_length=2048)
+
+
+@router.post("/session/{session_id}/mkdir")
+def oc4_dd_session_mkdir(session_id: str, body: MkdirIn):
+    """在会话目录下创建子目录（路径段内不得含 ..）。"""
+    sdir = _get_session(session_id).resolve()
+    raw = (body.path or "").strip().replace("\\", "/").lstrip("/")
+    if ".." in Path(raw).parts:
+        raise HTTPException(status_code=400, detail="invalid path")
+    target = (sdir / raw).resolve()
+    try:
+        target.relative_to(sdir)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="path outside session") from e
+    if not _path_ok(target):
+        raise HTTPException(status_code=400, detail="invalid path")
+    if target.exists():
+        raise HTTPException(status_code=409, detail="already exists")
+    try:
+        target.mkdir(parents=True, exist_ok=False)
+    except OSError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "session_id": session_id, "path": raw}
+
+
+class RenameIn(BaseModel):
+    src: str = Field(..., min_length=1, max_length=2048)
+    dst: str = Field(..., min_length=1, max_length=2048)
+
+
+@router.post("/session/{session_id}/rename")
+def oc4_dd_session_rename(session_id: str, body: RenameIn):
+    """重命名/移动会话内的文件或空目录（均在会话根之下）。"""
+    sdir = _get_session(session_id).resolve()
+    sraw = (body.src or "").strip().replace("\\", "/").lstrip("/")
+    draw = (body.dst or "").strip().replace("\\", "/").lstrip("/")
+    if ".." in Path(sraw).parts or ".." in Path(draw).parts:
+        raise HTTPException(status_code=400, detail="invalid path")
+    src = (sdir / sraw).resolve()
+    dst = (sdir / draw).resolve()
+    try:
+        src.relative_to(sdir)
+        dst.relative_to(sdir)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="path outside session") from e
+    if not _path_ok(src) or not _path_ok(dst):
+        raise HTTPException(status_code=400, detail="invalid path")
+    if not src.exists():
+        raise HTTPException(status_code=404, detail="source not found")
+    if dst.exists():
+        raise HTTPException(status_code=409, detail="destination already exists")
+    try:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        src.rename(dst)
+    except OSError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "session_id": session_id, "from": sraw, "to": draw}
+
+
+@router.delete("/session/{session_id}/file")
+def oc4_dd_session_delete_file(session_id: str, rel_path: str = Query(..., alias="path", min_length=1, max_length=2048)):
+    """删除会话内的单个文件（非目录）。"""
+    sdir = _get_session(session_id).resolve()
+    raw = (rel_path or "").strip().replace("\\", "/").lstrip("/")
+    if ".." in Path(raw).parts:
+        raise HTTPException(status_code=400, detail="invalid path")
+    target = (sdir / raw).resolve()
+    try:
+        target.relative_to(sdir)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="path outside session") from e
+    if not _path_ok(target):
+        raise HTTPException(status_code=400, detail="invalid path")
+    if not target.is_file():
+        raise HTTPException(status_code=400, detail="not a file or not found")
+    try:
+        target.unlink()
+    except OSError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "session_id": session_id, "path": raw}
 
 
 class InvalidateFromStepIn(BaseModel):
@@ -337,7 +545,7 @@ def oc4_dd_chat(body: ChatIn):
 
     if topic == "general":
         system = (
-            "你是「AI Engineering」中的海洋工程/结构 CAD 助手，帮助用户理解 OC4 导管架 IGES 与设计域构建流程。"
+            "你是「AI Engineer」中的海洋工程/结构 CAD 助手，帮助用户理解 OC4 导管架 IGES 与设计域构建流程。"
             "根据几何摘要（非完整模型）与用户问题作答。"
             "你必须只输出**一个** JSON 对象，不要 Markdown 围栏，不要其它多余文字。键：\n"
             '- "reply": string，中文自然语言回答；\n'
@@ -349,7 +557,7 @@ def oc4_dd_chat(body: ChatIn):
         user = f"几何摘要:\n{json.dumps(summ, ensure_ascii=False)}\n\n用户问题:\n{body.message.strip()}"
     elif topic == "design":
         system = (
-            "你是「AI Engineering」中负责设计域几何的助手（步骤 1：源装配 + 设计域几何选项）。"
+            "你是「AI Engineer」中负责设计域几何的助手（步骤 1：源装配 + 设计域几何选项）。"
             "只根据几何摘要与用户意图，建议是否挖除中心柱、是否合并源几何作对照。"
             "只输出**一个** JSON：{\"reply\":string,\"suggested_build\":object|null}；"
             "suggested_build 仅含 cut_center_column、include_source_geometry（布尔），未提及则 null。"
@@ -357,7 +565,7 @@ def oc4_dd_chat(body: ChatIn):
         user = f"几何摘要:\n{json.dumps(summ, ensure_ascii=False)}\n\n用户:\n{body.message.strip()}"
     elif topic == "preview":
         system = (
-            "你是「AI Engineering」中负责三角化预览的助手（步骤 2：OBJ 导出）。说明与主页 CAD 流程无关，仅影响预览三角化疏密："
+            "你是「AI Engineer」中负责三角化预览的助手（步骤 2：OBJ 导出）。说明与主页 CAD 流程无关，仅影响预览三角化疏密："
             "linear_deflection_source / linear_deflection_design（正数，越大越粗、越快）。"
             "只输出**一个** JSON：{\"reply\":string,\"suggested_export\":object|null}；"
             "suggested_export 可含 linear_deflection_source、linear_deflection_design（典型 400~3000），未改则 null。"
@@ -365,7 +573,7 @@ def oc4_dd_chat(body: ChatIn):
         user = f"几何摘要:\n{json.dumps(summ, ensure_ascii=False)}\n\n用户:\n{body.message.strip()}"
     elif topic == "mesh":
         system = (
-            "你是「AI Engineering」中负责 FreeCAD+Gmsh 体网格的助手（步骤 3）。本步与主页「IGES→INP」使用同一管线："
+            "你是「AI Engineer」中负责 FreeCAD+Gmsh 体网格的助手（步骤 3）。本步与主页「IGES→INP」使用同一管线："
             "backend/tools/cad_iges_to_inp.py → scripts/freecad_iges_to_inp_runner.py；"
             "Gmsh 中 **characteristic_length_max 越大网格越粗**，单元越少，INP 越小。"
             "默认设计域会话在未指定时使用服务端「最粗启发式」以尽量让 02_mesh_body.inp 落在约 10MB 内（不保证）。"
@@ -385,7 +593,7 @@ def oc4_dd_chat(body: ChatIn):
         )
     elif topic == "loads":
         system = (
-            "你是「AI Engineering」中负责 OC4 载荷与分区的助手（步骤 4：写入 03_for_beso.inp 的 *STEP/*CLOAD）。"
+            "你是「AI Engineer」中负责 OC4 载荷与分区的助手（步骤 4：写入 03_for_beso.inp 的 *STEP/*CLOAD）。"
             "只输出**一个** JSON：{\"reply\":string,\"suggested_loads\":object|null}；\n"
             "suggested_loads 可含 band_scale（1~3）、z_fix_band、cload_mag、"
             "cload_mode（single_top|top_count|top_fraction|explicit）、cload_each、top_node_count、"
@@ -394,6 +602,8 @@ def oc4_dd_chat(body: ChatIn):
         user = f"几何摘要:\n{json.dumps(summ, ensure_ascii=False)}\n\n用户:\n{body.message.strip()}"
     else:
         raise HTTPException(status_code=400, detail=f"unknown topic: {topic}")
+
+    system = f"{system.rstrip()}\n\n{LLM_CONTEXT_BLOCK_ZH}"
 
     try:
         resp = qwen.chat(
@@ -434,7 +644,7 @@ class FinalizeIn(BaseModel):
 
 @router.post("/finalize")
 def oc4_dd_finalize(body: FinalizeIn):
-    """写入最小 beso_conf.py，返回扫描目录供后续 AI Engineering 编排流程使用。"""
+    """写入最小 beso_conf.py，返回扫描目录供后续 AI Engineer 编排流程使用。"""
     sdir = _get_session(body.session_id)
     fin = sdir / "03_for_beso.inp"
     if not fin.is_file():
@@ -450,10 +660,93 @@ def oc4_dd_finalize(body: FinalizeIn):
         work_dir=sdir.resolve(),
         ccx_path=ccx,
         inp_name="03_for_beso.inp",
-        mass_goal_ratio=0.25,
+        # Chen et al. (2026) Ocean Engineering：概念阶段 BESO 约 15% 体积分数、柔度最小化 → stiffness + 0.15
+        mass_goal_ratio=0.15,
         filter_radius=2.0,
-        optimization_base="failure_index",
+        optimization_base="stiffness",
     )
     scan_dir = str(sdir.resolve())
-    merge_session_meta(sdir, {"scan_dir": scan_dir, "finalized": True})
+    merge_session_meta(
+        sdir,
+        {
+            "scan_dir": scan_dir,
+            "finalized": True,
+            "beso_defaults_ref": "Chen et al. (2026) Ocean Engineering 347: stiffness TO, mass_goal_ratio=0.15",
+        },
+    )
     return {"ok": True, "scan_dir": scan_dir}
+
+
+class AgentStreamIn(BaseModel):
+    message: str = Field(..., min_length=1, max_length=12000)
+
+
+_NDJSON_STREAM_HEADERS = {
+    "Cache-Control": "no-cache",
+    "X-Accel-Buffering": "no",
+    "Connection": "keep-alive",
+}
+
+
+@router.post("/session/{session_id}/agent/stream")
+def oc4_dd_agent_stream(session_id: str, body: AgentStreamIn):
+    """会话内智能体：NDJSON 行流（thinking / tool / tool_result / file / assistant / error / done）。"""
+    _get_session(session_id)
+
+    def gen():
+        for ev in iter_design_domain_agent_events(session_id, body.message):
+            yield (json.dumps(ev, ensure_ascii=False) + "\n").encode("utf-8")
+
+    return StreamingResponse(gen(), media_type="application/x-ndjson", headers=_NDJSON_STREAM_HEADERS)
+
+
+class PlanBuildIn(BaseModel):
+    cut_center_column: bool = True
+    include_source_geometry: bool = False
+    mesh_preset: str = Field(
+        default="balanced",
+        description="体网格偏好：coarse / balanced / fine / finer / custom",
+    )
+    mesh_characteristic_length_max: float | None = Field(
+        default=None,
+        description="当 mesh_preset=custom 时填写 Gmsh CharacteristicLengthMax（mm，越大越粗）",
+    )
+    mesh_user_note: str | None = Field(default=None, max_length=600)
+
+
+@router.post("/session/{session_id}/agent/plan-build/stream")
+def oc4_dd_plan_build_stream(session_id: str, body: PlanBuildIn = Body(default_factory=PlanBuildIn)):
+    """Build 按钮：按会话内置五步执行全流程（NDJSON 与对话智能体事件形状兼容）。"""
+    _get_session(session_id)
+    mp = (body.mesh_preset or "balanced").strip().lower()
+    allowed_mesh = {"coarse", "balanced", "fine", "finer", "custom"}
+    if mp not in allowed_mesh:
+        raise HTTPException(status_code=400, detail=f"无效的 mesh_preset：{body.mesh_preset}")
+    if mp == "custom":
+        if body.mesh_characteristic_length_max is None or float(body.mesh_characteristic_length_max) <= 0:
+            raise HTTPException(status_code=400, detail="选择「自定义」时请填写有效的 mesh_characteristic_length_max（正数，单位 mm）")
+
+    def gen():
+        for ev in iter_design_domain_plan_build_events(
+            session_id,
+            cut_center_column=body.cut_center_column,
+            include_source_geometry=body.include_source_geometry,
+            mesh_preset=mp,
+            mesh_characteristic_length_max=body.mesh_characteristic_length_max,
+            mesh_user_note=body.mesh_user_note,
+        ):
+            yield (json.dumps(ev, ensure_ascii=False) + "\n").encode("utf-8")
+
+    return StreamingResponse(gen(), media_type="application/x-ndjson", headers=_NDJSON_STREAM_HEADERS)
+
+
+@router.post("/session/{session_id}/agent/plan-draft/stream")
+def oc4_dd_plan_draft_stream(session_id: str):
+    """进入会话后：大模型流式生成 ``build_plan.md``（与 Build 执行分离）。"""
+    _get_session(session_id)
+
+    def gen():
+        for ev in iter_design_domain_plan_draft_events(session_id):
+            yield (json.dumps(ev, ensure_ascii=False) + "\n").encode("utf-8")
+
+    return StreamingResponse(gen(), media_type="application/x-ndjson", headers=_NDJSON_STREAM_HEADERS)

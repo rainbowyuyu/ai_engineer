@@ -1,14 +1,42 @@
 import { createLayoutManager } from "./flow_main.layout.js";
-import { createTaskManager, formatTaskStatus } from "./flow_main.tasks.js";
+import {
+  createTaskManager,
+  formatTaskStatus,
+  taskEnteredToolSubflow,
+  taskListDisplayTitle,
+} from "./flow_main.tasks.js";
 import { createViewer } from "./flow_main.viewer.js";
-import { createDesignDomainViewer } from "./flow_main.designDomainViewer.js";
+import { mountDesignDomainIde } from "./flow_main.designDomainIde.js";
+import { mountDesignDomainAgentUi } from "./flow_main.designDomainAgentUi.js";
+import { markdownLiteToHtml } from "./flow_markdownLite.js";
+import { pathWantsRichPreview } from "./flow_codePreviewHl.js";
 import { mountResultsViewer } from "./flow_main.resultsViewer.js";
+import { mountRuntimeConsole } from "./flow_main.runtimeConsole.js";
+import { diffLineStrings, diffHasStructuralChange, diffSummaryCounts, stableSortKeysDeep } from "./flow_main.ddNlUi.js";
 
 const $ = (id) => document.getElementById(id);
 const refs = {
   baseUrlText: $("baseUrlText"),
   statusEl: $("status"),
   jobIdEl: $("jobId"),
+  topConsoleTrigger: $("topConsoleTrigger"),
+  topConsoleBackdrop: $("topConsoleBackdrop"),
+  topConsolePanel: $("topConsolePanel"),
+  topConsoleClose: $("topConsoleClose"),
+  topConsoleTracks: $("topConsoleTracks"),
+  topConsoleMemCanvas: $("topConsoleMemCanvas"),
+  topConsoleMemLegend: $("topConsoleMemLegend"),
+  topConsoleNet: $("topConsoleNet"),
+  topConsoleMainTrack: $("topConsoleMainTrack"),
+  topConsoleMainSeg: $("topConsoleMainSeg"),
+  topConsoleStorageTrack: $("topConsoleStorageTrack"),
+  topConsoleStorageSeg: $("topConsoleStorageSeg"),
+  topConsoleStorageHeroTask: $("topConsoleStorageHeroTask"),
+  topConsoleStorageListTask: $("topConsoleStorageListTask"),
+  topConsoleStorageHeroGlobal: $("topConsoleStorageHeroGlobal"),
+  topConsoleStorageListGlobal: $("topConsoleStorageListGlobal"),
+  topConsolePulseRing: $("topConsolePulseRing"),
+  topConsoleTriggerSub: $("topConsoleTriggerSub"),
   pickBtn: $("pickBtn"),
   fileInput: $("fileInput"),
   pickBtnLanding: $("pickBtnLanding"),
@@ -35,7 +63,8 @@ const refs = {
   acceptStep2: $("acceptStep2"),
   acceptStep3: $("acceptStep3"),
   restartFlow: $("restartFlow"),
-  runAgentFlow: $("runAgentFlow"),
+  landingToggleDeepThink: $("landingToggleDeepThink"),
+  landingToggleWebSearch: $("landingToggleWebSearch"),
   landingSendChatBtn: $("landingSendChatBtn"),
   newLandingTaskBtn: $("newLandingTaskBtn"),
   landingSubflowStrip: $("landingSubflowStrip"),
@@ -77,8 +106,15 @@ const refs = {
   taskListEl: $("taskList"),
   taskSessionDigest: $("taskSessionDigest"),
   taskSidebarEl: document.querySelector("#landingMain .taskSidebar"),
+  taskSearchWrap: $("taskSearchWrap"),
+  taskSearchInput: $("taskSearchInput"),
+  taskSearchClear: $("taskSearchClear"),
   refreshTasksBtn: $("refreshTasksBtn"),
   toggleSidebarBtn: $("toggleSidebarBtn"),
+  taskSearchFocusBtn: $("taskSearchFocusBtn"),
+  landingWorkspaceChrome: $("landingWorkspaceChrome"),
+  landingWorkspaceTitle: $("landingWorkspaceTitle"),
+  landingWorkspaceSub: $("landingWorkspaceSub"),
   taskRenameDialog: $("taskRenameDialog"),
   taskRenameInput: $("taskRenameInput"),
   taskRenameSave: $("taskRenameSave"),
@@ -87,6 +123,7 @@ const refs = {
   container: $("vtk"),
   landingPendingAttachBar: $("landingPendingAttachBar"),
   landingPendingAttachName: $("landingPendingAttachName"),
+  landingPendingAttachMeta: $("landingPendingAttachMeta"),
   landingPendingAttachRemove: $("landingPendingAttachRemove"),
   settingsBtn: $("settingsBtn"),
   settingsShell: $("settingsShell"),
@@ -128,37 +165,67 @@ const refs = {
   cadConvertBlockHint: $("cadConvertBlockHint"),
   cadConvertManualBtn: $("cadConvertManualBtn"),
   designDomainMain: $("designDomainMain"),
-  designDomainToolbar: $("designDomainToolbar"),
   designDomainBackBtn: $("designDomainBackBtn"),
-  designDomainCanvasLeft: $("designDomainCanvasLeft"),
-  designDomainCanvasRight: $("designDomainCanvasRight"),
-  designDomainLeftOverlay: $("designDomainLeftOverlay"),
-  designDomainRightOverlay: $("designDomainRightOverlay"),
-  designDomainLeftOverlayText: $("designDomainLeftOverlayText"),
-  designDomainRightOverlayText: $("designDomainRightOverlayText"),
-  ddCutCenter: $("ddCutCenter"),
-  ddIncludeSource: $("ddIncludeSource"),
-  ddMeshDensity: $("ddMeshDensity"),
-  ddCharMax: $("ddCharMax"),
-  ddBtnBuild: $("ddBtnBuild"),
-  ddBtnPreview: $("ddBtnPreview"),
-  ddBtnMesh: $("ddBtnMesh"),
-  ddBtnLoads: $("ddBtnLoads"),
   ddBtnFinalize: $("ddBtnFinalize"),
-  designDomainFlowLog: $("designDomainFlowLog"),
-  ddStepNlDialog: $("ddStepNlDialog"),
-  ddStepNlDialogPanel: $("ddStepNlDialogPanel"),
-  ddStepNlTitle: $("ddStepNlTitle"),
-  ddStepNlIntro: $("ddStepNlIntro"),
-  ddStepNlLog: $("ddStepNlLog"),
-  ddStepNlInput: $("ddStepNlInput"),
-  ddStepNlSend: $("ddStepNlSend"),
-  ddStepNlClose: $("ddStepNlClose"),
-  ddStepNlApply: $("ddStepNlApply"),
-  ddNlLoadsTa: $("ddNlLoadsTa"),
-  ddNlLoadsLbl: $("ddNlLoadsLbl"),
-  designDomainStepHint: $("designDomainStepHint"),
-  designDomainStepRail: $("designDomainStepRail"),
+  ddAgentRunLog: $("ddAgentRunLog"),
+  ddAgentModelQuick: $("ddAgentModelQuick"),
+  ddAgentModelSettingsBtn: $("ddAgentModelSettingsBtn"),
+  ddAgentUnifiedScroll: $("ddAgentUnifiedScroll"),
+  ddIdePreviewOverlay: $("ddIdePreviewOverlay"),
+  ddIdePreviewOverlayText: $("ddIdePreviewOverlayText"),
+  ddIdeFileTabs: $("ddIdeFileTabs"),
+  ddIdeViewSeg: $("ddIdeViewSeg"),
+  ddIdeNewFileBtn: $("ddIdeNewFileBtn"),
+  ddIdePlanBuildBtn: $("ddIdePlanBuildBtn"),
+  ddIdePlanBuildSlot: $("ddIdePlanBuildSlot"),
+  ddIdePlanMdWrap: $("ddIdePlanMdWrap"),
+  ddIdePlanMdStream: $("ddIdePlanMdStream"),
+  ddIdePlanArtifactsRow: $("ddIdePlanArtifactsRow"),
+  ddIdePlanPlanOpen: $("ddIdePlanPlanOpen"),
+  ddIdePlanHistoryOpen: $("ddIdePlanHistoryOpen"),
+  ddAgentStatTools: $("ddAgentStatTools"),
+  ddAgentStatFiles: $("ddAgentStatFiles"),
+  ddIdePaneSource: $("ddIdePaneSource"),
+  ddIdePanePreview: $("ddIdePanePreview"),
+  ddIdePreviewCanvasWrap: $("ddIdePreviewCanvasWrap"),
+  ddIdePreviewLabel: $("ddIdePreviewLabel"),
+  ddAgentInput: $("ddAgentInput"),
+  ddAgentSend: $("ddAgentSend"),
+  ddAgentStop: $("ddAgentStop"),
+  flowOpenWorkDirBtn: $("flowOpenWorkDirBtn"),
+  orchestrateOpenWorkDirBtn: $("orchestrateOpenWorkDirBtn"),
+  designDomainOpenWorkDirBtn: $("designDomainOpenWorkDirBtn"),
+  ddIdeFileTree: $("ddIdeFileTree"),
+  ddIdeFileRefreshBtn: $("ddIdeFileRefreshBtn"),
+  ddIdeFileRailHint: $("ddIdeFileRailHint"),
+  ddIdeCodeEditor: $("ddIdeCodeEditor"),
+  ddIdeCodePath: $("ddIdeCodePath"),
+  ddIdeCodeMeta: $("ddIdeCodeMeta"),
+  ddIdePlan: $("ddIdePlan"),
+  ddIdePlanList: $("ddIdePlanList"),
+  ddIdePlanDynList: $("ddIdePlanDynList"),
+  ddPlanPrefModal: $("ddPlanPrefModal"),
+  ddPlanPrefModalBackdrop: $("ddPlanPrefModalBackdrop"),
+  ddPlanPrefConfirm: $("ddPlanPrefConfirm"),
+  ddPlanPrefCancel: $("ddPlanPrefCancel"),
+  ddPlanMeshCustomMm: $("ddPlanMeshCustomMm"),
+  ddPlanMeshNote: $("ddPlanMeshNote"),
+  ddPlanFloatDock: $("ddPlanFloatDock"),
+  ddPlanFloatDockBtn: $("ddPlanFloatDockBtn"),
+  ddPlanFloatDockPanel: $("ddPlanFloatDockPanel"),
+  ddPlanFloatDockList: $("ddPlanFloatDockList"),
+  ddIdeMdPreviewWrap: $("ddIdeMdPreviewWrap"),
+  ddIdeMdPreview: $("ddIdeMdPreview"),
+  ddIdeTabsMoreDetails: $("ddIdeTabsMoreDetails"),
+  ddIdeTabsMoreDropdown: $("ddIdeTabsMoreDropdown"),
+  ddIdePreviewFollowLockBtn: $("ddIdePreviewFollowLockBtn"),
+  ddIdeVscodeFrame: $("ddIdeVscodeFrame"),
+  ddIdeNativeCodeWrap: $("ddIdeNativeCodeWrap"),
+  ddAgentContextHint: $("ddAgentContextHint"),
+  ddAgentSessionStats: $("ddAgentSessionStats"),
+  ddAgentStatDetail: $("ddAgentStatDetail"),
+  ddAgentStatDetailTitle: $("ddAgentStatDetailTitle"),
+  ddAgentStatDetailBody: $("ddAgentStatDetailBody"),
 };
 
 const state = {
@@ -175,6 +242,8 @@ const state = {
   meshReady: false,
   imageCount: 0,
   logs: [],
+  /** 按 job_id 缓存的日志快照，便于切换任务或从控制台回到历史 Job 视图 */
+  logsByJobId: Object.create(null),
   scanRevealTimer: null,
   codeItems: new Map(),
   codePending: new Set(),
@@ -199,11 +268,24 @@ const state = {
   oc4LastSuggestedMesh: null,
   oc4PendingExport: null,
   oc4LastSuggestedExport: null,
+  /** 设计域 build：由 AI「应用」或默认初始化，不再使用底部手动勾选 */
+  oc4BuildCutCenter: true,
+  oc4BuildIncludeSource: false,
+  /** Plan-Build：体网格偏好（POST plan-build/stream） */
+  oc4PlanMeshPreset: "balanced",
+  oc4PlanMeshCustomMm: "",
+  oc4PlanMeshNote: "",
   /** 专步 AI 对话框当前 topic：design | preview | mesh | loads */
   ddNlTopic: "",
   ddNlLastPayload: null,
+  /** 专步 AI：diff 左侧快照（稳定 JSON 文本），打开弹窗或应用建议时更新 */
+  ddNlBaselineStr: "",
   /** OC4 设计域分步：由 GET session 的布尔字段填充 */
   ddProgress: null,
+  /** Plan 区 Build 一键管线执行中，用于禁用按钮 */
+  ddPlanBuildBusy: false,
+  /** 为 true 时：智能体产出新文件不自动打开预览 */
+  ddPreviewFollowLock: false,
   /** 与任务 JSON `oc4_activity` 同步：{ ts, role, text }[] */
   oc4ActivityLog: [],
   /** 设计域收尾后仍可用于「返回 OC4」恢复 session_id（与任务 oc4_design_domain_session_id 一致） */
@@ -217,11 +299,58 @@ const state = {
   titleSummarizeAbort: null,
   /** 当前对话参与的子流程摘要（侧栏只读展示） */
   landingSessionDigest: [],
-  /** 上传成功尚未随下一条用户消息发出的文件（仅用于输入区「待发送」与下一条气泡后的附件展示） */
+  /** 上传成功尚未随下一条用户消息发出的文件（{ file_id, file_name, file_size? }；用于输入区内嵌卡片与气泡附件） */
   landingAttachmentPending: null,
+  /** 下一条防抖写入 /api/tasks/upsert 时是否允许服务端把该任务顶到侧栏（仅用户发句后设为 true） */
+  landingNextPersistAllowSidebarReorder: false,
+  /** 从设计域返回重做等场景为 true：再次进入编排须完整重跑流水线，不可仅 resume 面板 */
+  oc4OrchestrateShouldRegenerate: false,
+  /** 与任务 `ui_stage` 同步；`goHome` 等轻量 hydrate 不含该字段时沿用，避免编排/设计域门闩误判 */
+  currentTaskUiStage: "",
+  /** 主页对话：深度思考 / 联网搜索（与 localStorage 同步，跨会话保持） */
+  landingDeepThink: false,
+  landingWebSearch: false,
 };
+try {
+  state.ddPreviewFollowLock = localStorage.getItem("beso.dd.previewFollowLock") === "1";
+} catch {
+  state.ddPreviewFollowLock = false;
+}
+try {
+  state.landingDeepThink = localStorage.getItem("beso.landing.deepThink") === "1";
+  state.landingWebSearch = localStorage.getItem("beso.landing.webSearch") === "1";
+} catch {
+  /* ignore */
+}
 
-let designDomainViewer = null;
+/** @type {ReturnType<typeof mountDesignDomainIde> | null} */
+let designDomainIde = null;
+/** @type {ReturnType<typeof mountDesignDomainAgentUi> | null} */
+let designDomainAgentUi = null;
+
+let _ddPlanMdAccum = "";
+let _ddPlanMdFlushTimer = null;
+let _ddPlanFloatIo = null;
+let _ddPlanFloatMo = null;
+
+function scheduleDdPlanMdRender() {
+  const el = refs.ddIdePlanMdStream;
+  if (!el) return;
+  if (_ddPlanMdFlushTimer) clearTimeout(_ddPlanMdFlushTimer);
+  _ddPlanMdFlushTimer = setTimeout(() => {
+    _ddPlanMdFlushTimer = null;
+    el.innerHTML = markdownLiteToHtml(_ddPlanMdAccum);
+  }, 120);
+}
+
+function syncDdPreviewFollowLockUi() {
+  const b = refs.ddIdePreviewFollowLockBtn;
+  if (!b) return;
+  const on = Boolean(state.ddPreviewFollowLock);
+  b.classList.toggle("ddIdePreviewFollowLockBtn--on", on);
+  b.setAttribute("aria-pressed", on ? "true" : "false");
+  b.title = on ? "已锁定：新文件不会自动打开预览" : "锁定：智能体生成新文件时不自动切换预览";
+}
 
 function _defaultPortForProtocol(proto) {
   return proto === "https:" ? "443" : "80";
@@ -259,9 +388,17 @@ function normalizedBaseUrl() {
   if (!u) u = "http://127.0.0.1:8000";
   try {
     const parsed = new URL(u);
-    return (parsed.origin + (parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/$/, ""))).replace(/\/$/, "");
+    let out =
+      parsed.origin + (parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/$/, ""));
+    out = out.replace(/\/$/, "");
+    /** 静态 UI 挂在 /ui 时，勿把 /ui 当作 API 根路径，否则请求会变成 …/ui/api/… 导致 404 */
+    out = out.replace(/\/ui$/i, "").replace(/\/$/, "");
+    return out;
   } catch {
-    return u.replace(/\/$/, "");
+    return String(u)
+      .replace(/\/$/, "")
+      .replace(/\/ui$/i, "")
+      .replace(/\/$/, "");
   }
 }
 refs.baseUrlText && (refs.baseUrlText.textContent = normalizedBaseUrl().replace(/^https?:\/\//, ""));
@@ -339,25 +476,258 @@ function readTopologyOverridesForChat() {
   return out;
 }
 
+/** 将 GET /api/config/qwen 的 model 同步到设计域侧栏快捷下拉（必要时追加「当前」项）。 */
+function syncDdAgentModelQuickSelect(cfg) {
+  const sel = refs.ddAgentModelQuick;
+  if (!sel || !cfg || typeof cfg !== "object") return;
+  const model = String(cfg.model || "").trim();
+  if (!model) return;
+  let has = false;
+  for (let i = 0; i < sel.options.length; i++) {
+    if (sel.options[i].value === model) {
+      has = true;
+      break;
+    }
+  }
+  if (!has) {
+    const o = document.createElement("option");
+    o.value = model;
+    o.textContent = `${model}（当前）`;
+    sel.appendChild(o);
+  }
+  sel.value = model;
+}
+
 async function refreshQwenConfigStatus() {
+  const chip = () => refs.qwenStatus?.closest?.(".settingsStatusChip");
   try {
     const cfg = await (await fetch(`${normalizedBaseUrl()}/api/config/qwen`, { cache: "no-store" })).json();
     if (refs.qwenStatus) {
       refs.qwenStatus.textContent = cfg.configured
         ? `已配置（${cfg.model || "qwen"}）`
-        : "未配置：填写 API Key 或设置环境变量 QWEN_API_KEY";
+        : "未配置：填写 Key 或使用环境变量 QWEN_API_KEY";
+    }
+    const c = chip();
+    if (c) {
+      c.classList.remove("settingsStatusChip--ok", "settingsStatusChip--warn", "settingsStatusChip--err");
+      c.classList.add(cfg.configured ? "settingsStatusChip--ok" : "settingsStatusChip--warn");
     }
     if (refs.qwenBaseUrl && cfg.base_url) refs.qwenBaseUrl.value = cfg.base_url;
     if (refs.qwenModel && cfg.model) refs.qwenModel.value = cfg.model;
+    syncDdAgentModelQuickSelect(cfg);
     if (cfg.configured) fireAndForgetQwenWarmup();
     return cfg;
   } catch {
     if (refs.qwenStatus) refs.qwenStatus.textContent = "无法连接后端检测 Qwen";
+    const c = chip();
+    if (c) {
+      c.classList.remove("settingsStatusChip--ok", "settingsStatusChip--warn");
+      c.classList.add("settingsStatusChip--err");
+    }
     return null;
   }
 }
 
 const layout = createLayoutManager({ refs, state });
+(() => {
+  const show = layout.showStage.bind(layout);
+  layout.showStage = (mode) => {
+    show(mode);
+    queueMicrotask(() => updateLogDockVisibility());
+  };
+})();
+
+refs.chatLanding?.addEventListener("beso:landing-regenerate", (e) => {
+  void handleLandingAssistantRegenerate(String(e.detail?.raw ?? ""));
+});
+
+let runtimeConsoleCtl = { dispose() {}, closePanel() {} };
+
+/** 顶栏运行控制台：活动轨道点击后进入对应界面并展示本任务相关上下文 */
+function handleConsoleTrackActivate(trackId) {
+  const id = String(trackId || "").trim();
+  try {
+    runtimeConsoleCtl.closePanel?.();
+  } catch {
+    /* ignore */
+  }
+  if (id === "job") {
+    layout.showStage("flow");
+    layout.setStep(3);
+    try {
+      sessionStorage.setItem("beso.ui.logFloatMinimized", "0");
+      refs.logFloatDock?.classList.remove("minimized");
+    } catch {
+      /* ignore */
+    }
+    refreshLogSummaryViews();
+    updateLogDockVisibility();
+    queueMicrotask(() => {
+      try {
+        if (!refs.logFloatDock?.classList.contains("logFloatDock--floating")) {
+          refs.logFloatDock?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+        }
+        refs.logFloatBody?.focus?.({ preventScroll: true });
+      } catch {
+        /* ignore */
+      }
+    });
+    return;
+  }
+  if (id === "landing" || id === "landing-p") {
+    layout.showStage("landing");
+    queueMicrotask(() => {
+      try {
+        refs.chatLanding?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+      } catch {
+        /* ignore */
+      }
+    });
+    return;
+  }
+  if (id === "title") {
+    layout.showStage("landing");
+    return;
+  }
+  if (id === "cad") {
+    const m = refs.cadConvertModal;
+    if (m && !m.classList.contains("hidden")) {
+      try {
+        m.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+      } catch {
+        /* ignore */
+      }
+    } else {
+      layout.showStage("flow");
+      layout.setStep(1);
+      queueMicrotask(() => {
+        try {
+          refs.cadConvertBlock?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+        } catch {
+          /* ignore */
+        }
+      });
+    }
+    return;
+  }
+  if (id === "dd") {
+    layout.showStage("designDomain");
+    queueMicrotask(() => {
+      try {
+        designDomainAgentUi?.remergeAgentTrace?.();
+      } catch {
+        /* ignore */
+      }
+    });
+    return;
+  }
+  if (id === "orch") {
+    layout.showStage("orchestrate");
+  }
+}
+
+function workDirPathForOpen() {
+  return String(state.uploadedSourceDir || refs.scanDirInput?.value || "").trim();
+}
+
+function notifyWorkDirHint(msg) {
+  if (refs.flowMain && !refs.flowMain.classList.contains("hidden")) {
+    layout.addBubble("agent", msg);
+    return;
+  }
+  if (refs.designDomainMain && !refs.designDomainMain.classList.contains("hidden")) {
+    try {
+      appendDesignDomainChat("agent", msg, { skipPersist: true });
+    } catch {
+      layout.addLandingBubble("agent", msg);
+    }
+    return;
+  }
+  layout.addLandingBubble("agent", msg);
+}
+
+function designDomainSessionIdForExplorer() {
+  return String(state.oc4DesignDomainSessionId || "").trim();
+}
+
+function syncOpenWorkDirButtonsEnabled() {
+  const okScan = Boolean(workDirPathForOpen());
+  const okDd = Boolean(designDomainSessionIdForExplorer());
+  for (const b of [refs.flowOpenWorkDirBtn, refs.orchestrateOpenWorkDirBtn]) {
+    if (b) b.disabled = !okScan;
+  }
+  if (refs.designDomainOpenWorkDirBtn) refs.designDomainOpenWorkDirBtn.disabled = !okDd;
+}
+
+async function openExplorerForDesignDomainSession(rel = "") {
+  const sid = designDomainSessionIdForExplorer();
+  if (!sid) {
+    notifyWorkDirHint("尚无设计域会话，无法打开 runs 目录。");
+    return;
+  }
+  const relClean = String(rel || "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+  try {
+    const r = await fetch(`${normalizedBaseUrl()}/api/open-explorer-folder`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        design_domain_session_id: sid,
+        design_domain_rel: relClean,
+      }),
+    });
+    let data = {};
+    try {
+      data = await r.json();
+    } catch {
+      data = {};
+    }
+    if (!r.ok) {
+      const d = data?.detail;
+      notifyWorkDirHint(typeof d === "string" ? d : `无法打开文件夹（HTTP ${r.status}）`);
+      return;
+    }
+  } catch (e) {
+    notifyWorkDirHint(`打开文件夹失败：${e?.message || e}`);
+  }
+}
+
+async function openExplorerForScanDir(scanDir, emptyHint) {
+  const dir = String(scanDir || "").trim();
+  if (!dir) {
+    notifyWorkDirHint(
+      emptyHint || "暂无工作目录（扫描目录）。请先上传文件或等待目录识别完成。",
+    );
+    return;
+  }
+  try {
+    const r = await fetch(`${normalizedBaseUrl()}/api/open-explorer-folder`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scan_dir: dir }),
+    });
+    let data = {};
+    try {
+      data = await r.json();
+    } catch {
+      data = {};
+    }
+    if (!r.ok) {
+      const d = data?.detail;
+      notifyWorkDirHint(
+        typeof d === "string"
+          ? d
+          : `无法打开文件夹（HTTP ${r.status}）。仅当后端与本机桌面在同一环境时可用。`,
+      );
+      return;
+    }
+  } catch (e) {
+    notifyWorkDirHint(`打开文件夹失败：${e?.message || e}`);
+  }
+}
+
+async function openExplorerForCurrentWorkDir() {
+  await openExplorerForScanDir(workDirPathForOpen());
+}
 
 function landingThreadStorageKey(tid) {
   return `beso.landingThread.${String(tid || "").trim()}`;
@@ -372,6 +742,7 @@ function cancelPendingLandingThreadServerPersist(forTaskId) {
     clearTimeout(_landingThreadServerTimer);
     _landingThreadServerTimer = null;
     _landingThreadServerTid = null;
+    state.landingNextPersistAllowSidebarReorder = false;
   }
 }
 
@@ -388,9 +759,126 @@ async function flushLandingAssistantThreadServer(forTaskId) {
   );
 }
 
+/** 当前不在该任务视图时，把助手消息合并进其 localStorage + 服务端线程（避免切走后丢回复） */
+function mergeAssistantMsgIntoBackgroundTask(taskId, msg) {
+  const tid = String(taskId || "").trim();
+  if (!tid || !msg) return;
+  cancelPendingLandingThreadServerPersist(tid);
+  let thread = [];
+  let digest = [];
+  try {
+    const raw = localStorage.getItem(landingThreadStorageKey(tid));
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (p && typeof p === "object" && Number(p.v) === 2) {
+        thread = Array.isArray(p.thread) ? p.thread : [];
+        digest = Array.isArray(p.digest) ? p.digest : [];
+      } else if (Array.isArray(p)) thread = p;
+    }
+  } catch {
+    thread = [];
+  }
+  thread = [...thread, msg].slice(-120);
+  try {
+    localStorage.setItem(
+      landingThreadStorageKey(tid),
+      JSON.stringify({ v: 2, thread: thread.slice(-80), digest: digest.slice(-24) }),
+    );
+  } catch {
+    /* ignore */
+  }
+  void taskManager?.upsertTask?.(
+    { assistant_thread: thread.slice(-120), landing_session_digest: digest.slice(-40) },
+    { taskId: tid },
+  );
+}
+
+/** 切走后用户句仍写入对应任务的 LS / 服务端，避免与当前 state 线程错位 */
+function mergeUserMsgIntoBackgroundTask(taskId, msg) {
+  const tid = String(taskId || "").trim();
+  if (!tid || !msg) return;
+  cancelPendingLandingThreadServerPersist(tid);
+  let thread = [];
+  let digest = [];
+  try {
+    const raw = localStorage.getItem(landingThreadStorageKey(tid));
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (p && typeof p === "object" && Number(p.v) === 2) {
+        thread = Array.isArray(p.thread) ? p.thread : [];
+        digest = Array.isArray(p.digest) ? p.digest : [];
+      } else if (Array.isArray(p)) thread = p;
+    }
+  } catch {
+    thread = [];
+  }
+  thread = [...thread, msg].slice(-120);
+  try {
+    localStorage.setItem(
+      landingThreadStorageKey(tid),
+      JSON.stringify({ v: 2, thread: thread.slice(-80), digest: digest.slice(-24) }),
+    );
+  } catch {
+    /* ignore */
+  }
+  void taskManager?.upsertTask?.(
+    { assistant_thread: thread.slice(-120), landing_session_digest: digest.slice(-40) },
+    { taskId: tid, allowSidebarReorder: true },
+  );
+}
+
+function landingThreadSnapshotFromLs(taskId) {
+  const tid = String(taskId || "").trim();
+  if (!tid) return [];
+  try {
+    const raw = localStorage.getItem(landingThreadStorageKey(tid));
+    if (!raw) return [];
+    const p = JSON.parse(raw);
+    if (p && typeof p === "object" && Number(p.v) === 2) {
+      return Array.isArray(p.thread) ? p.thread.slice() : [];
+    }
+    if (Array.isArray(p)) return p.slice();
+  } catch {
+    /* ignore */
+  }
+  return [];
+}
+
+/** 思考节点已从对话区移除时仍消费 SSE：缓冲正文，finalize 时再写入线程 */
+function createOffDomLandingStreamCtrl() {
+  let buf = "";
+  return {
+    wrap: null,
+    appendDelta(chunk) {
+      buf += String(chunk || "");
+    },
+    finalize(fullText) {
+      buf = String(fullText ?? buf).trim();
+    },
+    _getBuf() {
+      return buf;
+    },
+  };
+}
+
+/** 助手回合写入：若正查看该任务则更新 DOM + 内存，否则仅写入后台任务存储 */
+function commitAgentTurnForTask(taskId, msg) {
+  const tid = String(taskId || "").trim();
+  if (!tid || !msg) return;
+  if (String(state.currentTaskId || "").trim() === tid) {
+    const fmt = msg.format === "md" ? "md" : "plain";
+    layout.addLandingBubble("agent", String(msg.content || ""), { format: fmt });
+    state.assistantThread.push(msg);
+    return;
+  }
+  mergeAssistantMsgIntoBackgroundTask(tid, msg);
+}
+
 function persistLandingAssistantThread(forTaskId) {
   const tid = String(forTaskId ?? state.currentTaskId ?? "").trim();
   if (!tid) return;
+  const cur = String(state.currentTaskId || "").trim();
+  if (tid !== cur) return;
   const threadSnap = (state.assistantThread || []).slice(-120);
   const digestSnap = (state.landingSessionDigest || []).slice(-40);
   try {
@@ -411,9 +899,11 @@ function persistLandingAssistantThread(forTaskId) {
     _landingThreadServerTimer = null;
     const tm = taskManager;
     if (!tm?.upsertTask) return;
+    const allowReorder = Boolean(state.landingNextPersistAllowSidebarReorder);
+    state.landingNextPersistAllowSidebarReorder = false;
     void tm.upsertTask(
       { assistant_thread: threadSnap, landing_session_digest: digestSnap },
-      { taskId: tid },
+      { taskId: tid, allowSidebarReorder: allowReorder },
     );
   }, 650);
 }
@@ -447,7 +937,7 @@ function loadLandingAssistantThread(forTaskId) {
   }
 }
 
-/** 中止当前主页流式对话（切换任务、离开主页、再次发送），避免请求与 UI 串扰、长时间占用主线程回调 */
+/** 中止当前主页流式对话（再次发送、新建、离开主页等）；切换侧栏任务不调用本函数，以便后台收完回复 */
 function abortLandingChat(_reason) {
   try {
     state.titleSummarizeAbort?.abort();
@@ -456,9 +946,16 @@ function abortLandingChat(_reason) {
   }
   state.titleSummarizeAbort = null;
   const f = state.landingChatFlight;
+  if (f) {
+    try {
+      f.aborted = true;
+    } catch {
+      /* ignore */
+    }
+  }
   state.landingChatFlight = null;
   state.landingAssistantPending = false;
-  if (refs.landingSendChatBtn) refs.landingSendChatBtn.disabled = false;
+  syncLandingSendButtonState();
   if (!f) return;
   try {
     f.ac?.abort();
@@ -467,7 +964,7 @@ function abortLandingChat(_reason) {
   }
   try {
     if (f.streamCtrl?.wrap?.classList?.contains("landingTurn--streaming")) {
-      f.streamCtrl.finalize("（已中断：切换对话或离开主页）");
+      f.streamCtrl.finalize("（已中断：再次发送或离开主页）");
     } else if (!f.streamCtrl && f.thinkingEl?.isConnected) {
       layout.removeLandingThinking(f.thinkingEl);
     }
@@ -509,7 +1006,7 @@ function detectLandingWorkflowIntent(text) {
   const raw = String(text || "").trim();
   if (!raw) return null;
   const orch =
-    /运行\s*智能体|智能体\s*流程|智能体\s*编排|构型\s*优化|运行\s*构型|构型\s*编排|开始\s*编排|编排\s*流程|一键\s*流程|执行任务|跑.*流程|进入\s*编排|打开\s*编排|拓扑\s*优化|结构\s*优化|形状\s*优化|形貌\s*优化|布局\s*优化|优化\s*设计|柔度|应变\s*能|灵敏度|材料\s*插值|密度\s*法|\bSIMP\b|\bBESO\b|beso\s|calculi?x|有限元\s*优化|\bAI\s*Engineering\b/i.test(raw);
+    /运行\s*智能体|智能体\s*流程|智能体\s*编排|构型\s*优化|运行\s*构型|构型\s*编排|开始\s*编排|编排\s*流程|一键\s*流程|执行任务|跑.*流程|进入\s*编排|打开\s*编排|拓扑\s*优化|结构\s*优化|形状\s*优化|形貌\s*优化|布局\s*优化|优化\s*设计|柔度|应变\s*能|灵敏度|材料\s*插值|密度\s*法|\bSIMP\b|\bBESO\b|beso\s|calculi?x|有限元\s*优化|\bAI\s*Engineer\b/i.test(raw);
   const dd = /设计域|进入\s*设计域|OC4|oc4|iges.*(流程|步骤)|几何.*设计域/i.test(raw);
   if (dd && !orch) return "design_domain";
   if (orch) return "orchestrate";
@@ -693,13 +1190,98 @@ function syncAssistantPreferStreamUi() {
   }
 }
 
+/** 当前任务已绑定上传文件时附加到 /api/assistant/chat*，供模型在进子流程前对齐上下文（仅当前查看任务与 forTaskId 一致时带上） */
+function landingAssistantAttachedFilesPayload(forTaskId) {
+  const tid = String(forTaskId || "").trim();
+  const cur = String(state.currentTaskId || "").trim();
+  if (!tid || tid !== cur) return {};
+  const fn = String(state.currentFileName || "").trim();
+  const fid = String(state.currentFileId || "").trim();
+  if (!fn && !fid) return {};
+  const o = {};
+  if (fn) o.attached_file_name = fn;
+  if (fid) o.attached_file_id = fid;
+  return o;
+}
+
+function landingAssistantOptionsPayload() {
+  return {
+    deep_think: Boolean(state.landingDeepThink),
+    web_search: Boolean(state.landingWebSearch),
+  };
+}
+
+function syncLandingModeToggleUi() {
+  const d = refs.landingToggleDeepThink;
+  const w = refs.landingToggleWebSearch;
+  if (d) {
+    d.setAttribute("aria-pressed", state.landingDeepThink ? "true" : "false");
+    d.classList.toggle("landingModeToggle--on", state.landingDeepThink);
+  }
+  if (w) {
+    w.setAttribute("aria-pressed", state.landingWebSearch ? "true" : "false");
+    w.classList.toggle("landingModeToggle--on", state.landingWebSearch);
+  }
+  syncLandingWorkspaceChrome();
+}
+
+/** 与侧栏任务列表同步的缓存，供顶栏标题解析当前任务展示名 */
+let _cachedTasksListItems = [];
+
+function landingWorkspaceModeSubtitle() {
+  const parts = [];
+  if (state.landingDeepThink) parts.push("深度思考");
+  if (state.landingWebSearch) parts.push("联网检索");
+  return parts.length ? parts.join(" · ") : "标准对话";
+}
+
+/** @param {unknown[] | null | undefined} items 来自 /api/tasks 的列表；传 null 则只刷新文案 */
+function syncLandingWorkspaceChrome(items, taskFromSelect) {
+  if (Array.isArray(items)) _cachedTasksListItems = items;
+  const chrome = refs.landingWorkspaceChrome;
+  const titleEl = refs.landingWorkspaceTitle;
+  const subEl = refs.landingWorkspaceSub;
+  if (!chrome || !titleEl || !subEl) return;
+  const tid = String(state.currentTaskId || "").trim();
+  let t = null;
+  if (tid && taskFromSelect && String(taskFromSelect.task_id || "") === tid) t = taskFromSelect;
+  else if (tid) t = _cachedTasksListItems.find((x) => String(x.task_id || "") === tid) || null;
+  if (t) {
+    titleEl.textContent = taskListDisplayTitle(t);
+    const st = formatTaskStatus(t.status).label;
+    const fn = String(t.file_name || "")
+      .replace(/^.*[/\\]/, "")
+      .trim();
+    const fileBit = fn
+      ? ` · ${fn.length > 52 ? `${fn.slice(0, 52)}…` : fn}`
+      : "";
+    subEl.textContent = `${st}${fileBit}`;
+    const stRaw = String(t.status || "").toLowerCase();
+    chrome.classList.toggle("landingWorkspaceChrome--ok", stRaw === "completed" || stRaw === "done");
+    chrome.classList.toggle(
+      "landingWorkspaceChrome--warn",
+      ["failed", "cancelled", "missing"].includes(stRaw),
+    );
+  } else {
+    titleEl.textContent = "主页工作台";
+    subEl.textContent = `${landingWorkspaceModeSubtitle()} · 在侧栏新建或选择任务`;
+    chrome.classList.remove("landingWorkspaceChrome--ok", "landingWorkspaceChrome--warn");
+  }
+}
+
 /** 非流式整包对话（对齐 Wisdom：单次 JSON，抗代理断流） */
-async function fetchAssistantChatOnce(messages, signal) {
+async function fetchAssistantChatOnce(messages, signal, forTaskId = null) {
   try {
+    const body = {
+      messages,
+      temperature: 0.6,
+      ...landingAssistantAttachedFilesPayload(forTaskId),
+      ...landingAssistantOptionsPayload(),
+    };
     const r = await fetch(`${normalizedBaseUrl()}/api/assistant/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages, temperature: 0.6 }),
+      body: JSON.stringify(body),
       signal,
     });
     const raw = await r.text().catch(() => "");
@@ -757,8 +1339,17 @@ function syncLandingWorkflowCardsFromTasks(items) {
   const t = (items || []).find((x) => String(x.task_id) === tid);
   if (!t) return;
   const st = formatTaskStatus(t.status);
+  const stRaw = String(t.status || "").toLowerCase();
+  const isTerminal = ["completed", "done", "failed", "cancelled", "missing"].includes(stRaw);
+  const enteredTool = taskEnteredToolSubflow(t);
   const stepNum = Number(t.step);
-  const stepLabel = Number.isFinite(stepNum) && stepNum >= 1 && stepNum <= 4 ? `步骤 ${stepNum}/4` : "";
+  const showStepBadge =
+    enteredTool ||
+    (isTerminal &&
+      (Boolean(String(t.job_id || "").trim()) ||
+        (Number.isFinite(stepNum) && stepNum >= 2)));
+  const stepLabel =
+    showStepBadge && Number.isFinite(stepNum) && stepNum >= 1 && stepNum <= 4 ? `步骤 ${stepNum}/4` : "";
   const pct = Math.max(0, Math.min(100, Number(t.progress || 0)));
   const uiStage = String(t.ui_stage || "").toLowerCase();
   const hasDdSid = Boolean(String(t.oc4_design_domain_session_id || "").trim());
@@ -768,16 +1359,22 @@ function syncLandingWorkflowCardsFromTasks(items) {
     const pill = btn.querySelector(".landingWorkflowCardStatus");
     const stepEl = btn.querySelector(".landingWorkflowCardStep");
     const fill = btn.querySelector(".landingWorkflowBarFill");
+    const inDd = uiStage === "design_domain" || hasDdSid;
     if (pill) {
       if (kind === "design_domain") {
-        const inDd = uiStage === "design_domain" || hasDdSid;
         pill.textContent = inDd ? "进行中" : "待开始";
       } else {
-        pill.textContent = st.label;
+        pill.textContent = enteredTool ? st.label : "待开始";
       }
     }
-    if (stepEl && stepLabel) stepEl.textContent = stepLabel;
-    if (fill) fill.style.width = `${pct}%`;
+    if (stepEl) {
+      if (kind === "design_domain") {
+        stepEl.textContent = inDd ? stepLabel || "—" : "主对话";
+      } else {
+        stepEl.textContent = stepLabel || (!enteredTool ? "主对话" : "");
+      }
+    }
+    if (fill) fill.style.width = `${enteredTool || isTerminal ? pct : 0}%`;
   }
 }
 
@@ -817,22 +1414,34 @@ function pushDesignDomainWorkflowCardToLandingThread(patch = {}) {
   appendLandingSessionDigest({ kind: "design_domain", label: "设计域（OC4）" });
 }
 
-/** 从主页进入设计域：写入对话卡片与侧栏摘要，再打开设计域舞台 */
+/** 从主页进入设计域：先切换舞台再异步补全会话，避免长时间卡在主页 */
 async function openDesignDomainFromLanding(opts = {}) {
   const { autoPipeline = false, softResume = true, forceNewSession = false } = opts;
   if (!isOc4IgesFilename(state.currentFileName)) {
     layout.addLandingBubble("agent", "设计域仅支持已上传的 IGES 文件。");
     return;
   }
+  const stOpen = String(state.currentTaskStatus || "").toLowerCase();
+  const uiOpen = String(state.currentTaskUiStage || "").toLowerCase();
+  if (
+    ["ready_to_execute", "orchestrating", "completed", "done"].includes(stOpen) ||
+    uiOpen === "orchestrate"
+  ) {
+    state.oc4OrchestrateShouldRegenerate = true;
+  }
+  layout.showStage("designDomain");
+  dismissLandingHero();
+  applyDesignDomainStepUi();
+  await deferTwoFrames();
   await ensureLandingTaskForWork();
   await taskManager.loadTasks().catch(() => {});
   await ensureOc4DesignDomainSessionForResume();
-  dismissLandingHero();
   if (!landingThreadHasDesignDomainCard()) {
     pushDesignDomainWorkflowCardToLandingThread({ status: "进行中", step: 1, progress: 14 });
     persistLandingAssistantThread();
   }
   await taskManager.upsertTask({ ui_stage: "design_domain" }).catch(() => {});
+  state.currentTaskUiStage = "design_domain";
   await enterOc4DesignDomainStage({ autoPipeline, softResume, forceNewSession }).catch((e) => {
     layout.addLandingBubble("agent", `设计域：${e?.message || e}`);
   });
@@ -883,6 +1492,40 @@ function landingChatSurfaceHasTurns() {
   return Boolean(refs.chatLanding?.querySelector(".landingTurn"));
 }
 
+/** 离开过首屏 idle 后再次回到 idle 时刷新 Hero 文案（刷新/清对话后不同组合） */
+let landingHeroEverLeftIdle = false;
+
+const LANDING_HERO_TITLES = [
+  "今天想优化什么？",
+  "从哪一步开始？",
+  "上传模型，一句话说明目标。",
+  "几何、网格还是拓扑？",
+  "先审模型，还是直接跑流程？",
+  "描述约束与目标即可。",
+];
+
+const LANDING_HERO_TAGLINES = [
+  "支持 INP、IGES、STEP：上传后用自然语言描述目标与约束，可审阅模型、走设计域体网格与载荷，或通过编排串联 BESO 与 CalculiX。Enter 发送，Shift+Enter 换行；侧栏管理任务与附件，runs 目录保存日志与中间结果。",
+  "从意图到执行：对话里可拆解网格/材料/边界风险，也可进入设计域完成几何与体网格，再在编排页生成 beso_conf、预览指标并一键跑拓扑。快捷按钮在输入框下方，大模型密钥在设置中配置。",
+  "同一任务下，主页对话、设计域步骤与拓扑编排共享上下文；上传文件后可用侧栏切换任务。拓扑参数（质量比、滤波半径等）可记在浏览器，启动任务时随请求一并提交。",
+  "不确定主 INP 是否适合 BESO？先审阅或走编排扫描；需要 OC4 类导管架流程时，从 IGES 进设计域再导出 03_for_beso.inp。结果查看器可回放 OBJ 与曲线。",
+  "输入框支持多轮追问与附件；编排四步覆盖扫描、生成脚本、绑定预览与汇总执行。Shift+Enter 换行避免误发，任务状态与步骤进度显示在左侧列表。",
+  "可先用语义说明载荷与固定方式，再在载荷步骤里对齐数值；大体量网格建议先粗后细。完成编排后点「执行任务」进入分步执行，CalculiX 与 BESO 顺序在后台运行。",
+];
+
+function pickRandom(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+/** 首屏 Hero：仅随机主标题与一行副文案，保持简洁 */
+function initLandingHeroRandom() {
+  const titleEl = $("landingHeroTitle");
+  const tagEl = $("landingHeroTagline");
+  if (!titleEl || !tagEl) return;
+  titleEl.textContent = pickRandom(LANDING_HERO_TITLES);
+  tagEl.textContent = pickRandom(LANDING_HERO_TAGLINES);
+}
+
 /** 无对话气泡、无附件、输入框为空时展示首屏 Hero；否则隐藏并进入对话区 */
 function syncLandingHeroVisibility() {
   if (!refs.landingMain) return;
@@ -890,6 +1533,11 @@ function syncLandingHeroVisibility() {
   const hasFile = Boolean(state.currentFileId || String(state.currentFileName || "").trim());
   const hasChat = landingThreadHasVisibleConversation() || landingChatSurfaceHasTurns();
   const idle = !hasChat && !hasFile && !draft;
+  if (!idle) landingHeroEverLeftIdle = true;
+  else if (idle && landingHeroEverLeftIdle) {
+    initLandingHeroRandom();
+    landingHeroEverLeftIdle = false;
+  }
   if (idle) refs.landingMain.classList.remove("landingHeroHidden");
   else refs.landingMain.classList.add("landingHeroHidden");
   updateLandingSubflowStrip();
@@ -900,18 +1548,111 @@ function dismissLandingHero() {
   updateLandingSubflowStrip();
 }
 
+/** 删除当前任务后：回到主页工作台并清空本会话的 UI 状态（不新建任务） */
+function exitToLandingAfterCurrentTaskDeleted() {
+  abortLandingChat("task-delete");
+  if (_taskTitleSummarizeTimer) {
+    clearTimeout(_taskTitleSummarizeTimer);
+    _taskTitleSummarizeTimer = null;
+  }
+  resetTaskRuntimeView();
+  state.assistantThread = [];
+  state.landingSessionDigest = [];
+  state.activeTaskKey = "";
+  state.currentTaskStatus = "";
+  state.currentTaskUiStage = "";
+  state.oc4OrchestrateShouldRegenerate = false;
+  state.maxReachedStep = 1;
+  state.currentFileId = null;
+  state.currentFileName = "";
+  state.uploadedSourceDir = "";
+  state.jobId = null;
+  state.step1NeedsInp = false;
+  state.landingAttachmentPending = null;
+  state.oc4DesignDomainSessionIdForResume = "";
+  state.oc4DesignDomainSessionId = "";
+  state.oc4DesignDomainFinalized = false;
+  resetOc4DesignDomainState();
+  disposeDesignDomainViewer();
+  if (refs.jobIdEl) refs.jobIdEl.textContent = "(未启动)";
+  if (refs.statusEl) refs.statusEl.textContent = "-";
+  if (refs.msgLanding) refs.msgLanding.value = "";
+  if (refs.chatLanding) refs.chatLanding.innerHTML = "";
+  if (refs.scanDirInput) refs.scanDirInput.value = "";
+  if (refs.fileSummaryInline) refs.fileSummaryInline.textContent = "(尚未选择文件)";
+  syncLandingPendingAttachBar();
+  try {
+    setSettingsDrawer(false);
+  } catch {
+    /* ignore */
+  }
+  layout.showStage("landing");
+  layout.setStep(1);
+  initLandingHeroRandom();
+  syncLandingHeroVisibility();
+  renderTaskSessionDigest();
+  updateLandingSubflowStrip();
+  updateOc4ReturnNavVisibility();
+  syncLandingWorkspaceChrome();
+}
+
+function landingFileExtLabel(fileName) {
+  const s = String(fileName || "");
+  const i = s.lastIndexOf(".");
+  if (i <= 0 || i >= s.length - 1) return "文件";
+  return s.slice(i + 1).toUpperCase().slice(0, 12);
+}
+
+function formatLandingFileSizeShort(bytes) {
+  const n = Number(bytes);
+  if (!Number.isFinite(n) || n < 0) return "";
+  if (n < 1024) return `${Math.round(n)} B`;
+  if (n < 1024 * 1024) {
+    const kb = n / 1024;
+    return `${kb < 10 ? kb.toFixed(2) : kb.toFixed(1)} KB`;
+  }
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatLandingFileMetaLine(fileName, fileSizeBytes) {
+  const ext = landingFileExtLabel(fileName);
+  const sz = formatLandingFileSizeShort(fileSizeBytes);
+  return sz ? `${ext} ${sz}` : ext;
+}
+
 function syncLandingPendingAttachBar() {
   const bar = refs.landingPendingAttachBar;
   const n = refs.landingPendingAttachName;
+  const metaEl = refs.landingPendingAttachMeta;
   const p = state.landingAttachmentPending;
-  if (!bar) return;
+  if (!bar) {
+    syncLandingSendButtonState();
+    return;
+  }
   if (p && String(p.file_id || "").trim() && String(p.file_name || "").trim()) {
     bar.classList.remove("hidden");
     if (n) n.textContent = p.file_name;
+    if (metaEl) metaEl.textContent = formatLandingFileMetaLine(p.file_name, p.file_size);
   } else {
     bar.classList.add("hidden");
     if (n) n.textContent = "";
+    if (metaEl) metaEl.textContent = "";
   }
+  syncLandingSendButtonState();
+}
+
+function landingComposerHasSendablePayload() {
+  const text = String(refs.msgLanding?.value || "").trim();
+  if (text.length > 0) return true;
+  const p = state.landingAttachmentPending;
+  return Boolean(p && String(p.file_id || "").trim() && String(p.file_name || "").trim());
+}
+
+function syncLandingSendButtonState() {
+  const btn = refs.landingSendChatBtn;
+  if (!btn) return;
+  const busy = Boolean(state.landingAssistantPending);
+  btn.disabled = busy || !landingComposerHasSendablePayload();
 }
 
 /** 删除已绑定文件并清空任务侧记录（主页「待发送」移除与附件解绑共用） */
@@ -964,6 +1705,7 @@ function updateLandingSubflowStrip() {
     oc.disabled = !state.currentFileId;
     oc.title = state.currentFileId ? "进入构型优化编排" : "请先上传文件";
   }
+  syncOpenWorkDirButtonsEnabled();
 }
 
 function clearMetricsEmptyState() {
@@ -1170,7 +1912,7 @@ async function summarizeCurrentTaskTitleFromThread() {
           {
             role: "system",
             content:
-              "你是「AI Engineering」对话的任务命名模块；角色为工程任务摘要助手。只输出一行简体中文标题，不超过18个字，概括用户在本对话中的核心诉求。不要引号、不要书名号包住全文、不要「任务：」等前缀、不要解释。",
+              "你是「AI Engineer」对话的任务命名模块；角色为工程任务摘要助手。只输出一行简体中文标题，不超过18个字，概括用户在本对话中的核心诉求。不要引号、不要书名号包住全文、不要「任务：」等前缀、不要解释。",
           },
           { role: "user", content: `根据下列【用户输入】生成任务栏标题：\n${blob}` },
         ],
@@ -1203,7 +1945,6 @@ async function openTaskSubprocessFromBadge(task, kind) {
   if (!tid) return;
   const cur = String(state.currentTaskId || "").trim();
   if (cur && tid !== cur) {
-    abortLandingChat("task-switch-badge");
     persistLandingAssistantThread(cur);
     await flushLandingAssistantThreadServer(cur);
     state.landingAttachmentPending = null;
@@ -1229,7 +1970,6 @@ async function openTaskSubprocessFromBadge(task, kind) {
   if (refs.fileSummaryInline) {
     refs.fileSummaryInline.textContent = `已上传文件：${state.currentFileName || "(未知)"}\n扫描目录：${state.uploadedSourceDir || "(未知)"}`;
   }
-  if (refs.msgLanding && task.title) refs.msgLanding.value = task.title;
   await hydrateLandingFromTask(task);
   const k = String(kind || "");
   if (k === "design_domain") {
@@ -1242,6 +1982,7 @@ async function openTaskSubprocessFromBadge(task, kind) {
       return;
     }
     await taskManager.upsertTask({ ui_stage: "design_domain" }).catch(() => {});
+    state.currentTaskUiStage = "design_domain";
     await enterOc4DesignDomainStage({ softResume: true, forceNewSession: false }).catch((e) =>
       layout.addLandingBubble("agent", String(e?.message || e)),
     );
@@ -1253,31 +1994,7 @@ async function openTaskSubprocessFromBadge(task, kind) {
       layout.addLandingBubble("agent", "该对话没有已保存的上传文件，请先上传后再进入构型优化编排。");
       return;
     }
-    if (isOc4IgesFilename(state.currentFileName) && !state.oc4DesignDomainFinalized) {
-      layout.addLandingBubble("agent", "IGES 需先完成设计域；正在打开设计域。");
-      await enterOc4DesignDomainStage({ softResume: true, autoPipeline: false }).catch((e) =>
-        layout.addLandingBubble("agent", String(e?.message || e)),
-      );
-      return;
-    }
-    layout.showStage("orchestrate");
-    const st = String(state.currentTaskStatus || "").toLowerCase();
-    if (st === "orchestrating") {
-      if (refs.executePlannedTask) refs.executePlannedTask.disabled = true;
-      const preambleMd = buildOc4OrchestratePreambleMd();
-      layout.streamOrchestration(async () => {
-        if (refs.executePlannedTask) refs.executePlannedTask.disabled = false;
-        layout.addLandingBubble("agent", "构型优化编排完成，点击「执行任务」进入分步执行。");
-        await taskManager.upsertTask({ progress: 20, step: 1, status: "ready_to_execute" });
-        await taskManager.loadTasks();
-      }, { preambleMd });
-    } else if (st === "ready_to_execute" || st === "completed" || st === "done") {
-      if (refs.executePlannedTask) refs.executePlannedTask.disabled = false;
-    } else if (refs.executePlannedTask) {
-      refs.executePlannedTask.disabled = false;
-    }
-    await taskManager.upsertTask({ ui_stage: "orchestrate" }).catch(() => {});
-    await taskManager.loadTasks().catch(() => {});
+    await openLandingOrchestrateSubflow({ skipUserBubble: true });
   }
 }
 
@@ -1286,31 +2003,58 @@ taskManager = createTaskManager({
   refs,
   state,
   normalizedBaseUrl,
-  onTaskRemoved: (removedId) => {
+    onTaskRemoved: (removedId) => {
+    const rid = String(removedId || "").trim();
+    const wasCurrent = Boolean(rid && String(state.currentTaskId || "").trim() === rid);
     try {
       localStorage.removeItem(landingThreadStorageKey(removedId));
     } catch {
       /* ignore */
     }
+    try {
+      if (rid) {
+        localStorage.removeItem(`beso.dd.agentUi.v1.t.${rid}`);
+        localStorage.removeItem(`beso.dd.ideTabs.v1.t.${rid}`);
+      }
+    } catch {
+      /* ignore */
+    }
+    if (wasCurrent) exitToLandingAfterCurrentTaskDeleted();
   },
   onTasksListUpdated: (items) => {
     updateOc4ReturnNavVisibility();
     syncLandingWorkflowCardsFromTasks(items || []);
+    syncLandingWorkspaceChrome(items || []);
   },
   onBeforeSelectTask: async (nextTaskId) => {
     const cur = String(state.currentTaskId || "").trim();
     const next = String(nextTaskId || "").trim();
-    /** 再次点击当前任务也会走此回调：不得中止正在进行的流式对话 */
+    /** 切换任务不中止流式请求：原任务在后台收完后写入该任务存储，切回即可见 */
     if (cur && next && cur !== next) {
-      abortLandingChat("task-switch");
       persistLandingAssistantThread(cur);
       await flushLandingAssistantThreadServer(cur);
       state.landingAttachmentPending = null;
       syncLandingPendingAttachBar();
+      try {
+        designDomainIde?.persistOpenTabsForTaskId?.(cur);
+      } catch {
+        /* ignore */
+      }
+      try {
+        designDomainAgentUi?.flushPersist?.();
+      } catch {
+        /* ignore */
+      }
     }
   },
   onTaskBadgeClick: async (task, kind) => {
     await openTaskSubprocessFromBadge(task, kind);
+  },
+  onOpenTaskWorkDir: async (task) => {
+    await openExplorerForScanDir(
+      String(task?.scan_dir || "").trim(),
+      "该任务暂无工作目录记录。请先在对话中上传文件，或从含扫描目录的任务进入。",
+    );
   },
   onOpenTask: async (task) => {
     const tid = String(task?.task_id || "").trim();
@@ -1335,8 +2079,6 @@ taskManager = createTaskManager({
     if (refs.fileSummaryInline) {
       refs.fileSummaryInline.textContent = `已上传文件：${state.currentFileName || "(未知)"}\n扫描目录：${state.uploadedSourceDir || "(未知)"}`;
     }
-    if (refs.msgLanding && task.title) refs.msgLanding.value = task.title;
-
     /* 侧栏只切换「对话上下文」，不根据 ui_stage 跳入编排 / 设计域 / 分步流；子流程由对话内卡片或顶栏入口进入 */
     layout.showStage("landing");
 
@@ -1352,28 +2094,44 @@ taskManager = createTaskManager({
             refs.statusEl && (refs.statusEl.textContent = "missing");
             stopJobPolling();
           }
-          return;
-        }
-        const data = await resp.json();
-        state.currentTaskStatus = String(data.status || state.currentTaskStatus || "");
-        mergeLogsFromServer(data.logs);
-        refreshLogSummaryViews();
-        layout.renderSelectedInputs(data.selected_inputs || null);
-        (data.artifacts || []).forEach((a) => {
-          if (a.kind === "image") viewer.upsertImage(a.name, a.url);
-          if (a.kind === "code" || a.kind === "manifest") enqueueCodeStream(a.name, a.url, (a.meta && a.meta.group) || a.kind);
-        });
-        checkStep3Ready();
-        if (String(data.status || "").toLowerCase() === "failed" && state.imageCount === 0) {
-          const hint = state.logs.slice(-1)[0] || "";
-          showMetricsEmptyState(hint);
+        } else {
+          const data = await resp.json();
+          state.currentTaskStatus = String(data.status || state.currentTaskStatus || "");
+          mergeLogsFromServer(data.logs);
+          refreshLogSummaryViews();
+          layout.renderSelectedInputs(data.selected_inputs || null);
+          (data.artifacts || []).forEach((a) => {
+            if (a.kind === "image") viewer.upsertImage(a.name, a.url);
+            if (a.kind === "code" || a.kind === "manifest") enqueueCodeStream(a.name, a.url, (a.meta && a.meta.group) || a.kind);
+          });
+          checkStep3Ready();
+          if (String(data.status || "").toLowerCase() === "failed" && state.imageCount === 0) {
+            const hint = state.logs.slice(-1)[0] || "";
+            showMetricsEmptyState(hint);
+          }
         }
       } catch {}
     }
     updateStepperClickableState();
     await hydrateLandingFromTask(task);
+    try {
+      void designDomainIde?.switchTaskContext?.(tid);
+    } catch {
+      /* ignore */
+    }
+    try {
+      designDomainAgentUi?.switchTaskContext?.();
+    } catch {
+      /* ignore */
+    }
   },
 });
+
+function landingNewChatTitleWithStamp() {
+  const d = new Date();
+  const stamp = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return `新对话 · ${stamp}`;
+}
 
 async function ensureLandingTaskForWork() {
   if (state.currentTaskId) return;
@@ -1382,7 +2140,7 @@ async function ensureLandingTaskForWork() {
   const title =
     String(refs.msgLanding?.value || "").trim().slice(0, 80) ||
     String(state.currentFileName || "").slice(0, 80) ||
-    "新对话";
+    landingNewChatTitleWithStamp();
   await taskManager.upsertTask({ title, status: "pending", progress: 0, step: 1 });
   await taskManager.loadTasks().catch(() => {});
 }
@@ -1449,8 +2207,106 @@ async function hydrateLandingFromTask(task) {
   syncLandingPendingAttachBar();
   state.uploadedSourceDir = String(task?.scan_dir || state.uploadedSourceDir || "");
   state.jobId = task?.job_id || state.jobId || null;
+  if (task && Object.prototype.hasOwnProperty.call(task, "ui_stage")) {
+    state.currentTaskUiStage = String(task.ui_stage || "");
+  }
+  syncOc4DesignDomainFinalizedFromTask(task);
+  syncOc4OrchestrateShouldRegenerateFromTask(task);
   syncLandingHeroVisibility();
   updateLandingSubflowStrip();
+  syncLandingWorkspaceChrome(undefined, task);
+}
+
+/** 从任务 JSON 推断 IGES 是否已走完设计域收尾（hydrate 后本地标志会丢，仅靠内存会误拦「编排」入口） */
+function syncOc4DesignDomainFinalizedFromTask(task) {
+  if (!isOc4IgesFilename(state.currentFileName)) {
+    state.oc4DesignDomainFinalized = true;
+    return;
+  }
+  const ui = String(
+    task && Object.prototype.hasOwnProperty.call(task, "ui_stage")
+      ? task.ui_stage ?? ""
+      : state.currentTaskUiStage ?? "",
+  ).toLowerCase();
+  const stRaw = task?.status;
+  const st = String(
+    stRaw !== undefined && stRaw !== null && stRaw !== "" ? stRaw : state.currentTaskStatus || "",
+  ).toLowerCase();
+  const sd = String(
+    task && Object.prototype.hasOwnProperty.call(task, "scan_dir") ? task.scan_dir ?? "" : "",
+  ).trim() || String(state.uploadedSourceDir || "").trim();
+  const prRaw = task?.progress;
+  const pr = Number(prRaw !== undefined && prRaw !== null ? prRaw : NaN);
+  if (ui === "orchestrate" || ["orchestrating", "ready_to_execute", "completed", "done", "running"].includes(st)) {
+    state.oc4DesignDomainFinalized = true;
+    return;
+  }
+  if (sd && Number.isFinite(pr) && pr >= 10) {
+    state.oc4DesignDomainFinalized = true;
+    return;
+  }
+  state.oc4DesignDomainFinalized = false;
+}
+
+/** 与任务阶段对齐：从设计域返回重做须重跑编排；已处于编排/待执行则允许仅 resume 面板 */
+function syncOc4OrchestrateShouldRegenerateFromTask(task) {
+  const ui = String(
+    task && Object.prototype.hasOwnProperty.call(task, "ui_stage")
+      ? task.ui_stage ?? ""
+      : state.currentTaskUiStage ?? "",
+  ).toLowerCase();
+  const stRaw = task?.status;
+  const st = String(
+    stRaw !== undefined && stRaw !== null && stRaw !== "" ? stRaw : state.currentTaskStatus || "",
+  ).toLowerCase();
+  if (ui === "orchestrate" || ["ready_to_execute", "orchestrating", "completed", "done"].includes(st)) {
+    state.oc4OrchestrateShouldRegenerate = false;
+    return;
+  }
+  if (ui === "design_domain") {
+    state.oc4OrchestrateShouldRegenerate = true;
+    return;
+  }
+  state.oc4OrchestrateShouldRegenerate = false;
+}
+
+/**
+ * 主页「构型优化编排」入口：IGES 未收尾则进设计域；已编排且未标记重做则只切到编排台；否则完整重跑 beginOrchestrationAfterLanding。
+ * @param {{ skipUserBubble?: boolean }} opts
+ */
+async function openLandingOrchestrateSubflow(opts = {}) {
+  const { skipUserBubble = true } = opts || {};
+  if (!state.currentFileId) {
+    layout.addLandingBubble("agent", "请先上传文件。");
+    return;
+  }
+  const iges = isOc4IgesFilename(state.currentFileName);
+  const st = String(state.currentTaskStatus || "").toLowerCase();
+  const needDd = iges && !state.oc4DesignDomainFinalized;
+  if (needDd) {
+    layout.addLandingBubble("agent", "IGES 需先完成设计域流程；正在打开设计域。");
+    await layout.playLandingSubflowBridge({ kind: "design_domain", minMs: 1280, instant: true });
+    await openDesignDomainFromLanding({ autoPipeline: true, softResume: true, forceNewSession: false }).catch((e) =>
+      layout.addLandingBubble("agent", String(e?.message || e)),
+    );
+    return;
+  }
+  const orchestrationResumeOk =
+    st === "ready_to_execute" || st === "orchestrating" || st === "completed" || st === "done";
+  const canResumeOrchestrate = !state.oc4OrchestrateShouldRegenerate && orchestrationResumeOk;
+  if (canResumeOrchestrate) {
+    await layout.playLandingSubflowBridge({ kind: "orchestrate", minMs: 720 });
+    layout.showStage("orchestrate");
+    if (refs.executePlannedTask) refs.executePlannedTask.disabled = st === "orchestrating";
+    if (state.currentTaskId) {
+      state.currentTaskUiStage = "orchestrate";
+      await taskManager.upsertTask({ ui_stage: "orchestrate" }).catch(() => {});
+    }
+    await taskManager.loadTasks().catch(() => {});
+    return;
+  }
+  await layout.playLandingSubflowBridge({ kind: "orchestrate", minMs: 1280 });
+  await beginOrchestrationAfterLanding({ skipUserBubble });
 }
 
 /** 仅含后端 /api/assistant/chat* 允许的 role，排除对话里持久化的 card 等结构 */
@@ -1474,10 +2330,11 @@ function nextPaintFrame2() {
   });
 }
 
-function sliceAssistantThreadForApi(maxMsgs = 48) {
+function sliceAssistantThreadForApi(maxMsgs = 48, threadSource = null) {
   const allowed = new Set(["system", "user", "assistant"]);
   const out = [];
-  for (const m of (state.assistantThread || []).slice(-maxMsgs)) {
+  const src = threadSource ?? state.assistantThread;
+  for (const m of (src || []).slice(-maxMsgs)) {
     const role = String(m?.role || "").trim();
     if (!allowed.has(role)) continue;
     const content = String(m?.content ?? "").trim();
@@ -1487,172 +2344,323 @@ function sliceAssistantThreadForApi(maxMsgs = 48) {
   return out;
 }
 
+function trimLastAssistantFromThreadForRegenerate(stripRaw) {
+  const th = state.assistantThread;
+  if (!Array.isArray(th) || !th.length) return false;
+  const target = String(stripRaw || "").trim();
+  for (let i = th.length - 1; i >= 0; i--) {
+    if (th[i].role !== "assistant") continue;
+    if (String(th[i].content || "").trim() === target) {
+      th.splice(i, 1);
+      return true;
+    }
+  }
+  for (let i = th.length - 1; i >= 0; i--) {
+    if (th[i].role === "assistant") {
+      th.splice(i, 1);
+      return true;
+    }
+  }
+  return false;
+}
+
+function assistantReplyFormatFromBody(text) {
+  const s = String(text || "");
+  return /(\*\*|#{1,4}\s|\n[-*]\s|\n\d+\.\s|`{3}|^[-=*_]{3,}\s*$|\n\|[^\n]+\|[^\n]*\n\|)/m.test(s) ? "md" : "plain";
+}
+
+function pushAssistantTurnForTask(taskId, asstTurn) {
+  const tid = String(taskId || "").trim();
+  if (!tid || !asstTurn) return;
+  if (String(state.currentTaskId || "").trim() === tid) {
+    state.assistantThread.push(asstTurn);
+    return;
+  }
+  mergeAssistantMsgIntoBackgroundTask(tid, asstTurn);
+}
+
+/** 从气泡「重新生成」：移除本条助手回复后，用当前线程再请求一次（整包 + 渐进填入流式容器） */
+async function handleLandingAssistantRegenerate(stripRaw) {
+  if (state.landingAssistantPending || state.landingChatFlight) {
+    layout.addLandingBubble("agent", "请等待当前回复结束后再试「重新生成」。");
+    return;
+  }
+  const myTaskId = String(state.currentTaskId || "").trim();
+  if (!myTaskId) return;
+  if (!trimLastAssistantFromThreadForRegenerate(stripRaw)) {
+    layout.addLandingBubble("agent", "未找到可重试的助手回复。");
+    return;
+  }
+  persistLandingAssistantThread(myTaskId);
+  renderLandingChatFromThread();
+  dismissLandingHero();
+  abortLandingChat("regenerate");
+  state.landingAssistantPending = true;
+  syncLandingSendButtonState();
+  const persistMyTaskIfViewing = () => {
+    if (String(state.currentTaskId || "").trim() === myTaskId) persistLandingAssistantThread(myTaskId);
+  };
+  const thinkingEl = layout.addLandingThinking();
+  let streamCtrl = null;
+  if (thinkingEl?.isConnected && refs.chatLanding?.contains(thinkingEl)) {
+    streamCtrl = layout.beginLandingAgentStream({ reuseWrap: thinkingEl });
+  }
+  if (!streamCtrl) streamCtrl = createOffDomLandingStreamCtrl();
+  const ac = new AbortController();
+  try {
+    const messages = sliceAssistantThreadForApi(48, state.assistantThread);
+    if (!messages.length) {
+      if (thinkingEl?.isConnected) layout.removeLandingThinking(thinkingEl);
+      return;
+    }
+    const thinkT0 = performance.now();
+    await nextPaintFrame2();
+    const bumpThinkWait = async () => {
+      const MIN_THINKING_MS = 520;
+      const thinkWait = MIN_THINKING_MS - (performance.now() - thinkT0);
+      if (thinkWait > 0) await new Promise((res) => setTimeout(res, thinkWait));
+    };
+    const once = await fetchAssistantChatOnce(messages, ac.signal, myTaskId);
+    if (once.aborted || ac.signal.aborted) {
+      if (thinkingEl?.isConnected) layout.removeLandingThinking(thinkingEl);
+      return;
+    }
+    if (!once.ok) {
+      const errLine = once.errorText || "请求失败";
+      streamCtrl.finalize(errLine);
+      pushAssistantTurnForTask(myTaskId, { role: "assistant", content: errLine, format: "plain" });
+      persistMyTaskIfViewing();
+      return;
+    }
+    await bumpThinkWait();
+    const reply = String(once.reply || "").trim() || "（无回复）";
+    await replayAssistantProgressive(streamCtrl, reply, ac.signal, () => !ac.signal.aborted);
+    streamCtrl.finalize(reply);
+    const fmt = assistantReplyFormatFromBody(reply);
+    pushAssistantTurnForTask(myTaskId, { role: "assistant", content: reply, format: fmt });
+    persistMyTaskIfViewing();
+  } catch (e) {
+    const errText = String(e?.message || e);
+    try {
+      streamCtrl?.finalize(`对话失败：${errText}`);
+    } catch {
+      /* ignore */
+    }
+    if (thinkingEl?.isConnected) layout.removeLandingThinking(thinkingEl);
+    pushAssistantTurnForTask(myTaskId, { role: "assistant", content: `对话失败：${errText}`, format: "plain" });
+    persistMyTaskIfViewing();
+  } finally {
+    state.landingAssistantPending = false;
+    syncLandingSendButtonState();
+    persistMyTaskIfViewing();
+    updateLandingSubflowStrip();
+    syncLandingHeroVisibility();
+  }
+}
+
 async function sendLandingAssistantChat() {
-  const text = String(refs.msgLanding?.value || "").trim();
-  if (!text) return;
+  if (!landingComposerHasSendablePayload()) return;
+  const textTrim = String(refs.msgLanding?.value || "").trim();
+  const pendingAtt = state.landingAttachmentPending;
+  const hasAtt = Boolean(
+    pendingAtt && String(pendingAtt.file_id || "").trim() && String(pendingAtt.file_name || "").trim(),
+  );
+  const text =
+    textTrim ||
+    (hasAtt ? `请结合附件「${String(pendingAtt.file_name || "").trim()}」回答。` : "");
+  if (!text.trim()) return;
   abortLandingChat("send");
   await ensureLandingTaskForWork();
+  /** 必须在 await 之后读取：无任务时会新建 id；避免与侧栏切换竞态 */
   const myTaskId = String(state.currentTaskId || "").trim();
+  if (!myTaskId) {
+    state.landingAssistantPending = false;
+    syncLandingSendButtonState();
+    return;
+  }
+  const persistMyTaskIfViewing = () => {
+    if (String(state.currentTaskId || "").trim() === myTaskId) persistLandingAssistantThread(myTaskId);
+  };
   dismissLandingHero();
   state.landingAssistantPending = true;
-  if (refs.landingSendChatBtn) refs.landingSendChatBtn.disabled = true;
-  const debutUser = !state.assistantThread.some((m) => String(m?.role || "") === "user");
-  const pendingAtt = state.landingAttachmentPending;
+  syncLandingSendButtonState();
+  const viewingThisTask = String(state.currentTaskId || "").trim() === myTaskId;
+  const threadPeek = viewingThisTask ? state.assistantThread : landingThreadSnapshotFromLs(myTaskId);
+  const debutUser = !threadPeek.some((m) => String(m?.role || "") === "user");
   const userBubbleOpts = { debut: debutUser };
   if (pendingAtt?.file_id && String(pendingAtt.file_name || "").trim()) {
     userBubbleOpts.attachment = {
       file_id: pendingAtt.file_id,
       file_name: String(pendingAtt.file_name || "").trim(),
     };
+    if (typeof pendingAtt.file_size === "number" && Number.isFinite(pendingAtt.file_size)) {
+      userBubbleOpts.attachment.file_size = pendingAtt.file_size;
+    }
   }
-  layout.addLandingBubble("user", text, userBubbleOpts);
+  if (viewingThisTask) layout.addLandingBubble("user", text, userBubbleOpts);
   const userMsg = { role: "user", content: text };
   if (pendingAtt?.file_id && String(pendingAtt.file_name || "").trim()) {
     userMsg.attachment = {
       file_id: String(pendingAtt.file_id).trim(),
       file_name: String(pendingAtt.file_name || "").trim(),
     };
+    if (typeof pendingAtt.file_size === "number" && Number.isFinite(pendingAtt.file_size)) {
+      userMsg.attachment.file_size = pendingAtt.file_size;
+    }
   }
-  state.assistantThread.push(userMsg);
+  if (viewingThisTask) {
+    state.assistantThread.push(userMsg);
+    state.landingNextPersistAllowSidebarReorder = true;
+  } else {
+    mergeUserMsgIntoBackgroundTask(myTaskId, userMsg);
+  }
+  /** 冻结本轮请求上下文，避免随后切换任务时 API 读到别的对话线程 */
+  const threadSnapForApi = viewingThisTask ? state.assistantThread.slice() : landingThreadSnapshotFromLs(myTaskId);
   state.landingAttachmentPending = null;
   syncLandingPendingAttachBar();
   refs.msgLanding.value = "";
-  persistLandingAssistantThread();
+  persistMyTaskIfViewing();
   const intent = detectLandingWorkflowIntent(text);
 
   try {
     if (intent === "design_domain" && !isOc4IgesFilename(state.currentFileName)) {
       const msg = "设计域仅支持 IGES：请先上传 IGES 文件。";
-      layout.addLandingBubble("agent", msg);
-      state.assistantThread.push({ role: "assistant", content: msg, format: "plain" });
+      commitAgentTurnForTask(myTaskId, { role: "assistant", content: msg, format: "plain" });
+      persistMyTaskIfViewing();
       return;
     }
 
-    const messages = sliceAssistantThreadForApi(48);
+    const messages = sliceAssistantThreadForApi(48, threadSnapForApi);
     const ac = new AbortController();
-    const flight = { taskId: myTaskId, thinkingEl: null, streamCtrl: null, ac };
+    const flight = { taskId: myTaskId, thinkingEl: null, streamCtrl: null, ac, aborted: false };
     state.landingChatFlight = flight;
     const thinkingEl = layout.addLandingThinking();
     flight.thinkingEl = thinkingEl;
     let streamCtrl = null;
-    const stillMine = () => state.landingChatFlight === flight;
-    const shouldContinue = () =>
-      stillMine() && String(state.currentTaskId || "").trim() === myTaskId;
+    /** 本段请求仍被登记为当前 in-flight（未被新发送顶替） */
+    const flightLive = () => !flight.aborted && state.landingChatFlight === flight;
+    /** 流式 token 是否继续：切换侧栏任务不停止，仅显式 abort 时停止 */
+    const streamMayContinue = () => !flight.aborted;
 
     const runOrchestrateFromIntent = async () => {
       if (!state.currentFileId) {
         const msg = "请先上传文件，再运行构型优化编排。";
-        layout.addLandingBubble("agent", msg);
-        state.assistantThread.push({ role: "assistant", content: msg, format: "plain" });
+        commitAgentTurnForTask(myTaskId, { role: "assistant", content: msg, format: "plain" });
+        persistMyTaskIfViewing();
         return;
       }
       if (isOc4IgesFilename(state.currentFileName) && !state.oc4DesignDomainFinalized) {
-        layout.addLandingBubble("agent", "IGES 需先完成设计域流程；已为您打开设计域。");
-        state.assistantThread.push({
+        commitAgentTurnForTask(myTaskId, {
           role: "assistant",
           content: "IGES 需先完成设计域流程；已为您打开设计域。",
           format: "plain",
         });
-        persistLandingAssistantThread();
-        await layout.playLandingSubflowBridge({ kind: "design_domain", minMs: 1520 });
-        if (!shouldContinue()) return;
+        persistMyTaskIfViewing();
+        await layout.playLandingSubflowBridge({ kind: "design_domain", minMs: 1520, instant: true });
+        if (!streamMayContinue()) return;
         await openDesignDomainFromLanding({ autoPipeline: true, softResume: true });
         return;
       }
       await layout.playLandingSubflowBridge({ kind: "orchestrate", minMs: 1520 });
-      if (!shouldContinue()) return;
+      if (!streamMayContinue()) return;
       await beginOrchestrationAfterLanding({ skipUserBubble: true, userMessage: text });
     };
 
     const runDesignDomainBlock = async () => {
       if (intent !== "design_domain") return;
       try {
-        if (!shouldContinue()) return;
-        await layout.playLandingSubflowBridge({ kind: "design_domain", minMs: 1520 });
-        if (!shouldContinue()) return;
+        if (!streamMayContinue()) return;
+        await layout.playLandingSubflowBridge({ kind: "design_domain", minMs: 1520, instant: true });
+        if (!streamMayContinue()) return;
         await openDesignDomainFromLanding({
           autoPipeline: /自动|一键|直接/.test(text),
           softResume: true,
           forceNewSession: false,
         });
-        if (!shouldContinue()) return;
+        if (!streamMayContinue()) return;
         const ack = "已根据您的描述打开设计域，可在右侧主区域继续各步。";
-        layout.addLandingBubble("agent", ack);
-        state.assistantThread.push({ role: "assistant", content: ack, format: "plain" });
-        persistLandingAssistantThread();
+        commitAgentTurnForTask(myTaskId, { role: "assistant", content: ack, format: "plain" });
+        persistMyTaskIfViewing();
       } catch (e2) {
-        if (!shouldContinue()) return;
+        if (!streamMayContinue()) return;
         const t = `模型已回复，但进入设计域时出错：${e2?.message || e2}`;
-        layout.addLandingBubble("agent", t);
-        state.assistantThread.push({ role: "assistant", content: t, format: "plain" });
+        commitAgentTurnForTask(myTaskId, { role: "assistant", content: t, format: "plain" });
+        persistMyTaskIfViewing();
       }
     };
 
     const thinkT0 = performance.now();
     await nextPaintFrame2();
-    if (!stillMine()) return;
+    if (!flightLive()) return;
     try {
       const MIN_THINKING_MS = 520;
       const bumpThinkWait = async () => {
         const thinkWait = MIN_THINKING_MS - (performance.now() - thinkT0);
-        if (thinkWait > 0 && stillMine()) await new Promise((res) => setTimeout(res, thinkWait));
+        if (thinkWait > 0 && flightLive()) await new Promise((res) => setTimeout(res, thinkWait));
       };
       const openStreamSurfaceOrBail = () => {
-        streamCtrl = layout.beginLandingAgentStream({ reuseWrap: thinkingEl });
-        flight.streamCtrl = streamCtrl;
-        if (!streamCtrl) {
-          layout.removeLandingThinking(thinkingEl);
-          const msg = "对话区域不可用，无法显示流式回复。";
-          layout.addLandingBubble("agent", msg);
-          state.assistantThread.push({ role: "assistant", content: msg, format: "plain" });
-          return false;
+        if (thinkingEl?.isConnected && refs.chatLanding?.contains(thinkingEl)) {
+          streamCtrl = layout.beginLandingAgentStream({ reuseWrap: thinkingEl });
+        } else {
+          streamCtrl = null;
         }
+        if (!streamCtrl) {
+          streamCtrl = createOffDomLandingStreamCtrl();
+        }
+        flight.streamCtrl = streamCtrl;
         return true;
       };
       const runOrchestrateBlock = async () => {
         if (intent !== "orchestrate") return;
         try {
-          if (!shouldContinue()) return;
+          if (!streamMayContinue()) return;
           await runOrchestrateFromIntent();
-          if (!shouldContinue()) return;
+          if (!streamMayContinue()) return;
         } catch (e2) {
-          if (!shouldContinue()) return;
+          if (!streamMayContinue()) return;
           const t = `模型已回复，但进入构型优化编排时出错：${e2?.message || e2}`;
-          layout.addLandingBubble("agent", t);
-          state.assistantThread.push({ role: "assistant", content: t, format: "plain" });
+          commitAgentTurnForTask(myTaskId, { role: "assistant", content: t, format: "plain" });
+          persistMyTaskIfViewing();
         }
       };
       const finishExchange = async (replyRaw, viaProgressive) => {
         const reply = String(replyRaw || "").trim() || "（无回复）";
-        if (!shouldContinue()) return;
+        if (!streamMayContinue()) return;
         if (viaProgressive && streamCtrl) {
-          await replayAssistantProgressive(streamCtrl, reply, ac.signal, shouldContinue);
-          if (!shouldContinue()) return;
+          await replayAssistantProgressive(streamCtrl, reply, ac.signal, streamMayContinue);
+          if (!streamMayContinue()) return;
         }
         streamCtrl?.finalize(reply);
-        state.assistantThread.push({ role: "assistant", content: reply, format: "md" });
+        const asstTurn = { role: "assistant", content: reply, format: "md" };
+        if (String(state.currentTaskId || "").trim() === myTaskId) {
+          state.assistantThread.push(asstTurn);
+        } else {
+          mergeAssistantMsgIntoBackgroundTask(myTaskId, asstTurn);
+        }
+        if (!streamMayContinue()) return;
+        if (String(state.currentTaskId || "").trim() !== myTaskId) return;
         await runOrchestrateBlock();
         await runDesignDomainBlock();
       };
 
       const preferStream = readAssistantPreferStream();
       if (!preferStream) {
-        const once = await fetchAssistantChatOnce(messages, ac.signal);
-        if (!stillMine()) return;
+        const once = await fetchAssistantChatOnce(messages, ac.signal, myTaskId);
+        if (!flightLive()) return;
         if (once.aborted || ac.signal.aborted) return;
         if (!once.ok) {
-          layout.removeLandingThinking(thinkingEl);
-          layout.addLandingBubble("agent", once.errorText || "请求失败");
-          state.assistantThread.push({
+          if (thinkingEl?.isConnected) layout.removeLandingThinking(thinkingEl);
+          commitAgentTurnForTask(myTaskId, {
             role: "assistant",
             content: once.errorText || "请求失败",
             format: "plain",
           });
+          persistMyTaskIfViewing();
           return;
         }
         await bumpThinkWait();
-        if (!stillMine()) return;
-        if (!openStreamSurfaceOrBail()) return;
+        if (!flightLive()) return;
+        openStreamSurfaceOrBail();
         await finishExchange(once.reply, true);
         return;
       }
@@ -1662,21 +2670,26 @@ async function sendLandingAssistantChat() {
         r = await fetch(`${normalizedBaseUrl()}/api/assistant/chat/stream`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages, temperature: 0.6 }),
+          body: JSON.stringify({
+            messages,
+            temperature: 0.6,
+            ...landingAssistantAttachedFilesPayload(myTaskId),
+            ...landingAssistantOptionsPayload(),
+          }),
           signal: ac.signal,
         });
       } catch (fe) {
-        if (!stillMine()) return;
+        if (!flightLive()) return;
         if (ac.signal.aborted) return;
-        layout.removeLandingThinking(thinkingEl);
+        if (thinkingEl?.isConnected) layout.removeLandingThinking(thinkingEl);
         const msg = `网络错误：${fe?.message || fe}`;
-        layout.addLandingBubble("agent", msg);
-        state.assistantThread.push({ role: "assistant", content: msg, format: "plain" });
+        commitAgentTurnForTask(myTaskId, { role: "assistant", content: msg, format: "plain" });
+        persistMyTaskIfViewing();
         return;
       }
-      if (!stillMine()) return;
+      if (!flightLive()) return;
       if (!r.ok) {
-        layout.removeLandingThinking(thinkingEl);
+        if (thinkingEl?.isConnected) layout.removeLandingThinking(thinkingEl);
         const errText = await r.text().catch(() => "");
         let msg = `请求失败（${r.status}）`;
         try {
@@ -1691,40 +2704,41 @@ async function sendLandingAssistantChat() {
         } catch {
           if (errText) msg = errText.slice(0, 500);
         }
-        layout.addLandingBubble("agent", msg);
-        state.assistantThread.push({ role: "assistant", content: msg, format: "plain" });
+        commitAgentTurnForTask(myTaskId, { role: "assistant", content: msg, format: "plain" });
+        persistMyTaskIfViewing();
         return;
       }
       await bumpThinkWait();
-      if (!stillMine()) return;
-      if (!openStreamSurfaceOrBail()) return;
+      if (!flightLive()) return;
+      openStreamSurfaceOrBail();
 
       const consumed = await consumeAssistantChatStream(
         r,
         (delta) => {
-          if (!shouldContinue()) return;
+          if (!streamMayContinue()) return;
           streamCtrl.appendDelta(delta);
         },
-        { shouldContinue, signal: ac.signal },
+        { shouldContinue: streamMayContinue, signal: ac.signal },
       );
-      if (!stillMine()) return;
+      if (!flightLive()) return;
       if (consumed.status === "cancelled" || ac.signal.aborted) return;
       if (consumed.status === "error") {
-        if (!shouldContinue()) return;
-        const fb = await fetchAssistantChatOnce(messages, ac.signal);
-        if (!stillMine() || fb.aborted || ac.signal.aborted) return;
+        if (!streamMayContinue()) return;
+        const fb = await fetchAssistantChatOnce(messages, ac.signal, myTaskId);
+        if (!flightLive() || fb.aborted || ac.signal.aborted) return;
         if (fb.ok) {
           await finishExchange(fb.reply, false);
           return;
         }
         const errLine = `对话失败：${fb.errorText || consumed.error?.message || "未知错误"}`;
         streamCtrl.finalize(errLine);
-        state.assistantThread.push({ role: "assistant", content: errLine, format: "plain" });
+        commitAgentTurnForTask(myTaskId, { role: "assistant", content: errLine, format: "plain" });
+        persistMyTaskIfViewing();
         return;
       }
       await finishExchange(consumed.full, false);
     } catch (e) {
-      if (!stillMine()) return;
+      if (!flightLive()) return;
       const aborted =
         e?.name === "AbortError" ||
         (typeof DOMException !== "undefined" && e instanceof DOMException && e.name === "AbortError") ||
@@ -1732,22 +2746,27 @@ async function sendLandingAssistantChat() {
       if (aborted || ac.signal.aborted) return;
       const errText = `对话失败：${e?.message || e}`;
       if (streamCtrl) streamCtrl.finalize(errText);
-      else layout.removeLandingThinking(thinkingEl);
-      if (!streamCtrl) layout.addLandingBubble("agent", errText);
-      state.assistantThread.push({ role: "assistant", content: errText, format: "plain" });
+      else if (thinkingEl?.isConnected) layout.removeLandingThinking(thinkingEl);
+      commitAgentTurnForTask(myTaskId, { role: "assistant", content: errText, format: "plain" });
+      persistMyTaskIfViewing();
     } finally {
       if (state.landingChatFlight === flight) state.landingChatFlight = null;
     }
   } catch (e) {
     const errText = `网络错误：${e?.message || e}`;
-    layout.addLandingBubble("agent", errText);
-    state.assistantThread.push({ role: "assistant", content: errText, format: "plain" });
+    commitAgentTurnForTask(myTaskId, { role: "assistant", content: errText, format: "plain" });
+    persistMyTaskIfViewing();
   } finally {
     state.landingAssistantPending = false;
-    if (refs.landingSendChatBtn) refs.landingSendChatBtn.disabled = false;
-    persistLandingAssistantThread();
+    syncLandingSendButtonState();
+    persistMyTaskIfViewing();
     updateLandingSubflowStrip();
-    if (state.assistantThread.some((m) => m.role === "user")) scheduleTaskTitleSummarize();
+    if (
+      String(state.currentTaskId || "").trim() === myTaskId &&
+      state.assistantThread.some((m) => m.role === "user")
+    ) {
+      scheduleTaskTitleSummarize();
+    }
     syncLandingHeroVisibility();
   }
 }
@@ -1761,6 +2780,7 @@ async function startNewLandingTask() {
   persistLandingAssistantThread();
   const tid = crypto?.randomUUID?.() || `${Date.now()}`;
   state.currentTaskId = tid;
+  state.currentTaskUiStage = "";
   state.currentFileId = null;
   state.currentFileName = "";
   state.uploadedSourceDir = "";
@@ -1769,14 +2789,14 @@ async function startNewLandingTask() {
   state.landingSessionDigest = [];
   state.activeTaskKey = "";
   state.landingAttachmentPending = null;
-  syncLandingPendingAttachBar();
   if (refs.msgLanding) refs.msgLanding.value = "";
   if (refs.chatLanding) refs.chatLanding.innerHTML = "";
+  syncLandingPendingAttachBar();
   syncLandingHeroVisibility();
   renderTaskSessionDigest();
   updateLandingSubflowStrip();
   await taskManager.upsertTask({
-    title: "新对话",
+    title: landingNewChatTitleWithStamp(),
     status: "pending",
     progress: 0,
     step: 1,
@@ -1830,32 +2850,290 @@ function isOc4IgesFilename(name) {
 }
 
 function disposeDesignDomainViewer() {
+  teardownDdPlanFloatDock();
   try {
-    designDomainViewer?.dispose();
+    designDomainAgentUi?.dispose?.();
   } catch {}
-  designDomainViewer = null;
+  designDomainAgentUi = null;
+  try {
+    designDomainIde?.dispose();
+  } catch {}
+  designDomainIde = null;
 }
 
-function ensureDesignDomainViewer() {
-  if (designDomainViewer) {
-    designDomainViewer.resizeAll?.();
-    return designDomainViewer;
-  }
-  const L = refs.designDomainCanvasLeft;
-  const R = refs.designDomainCanvasRight;
-  if (!L || !R) return null;
-  designDomainViewer = createDesignDomainViewer({
-    leftContainer: L,
-    rightContainer: R,
+function ensureDesignDomainIde() {
+  if (designDomainIde) return designDomainIde;
+  if (!refs.ddIdeFileTree) return null;
+  designDomainIde = mountDesignDomainIde({
+    getSessionId: () => String(state.oc4DesignDomainSessionId || "").trim(),
+    getTaskId: () => String(state.currentTaskId || "").trim(),
     normalizedBaseUrl,
+    fileTreeEl: refs.ddIdeFileTree,
+    fileHintEl: refs.ddIdeFileRailHint,
+    refreshBtn: refs.ddIdeFileRefreshBtn,
+    newFileBtn: refs.ddIdeNewFileBtn,
+    fileTabsEl: refs.ddIdeFileTabs,
+    viewSegEl: refs.ddIdeViewSeg,
+    panePreview: refs.ddIdePanePreview,
+    paneSource: refs.ddIdePaneSource,
+    previewCanvasWrap: refs.ddIdePreviewCanvasWrap,
+    mdPreviewWrapEl: refs.ddIdeMdPreviewWrap,
+    mdPreviewEl: refs.ddIdeMdPreview,
+    previewLabelEl: refs.ddIdePreviewLabel,
+    tabsMoreDetailsEl: refs.ddIdeTabsMoreDetails,
+    tabsMoreDropdownEl: refs.ddIdeTabsMoreDropdown,
+    codeEditor: refs.ddIdeCodeEditor,
+    codePathEl: refs.ddIdeCodePath,
+    codeMetaEl: refs.ddIdeCodeMeta,
+    planListEl: refs.ddIdePlanList,
+    planDynListEl: refs.ddIdePlanDynList,
+    vscodeFrameEl: refs.ddIdeVscodeFrame,
+    nativeCodeWrapEl: refs.ddIdeNativeCodeWrap,
+    onShowPreview: () => {
+      designDomainIde?.preview3d?.resize?.();
+    },
+    openSessionExplorer: (rel) => openExplorerForDesignDomainSession(rel || ""),
+    onWorkspaceToast: (msg) => appendDesignDomainChat("agent", msg, { skipPersist: true }),
+    onPlanStateChange: ({ topic, phase }) => {
+      try {
+        designDomainAgentUi?.appendPlanActivity?.(topic, phase);
+      } catch {
+        /* ignore */
+      }
+    },
+    onClearDynamicPlan: () => {
+      ensureDdPlanRailStepsIfEmpty();
+    },
   });
-  queueMicrotask(() => {
-    designDomainViewer?.resizeAll?.();
+  if (!designDomainAgentUi && refs.ddAgentRunLog) {
+    designDomainAgentUi = mountDesignDomainAgentUi({
+      traceEl: refs.ddAgentRunLog,
+      inputEl: refs.ddAgentInput,
+      modelQuickEl: refs.ddAgentModelQuick,
+      renderDesignDomainChatRow: (role, text, oc4Idx) => appendDesignDomainChatRow(role, text, oc4Idx),
+      getChatActivityLog: () => state.oc4ActivityLog || [],
+      sendBtn: refs.ddAgentSend,
+      stopBtn: refs.ddAgentStop,
+      statToolsEl: refs.ddAgentStatTools,
+      statFilesEl: refs.ddAgentStatFiles,
+      statPathsEl: null,
+      statCharsEl: null,
+      sessionStatsEl: refs.ddAgentSessionStats,
+      contextHintEl: refs.ddAgentContextHint,
+      statDetailEl: refs.ddAgentStatDetail,
+      statDetailTitleEl: refs.ddAgentStatDetailTitle,
+      statDetailBodyEl: refs.ddAgentStatDetailBody,
+      onPlanMdDelta: (chunk) => {
+        const wrap = refs.ddIdePlanMdWrap;
+        const box = refs.ddIdePlanMdStream;
+        if (!wrap || !box) return;
+        wrap.classList.remove("hidden");
+        _ddPlanMdAccum += String(chunk || "");
+        scheduleDdPlanMdRender();
+      },
+      onPlanBuildProgress: (ev) => {
+        try {
+          ensureDesignDomainIde()?.setDynamicPlanStepState?.(ev);
+        } catch {
+          /* ignore */
+        }
+      },
+      onAgentProduce: (rel) => {
+        if (state.ddPreviewFollowLock) return;
+        const r = String(rel || "").trim();
+        if (!r) return;
+        try {
+          void ensureDesignDomainIde()?.openRelPath?.(r, { preferPreview: true });
+        } catch {
+          /* ignore */
+        }
+      },
+      onPlanFileReady: () => {
+        void syncDesignDomainSessionProgress()
+          .catch(() => {})
+          .finally(() => applyDesignDomainStepUi());
+      },
+      onStreamPhaseDone: (ok, detail) => {
+        const ph = String(detail?.phase || "");
+        if (ph === "plan_draft" || ph === "plan_build") {
+          void syncDesignDomainSessionProgress()
+            .catch(() => {})
+            .finally(() => applyDesignDomainStepUi());
+        }
+        if (ph === "plan_draft" && !ok) {
+          ensureDdPlanRailStepsIfEmpty();
+        }
+        if (ph === "plan_build" && ok) {
+          appendDesignDomainChat("agent", "全流程 Build 已完成。可打开 build_history.md 查看各步摘要。");
+        }
+      },
+      onPlanRailStep: (ev) => {
+        appendDdPlanRailStep(ev);
+      },
+      onDynamicPlan: (steps, rationale) => {
+        try {
+          ensureDesignDomainIde()?.setDynamicPlanSteps?.(steps, rationale);
+          queueMicrotask(() => syncDdPlanFloatListFromDom());
+        } catch {
+          /* ignore */
+        }
+      },
+      getTaskId: () => String(state.currentTaskId || "").trim(),
+      getPlanBuildPayload: () => {
+        const preset = String(state.oc4PlanMeshPreset || "balanced").trim() || "balanced";
+        const customMm = String(state.oc4PlanMeshCustomMm || "").trim();
+        const note = String(state.oc4PlanMeshNote || "").trim().slice(0, 600);
+        const payload = {
+          cut_center_column: Boolean(state.oc4BuildCutCenter),
+          include_source_geometry: Boolean(state.oc4BuildIncludeSource),
+          mesh_preset: preset,
+          mesh_user_note: note || null,
+        };
+        if (preset === "custom" && customMm) {
+          const n = Number(customMm);
+          if (Number.isFinite(n) && n > 0) payload.mesh_characteristic_length_max = n;
+        }
+        return payload;
+      },
+      getSessionId: () => String(state.oc4DesignDomainSessionId || "").trim(),
+      normalizedBaseUrl,
+      onOpenFile: (rel) => {
+        ensureDesignDomainIde()?.openRelPath?.(rel, { preferPreview: true });
+      },
+      onRefreshTree: () => {
+        void syncDesignDomainSessionProgress().catch(() => {});
+        refreshDesignDomainIdeFiles();
+      },
+      appendFlowLog: (role, text) => appendDesignDomainChat(role, text),
+    });
+  }
+  void refreshQwenConfigStatus();
+  queueMicrotask(() => setupDdPlanFloatDock());
+  return designDomainIde;
+}
+
+function refreshDesignDomainIdeFiles() {
+  ensureDesignDomainIde()?.refreshFileTree?.();
+}
+
+function getDdIdePreview3d() {
+  return ensureDesignDomainIde()?.preview3d ?? null;
+}
+
+function teardownDdPlanFloatDock() {
+  if (_ddPlanFloatIo) {
+    try {
+      _ddPlanFloatIo.disconnect();
+    } catch {
+      /* ignore */
+    }
+    _ddPlanFloatIo = null;
+  }
+  if (_ddPlanFloatMo) {
+    try {
+      _ddPlanFloatMo.disconnect();
+    } catch {
+      /* ignore */
+    }
+    _ddPlanFloatMo = null;
+  }
+  refs.ddPlanFloatDock?.classList.add("hidden");
+  refs.ddPlanFloatDock?.setAttribute("aria-hidden", "true");
+  refs.ddPlanFloatDockPanel?.classList.add("hidden");
+  refs.ddPlanFloatDockBtn?.setAttribute("aria-expanded", "false");
+}
+
+function syncDdPlanFloatListFromDom() {
+  const src = refs.ddIdePlanDynList;
+  const dst = refs.ddPlanFloatDockList;
+  if (!src || !dst) return;
+  dst.innerHTML = src.innerHTML;
+}
+
+function setupDdPlanFloatDock() {
+  teardownDdPlanFloatDock();
+  const root = refs.ddAgentUnifiedScroll;
+  const target = refs.ddIdePlan;
+  const dock = refs.ddPlanFloatDock;
+  if (!root || !target || !dock) return;
+  _ddPlanFloatIo = new IntersectionObserver(
+    (entries) => {
+      const vis = entries.some((e) => e.isIntersecting && e.intersectionRatio > 0.02);
+      const dyn = refs.ddIdePlanDynList;
+      const hasPlan = dyn && !dyn.classList.contains("hidden") && dyn.querySelector("li");
+      if (hasPlan && !vis) {
+        dock.classList.remove("hidden");
+        dock.setAttribute("aria-hidden", "false");
+      } else {
+        dock.classList.add("hidden");
+        dock.setAttribute("aria-hidden", "true");
+        refs.ddPlanFloatDockPanel?.classList.add("hidden");
+        refs.ddPlanFloatDockBtn?.setAttribute("aria-expanded", "false");
+      }
+    },
+    { root, threshold: [0, 0.02, 0.1] },
+  );
+  _ddPlanFloatIo.observe(target);
+  _ddPlanFloatMo = new MutationObserver(() => {
+    syncDdPlanFloatListFromDom();
   });
-  return designDomainViewer;
+  if (refs.ddIdePlanDynList) {
+    _ddPlanFloatMo.observe(refs.ddIdePlanDynList, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+  }
+  syncDdPlanFloatListFromDom();
+}
+
+function syncDdPlanPrefFormFromState() {
+  const preset = String(state.oc4PlanMeshPreset || "balanced");
+  for (const el of document.querySelectorAll('input[name="ddPlanMeshPreset"]')) {
+    if (el instanceof HTMLInputElement) el.checked = el.value === preset;
+  }
+  if (refs.ddPlanMeshCustomMm) refs.ddPlanMeshCustomMm.value = String(state.oc4PlanMeshCustomMm || "");
+  if (refs.ddPlanMeshNote) refs.ddPlanMeshNote.value = String(state.oc4PlanMeshNote || "");
+  if (refs.ddPlanMeshCustomMm) refs.ddPlanMeshCustomMm.disabled = preset !== "custom";
+}
+
+function openDdPlanPrefModal() {
+  if (state.ddPlanBuildBusy) return;
+  syncDdPlanPrefFormFromState();
+  refs.ddPlanPrefModal?.classList.remove("hidden");
+  refs.ddPlanPrefModal?.setAttribute("aria-hidden", "false");
+}
+
+function closeDdPlanPrefModal() {
+  refs.ddPlanPrefModal?.classList.add("hidden");
+  refs.ddPlanPrefModal?.setAttribute("aria-hidden", "true");
+}
+
+function applyDdPlanPrefFromForm() {
+  const sel = document.querySelector('input[name="ddPlanMeshPreset"]:checked');
+  const preset = sel instanceof HTMLInputElement ? String(sel.value || "").trim() : "balanced";
+  const customRaw = String(refs.ddPlanMeshCustomMm?.value || "").trim();
+  const note = String(refs.ddPlanMeshNote?.value || "").trim().slice(0, 600);
+  if (preset === "custom") {
+    const n = Number(customRaw);
+    if (!Number.isFinite(n) || n <= 0) {
+      appendDesignDomainChat("agent", "选择「其他」时请填写有效的最大特征长度（正数，单位 mm）。", { skipPersist: true });
+      return false;
+    }
+    state.oc4PlanMeshCustomMm = customRaw;
+  } else {
+    state.oc4PlanMeshCustomMm = "";
+  }
+  state.oc4PlanMeshPreset = preset || "balanced";
+  state.oc4PlanMeshNote = note;
+  return true;
 }
 
 function resetOc4DesignDomainState() {
+  teardownDdPlanFloatDock();
+  resetDesignDomainPlanStreamUi();
+  state.ddPlanBuildBusy = false;
   state.oc4DesignDomainSessionId = "";
   state.oc4PendingLoads = null;
   state.oc4LastSuggestedBuild = null;
@@ -1864,8 +3142,14 @@ function resetOc4DesignDomainState() {
   state.oc4LastSuggestedMesh = null;
   state.oc4PendingExport = null;
   state.oc4LastSuggestedExport = null;
+  state.oc4BuildCutCenter = true;
+  state.oc4BuildIncludeSource = false;
+  state.oc4PlanMeshPreset = "balanced";
+  state.oc4PlanMeshCustomMm = "";
+  state.oc4PlanMeshNote = "";
   state.ddNlTopic = "";
   state.ddNlLastPayload = null;
+  state.ddNlBaselineStr = "";
   state.ddProgress = null;
   closeDdNlModal();
   applyDesignDomainStepUi();
@@ -1930,31 +3214,84 @@ function ingestTaskOc4Activity(task) {
 }
 
 function renderDesignDomainChatFromState() {
-  const log = refs.designDomainFlowLog;
+  const log = refs.ddAgentRunLog;
   if (!log) return;
   log.innerHTML = "";
-  for (const e of state.oc4ActivityLog || []) {
-    appendDesignDomainChatRow(e.role, e.text);
+  const arr = state.oc4ActivityLog || [];
+  for (let i = 0; i < arr.length; i++) {
+    const e = arr[i];
+    appendDesignDomainChatRow(e.role, e.text, e.role === "user" ? i : undefined);
   }
   log.scrollTop = log.scrollHeight;
 }
 
-function appendDesignDomainChatRow(role, text) {
-  const log = refs.designDomainFlowLog;
+function onUserChatBubbleCommit(el) {
+  if (!(el instanceof HTMLElement)) return;
+  const i = Number(el.dataset.oc4Idx);
+  if (!Number.isInteger(i) || i < 0) return;
+  const arr = state.oc4ActivityLog || [];
+  if (!arr[i] || arr[i].role !== "user") return;
+  const prev = String(arr[i].text || "").trim();
+  const next = String(el.innerText || "")
+    .replace(/\r\n/g, "\n")
+    .trim()
+    .slice(0, 2500);
+  if (!next) {
+    el.textContent = prev;
+    return;
+  }
+  if (next === prev) return;
+  arr[i] = { ...arr[i], text: next };
+  state.oc4ActivityLog = [...arr];
+  if (state.currentTaskId) {
+    if (_oc4ActivityDebounce) clearTimeout(_oc4ActivityDebounce);
+    _oc4ActivityDebounce = setTimeout(() => {
+      _oc4ActivityDebounce = null;
+      if (state.currentTaskId) taskManager.upsertTask({ oc4_activity: state.oc4ActivityLog }).catch(() => {});
+    }, 350);
+  }
+  try {
+    designDomainAgentUi?.flushPersist?.();
+  } catch {
+    /* ignore */
+  }
+}
+
+function appendDesignDomainChatRow(role, text, oc4Idx) {
+  const log = refs.ddAgentRunLog;
   if (!log) return;
   const wrap = document.createElement("div");
-  wrap.className = `ddMsgWrap ddMsgWrap--${role === "user" ? "user" : "agent"}`;
+  wrap.className = `ddAgentLine ddAgentLine--chat ddMsgWrap ddMsgWrap--${role === "user" ? "user" : "agent"}`;
   const badge = document.createElement("span");
   badge.className = "ddMsgBadge";
   badge.textContent = role === "user" ? "你" : "Agent";
   const row = document.createElement("div");
   row.className = `ddMsg ddMsg--${role === "user" ? "user" : "agent"}`;
-  row.textContent = text;
+  const isUserEditable = role === "user" && Number.isInteger(oc4Idx) && oc4Idx >= 0;
+  if (isUserEditable) {
+    row.contentEditable = "true";
+    row.spellcheck = false;
+    row.classList.add("ddMsg--userEditable");
+    row.dataset.oc4Idx = String(oc4Idx);
+    row.title = "可直接编辑；失焦后保存。Enter 结束编辑，Shift+Enter 换行。";
+    row.textContent = text;
+    row.addEventListener("blur", () => onUserChatBubbleCommit(row));
+    row.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        row.blur();
+      }
+    });
+  } else {
+    row.textContent = text;
+  }
   wrap.appendChild(badge);
   wrap.appendChild(row);
   log.appendChild(wrap);
   while (log.children.length > 48) log.removeChild(log.firstChild);
   log.scrollTop = log.scrollHeight;
+  const sc = refs.ddAgentUnifiedScroll;
+  if (sc) sc.scrollTop = sc.scrollHeight;
 }
 
 function pushOc4ActivityPersist(role, text) {
@@ -1995,8 +3332,142 @@ function buildOc4OrchestratePreambleMd() {
 }
 
 function appendDesignDomainChat(role, text, opts = {}) {
-  appendDesignDomainChatRow(role, text);
+  if (role === "user" && !opts.skipPersist) {
+    pushOc4ActivityPersist(role, text);
+    const idx = (state.oc4ActivityLog?.length || 1) - 1;
+    appendDesignDomainChatRow(role, text, idx);
+    return;
+  }
+  appendDesignDomainChatRow(role, text, undefined);
   if (!opts.skipPersist) pushOc4ActivityPersist(role, text);
+}
+
+function getDdNlTopicSnapshot(topic) {
+  try {
+    if (topic === "design") {
+      return JSON.stringify(
+        stableSortKeysDeep({
+          cut_center_column: Boolean(state.oc4BuildCutCenter),
+          include_source_geometry: Boolean(state.oc4BuildIncludeSource),
+        }),
+        null,
+        2,
+      );
+    }
+    if (topic === "preview") {
+      const o = state.oc4PendingExport && typeof state.oc4PendingExport === "object" ? state.oc4PendingExport : {};
+      return JSON.stringify(stableSortKeysDeep(o), null, 2);
+    }
+    if (topic === "mesh") {
+      const m = state.oc4PendingMesh && typeof state.oc4PendingMesh === "object" ? { ...state.oc4PendingMesh } : {};
+      return JSON.stringify(stableSortKeysDeep(m), null, 2);
+    }
+    if (topic === "loads") {
+      const l = state.oc4PendingLoads && typeof state.oc4PendingLoads === "object" ? state.oc4PendingLoads : {};
+      return JSON.stringify(stableSortKeysDeep(l), null, 2);
+    }
+  } catch {
+    /* ignore */
+  }
+  return "{}";
+}
+
+function extractSuggestedForTopic(data, topic) {
+  if (!data || typeof data !== "object") return null;
+  if (topic === "design" && data.suggested_build && typeof data.suggested_build === "object") return data.suggested_build;
+  if (topic === "preview" && data.suggested_export && typeof data.suggested_export === "object") return data.suggested_export;
+  if (topic === "mesh" && data.suggested_mesh && typeof data.suggested_mesh === "object") return data.suggested_mesh;
+  if (topic === "loads" && data.suggested_loads && typeof data.suggested_loads === "object") return data.suggested_loads;
+  return null;
+}
+
+function appendDdNlThinkingRow() {
+  const log = refs.ddStepNlLog;
+  if (!log) return null;
+  const topic = state.ddNlTopic;
+  if (topic) ensureDesignDomainIde()?.syncPlanState?.({ topic, phase: "running" });
+  const row = document.createElement("div");
+  row.className = "ddNlThinkingRow";
+  row.setAttribute("role", "status");
+  row.innerHTML = `<span class="ddNlThinkingDots" aria-hidden="true"></span><span class="ddNlThinkingTxt">正在请求模型…</span>`;
+  log.appendChild(row);
+  log.scrollTop = log.scrollHeight;
+  return row;
+}
+
+async function streamDdNlReply(el, mdText) {
+  const full = String(mdText || "");
+  const reduceMotion =
+    typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduceMotion) {
+    el.innerHTML = renderSimpleMd(full);
+    return;
+  }
+  const chunk = 22;
+  let i = 0;
+  while (i < full.length) {
+    i = Math.min(full.length, i + chunk);
+    el.textContent = `${full.slice(0, i)}${i < full.length ? " ▍" : ""}`;
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => window.setTimeout(r, 9));
+  }
+  el.innerHTML = renderSimpleMd(full);
+}
+
+async function appendDdNlAgentResponse(data, topic) {
+  const log = refs.ddStepNlLog;
+  if (!log) return;
+  const turn = document.createElement("div");
+  turn.className = "ddNlTurn ddNlTurn--agent";
+  const reply = document.createElement("div");
+  reply.className = "ddNlReply mdBox";
+  const replyText = String(data?.reply || "(无回复)");
+  turn.appendChild(reply);
+  log.appendChild(turn);
+  log.scrollTop = log.scrollHeight;
+  await streamDdNlReply(reply, replyText);
+
+  const sug = extractSuggestedForTopic(data, topic);
+  const right = sug ? JSON.stringify(stableSortKeysDeep(sug), null, 2) : "";
+  const left = String(state.ddNlBaselineStr || "");
+  const rows = sug ? diffLineStrings(left, right) : [];
+  if (sug && diffHasStructuralChange(rows)) {
+    const shell = document.createElement("div");
+    shell.className = "ddNlDiffShell";
+    const head = document.createElement("div");
+    head.className = "ddNlDiffHead";
+    const { add, del } = diffSummaryCounts(rows);
+    const headLeft = document.createElement("span");
+    headLeft.className = "ddNlDiffTitle";
+    headLeft.textContent = "建议参数变更";
+    const headMeta = document.createElement("span");
+    headMeta.className = "ddNlDiffMeta";
+    headMeta.textContent = `+${add} 行 · −${del} 行`;
+    head.appendChild(headLeft);
+    head.appendChild(headMeta);
+    const view = document.createElement("div");
+    view.className = "ddNlDiffView";
+    for (const r of rows) {
+      const line = document.createElement("div");
+      line.className = `ddDiffLine ddDiffLine--${r.op}`;
+      line.textContent = r.text.length ? r.text : " ";
+      view.appendChild(line);
+    }
+    shell.appendChild(head);
+    shell.appendChild(view);
+    turn.appendChild(shell);
+  }
+  if (sug) state.ddNlBaselineStr = right;
+  log.scrollTop = log.scrollHeight;
+
+  const short = ddNlShortTopicLabel();
+  const diffNote =
+    sug && diffHasStructuralChange(rows)
+      ? `（结构化建议相对上一版：+${diffSummaryCounts(rows).add} / −${diffSummaryCounts(rows).del} 行）`
+      : "";
+  appendDesignDomainChat("agent", `[${short}] ${replyText}${diffNote}`);
+  ensureDesignDomainIde()?.syncPlanState?.({ topic, phase: "done" });
+  if (sug && diffHasStructuralChange(rows)) ensureDesignDomainIde()?.markTopicDirty?.(topic);
 }
 
 function ddNlShortTopicLabel() {
@@ -2021,15 +3492,21 @@ function appendDdNlLog(role, text) {
 }
 
 const DD_NL_TOPIC_META = {
-  design: { title: "AI Engineering · 步骤 1 · 设计域", intro: "选项讨论后点「1 构建设计域」。" },
-  preview: { title: "AI Engineering · 步骤 2 · OBJ", intro: "可调三角化疏密；应用后点「2 导出 OBJ」。" },
+  design: {
+    title: "AI Engineer · 步骤 1 · 设计域",
+    intro: "回复以流式呈现；若有结构化建议，会以绿/红行对比相对当前将用于构建的几何选项。可多次追问后点「应用」再点「1 构建设计域」。",
+  },
+  preview: {
+    title: "AI Engineer · 步骤 2 · OBJ",
+    intro: "用自然语言描述预览三角化意图；建议 JSON 与当前待导出参数对比展示。应用后点「2 导出 OBJ」。",
+  },
   mesh: {
-    title: "AI Engineering · 步骤 3 · 体网格",
-    intro: "与主页相同 Plan 弹窗确认参数；char_max 可覆盖方案。步骤条可回溯。",
+    title: "AI Engineer · 步骤 3 · 体网格",
+    intro: "说明疏密与 char 等意图；模型建议与当前已应用的体网格参数对比。应用后再点「3」，Plan 弹窗会带入这些数值以便微调。",
   },
   loads: {
-    title: "AI Engineering · 步骤 4 · 载荷",
-    intro: "描述载荷意图；可选自然语言。应用后点「4 划分载荷」。",
+    title: "AI Engineer · 步骤 4 · 载荷",
+    intro: "可写自然语言；数值建议与当前载荷参数 diff 展示。应用后点「4 划分载荷」。",
   },
 };
 
@@ -2041,28 +3518,12 @@ function syncDdNlInputVisibility() {
   if (refs.ddStepNlInput) refs.ddStepNlInput.classList.toggle("hidden", loads);
 }
 
-function openDdNlModal(topic) {
-  const dlg = refs.ddStepNlDialog;
-  if (!dlg || !DD_NL_TOPIC_META[topic]) return;
-  state.ddNlTopic = topic;
-  state.ddNlLastPayload = null;
-  if (refs.ddStepNlLog) refs.ddStepNlLog.innerHTML = "";
-  if (refs.ddStepNlInput) refs.ddStepNlInput.value = "";
-  if (topic !== "loads" && refs.ddNlLoadsTa) refs.ddNlLoadsTa.value = "";
-  const meta = DD_NL_TOPIC_META[topic];
-  if (refs.ddStepNlTitle) refs.ddStepNlTitle.textContent = meta.title;
-  if (refs.ddStepNlIntro) refs.ddStepNlIntro.textContent = meta.intro;
-  syncDdNlInputVisibility();
-  refreshDdNlApplyEnabled();
-  if (typeof dlg.showModal === "function") dlg.showModal();
-  else dlg.setAttribute("open", "");
+function openDdNlModal(_topic) {
+  appendDesignDomainChat("agent", "专步面板已移除：请使用下方「智能体」输入框，用自然语言描述构建 / 导出 / 网格 / 载荷等需求。");
+  state.ddNlTopic = "";
 }
 
 function closeDdNlModal() {
-  const dlg = refs.ddStepNlDialog;
-  if (!dlg) return;
-  if (typeof dlg.close === "function") dlg.close();
-  dlg.removeAttribute("open");
   state.ddNlTopic = "";
 }
 
@@ -2089,9 +3550,9 @@ function applyDdNlSuggestions() {
   if (!p || !t) return;
   if (t === "design" && p.suggested_build && typeof p.suggested_build === "object") {
     const b = p.suggested_build;
-    if (typeof b.cut_center_column === "boolean" && refs.ddCutCenter) refs.ddCutCenter.checked = b.cut_center_column;
-    if (typeof b.include_source_geometry === "boolean" && refs.ddIncludeSource) refs.ddIncludeSource.checked = b.include_source_geometry;
-    appendDdNlLog("agent", "已应用设计域选项到复选框。");
+    if (typeof b.cut_center_column === "boolean") state.oc4BuildCutCenter = b.cut_center_column;
+    if (typeof b.include_source_geometry === "boolean") state.oc4BuildIncludeSource = b.include_source_geometry;
+    appendDdNlLog("agent", "已应用设计域几何选项（挖除中心柱 / 合并源几何）。");
   }
   if (t === "preview" && p.suggested_export && typeof p.suggested_export === "object") {
     state.oc4PendingExport = { ...p.suggested_export };
@@ -2099,9 +3560,7 @@ function applyDdNlSuggestions() {
   }
   if (t === "mesh" && p.suggested_mesh && typeof p.suggested_mesh === "object") {
     state.oc4PendingMesh = { ...p.suggested_mesh };
-    const mx = Number(p.suggested_mesh.characteristic_length_max);
-    if (refs.ddCharMax && Number.isFinite(mx) && mx > 0) refs.ddCharMax.value = String(mx);
-    appendDdNlLog("agent", "已写入体网格建议（并同步 char_max 输入框，若模型给出）。可直接点「3 FreeCAD 体网格」。");
+    appendDdNlLog("agent", "已写入体网格参数；点「3 FreeCAD 体网格」时可在 Plan 弹窗中微调。");
   }
   if (t === "loads" && p.suggested_loads && typeof p.suggested_loads === "object") {
     const l = p.suggested_loads;
@@ -2125,7 +3584,9 @@ function applyDdNlSuggestions() {
     state.oc4PendingLoads = Object.keys(next).length ? next : null;
     appendDdNlLog("agent", "已合并载荷数值建议；自然语言框内容会在划分时一并提交。");
   }
+  state.ddNlBaselineStr = getDdNlTopicSnapshot(t);
   refreshDdNlApplyEnabled();
+  ensureDesignDomainIde()?.clearDirtyTopic?.(t);
 }
 
 function buildOc4LoadsRequestBody() {
@@ -2202,21 +3663,106 @@ function buildOc4MeshRequestBody(plan) {
     if (plan.compound_part_strategy) body.compound_part_strategy = plan.compound_part_strategy;
     if (plan.timeout_minutes != null) body.timeout_minutes = plan.timeout_minutes;
   }
-  const raw = refs.ddCharMax?.value?.trim();
-  if (raw) {
-    const n = Number(raw);
-    if (Number.isFinite(n) && n > 0) body.characteristic_length_max = n;
-  }
   return body;
 }
 
-function setDesignDomainOverlay(side, visible, text) {
-  const overlay = side === "left" ? refs.designDomainLeftOverlay : refs.designDomainRightOverlay;
-  const textEl = side === "left" ? refs.designDomainLeftOverlayText : refs.designDomainRightOverlayText;
+function setDesignDomainOverlay(_side, visible, text) {
+  const overlay = refs.ddIdePreviewOverlay;
+  const textEl = refs.ddIdePreviewOverlayText;
   if (!overlay) return;
   if (text != null && textEl) textEl.textContent = text;
   overlay.classList.toggle("hidden", !visible);
   overlay.setAttribute("aria-hidden", visible ? "false" : "true");
+}
+
+/** 与后端 `_yield_fallback_plan_rail_steps` 一致：短占位或流式摘要不足时使用完整句。 */
+const DD_PLAN_RAIL_DEFAULTS = [
+  [
+    "design",
+    "步骤 1：在会话工作区构建设计域几何（源装配与设计域体），产出 STEP 等中间文件。",
+  ],
+  ["preview", "步骤 2：导出三角化 OBJ，用于中栏 3D 预览与几何尺度核对。"],
+  ["mesh", "步骤 3：基于设计域 STEP 生成体网格 INP，作为后续载荷划分的有限元模型。"],
+  [
+    "loads",
+    "步骤 4：写入载荷、约束与 *STEP/*CLOAD，生成面向 BESO 的载荷 INP（如 03_for_beso.inp）。",
+  ],
+];
+const DD_PLAN_RAIL_DEFAULT_LABEL = Object.fromEntries(DD_PLAN_RAIL_DEFAULTS);
+
+function coalesceDdPlanRailLabel(topic, rawLabel) {
+  const r = String(rawLabel || "").trim();
+  const d = DD_PLAN_RAIL_DEFAULT_LABEL[topic];
+  if (r.length >= 52) return r;
+  return d || r || topic;
+}
+
+function appendDdPlanRailStep(ev) {
+  const ol = refs.ddIdePlanList;
+  if (!ol) return;
+  const topic = String(ev.topic || "").trim();
+  if (!topic) return;
+  const label = coalesceDdPlanRailLabel(topic, String(ev.label || "").trim()).slice(0, 400);
+  const existing = ol.querySelector(`[data-dd-plan="${topic}"]`);
+  if (existing) {
+    const tx = existing.querySelector(".ddIdePlanTxt");
+    if (tx && label) tx.textContent = label;
+    return;
+  }
+  const li = document.createElement("li");
+  li.className = "ddIdePlanItem";
+  li.setAttribute("data-dd-plan", topic);
+  const dot = document.createElement("span");
+  dot.className = "ddIdePlanDot";
+  dot.setAttribute("aria-hidden", "true");
+  const tx = document.createElement("span");
+  tx.className = "ddIdePlanTxt";
+  tx.textContent = label || topic;
+  li.appendChild(dot);
+  li.appendChild(tx);
+  ol.appendChild(li);
+}
+
+/** 恢复会话等场景：无流式计划时补全四步占位，便于轨道高亮 */
+function ensureDdPlanRailStepsIfEmpty() {
+  const ol = refs.ddIdePlanList;
+  if (!ol || !String(state.oc4DesignDomainSessionId || "").trim()) return;
+  if (ol.querySelector("[data-dd-plan]")) return;
+  for (const [topic, lab] of DD_PLAN_RAIL_DEFAULTS) {
+    appendDdPlanRailStep({ topic, label: lab });
+  }
+}
+
+function resetDesignDomainPlanStreamUi() {
+  if (_ddPlanMdFlushTimer) {
+    clearTimeout(_ddPlanMdFlushTimer);
+    _ddPlanMdFlushTimer = null;
+  }
+  _ddPlanMdAccum = "";
+  const pre = refs.ddIdePlanMdStream;
+  const wrap = refs.ddIdePlanMdWrap;
+  if (pre) pre.innerHTML = "";
+  wrap?.classList.add("hidden");
+  if (refs.ddIdePlanList) refs.ddIdePlanList.innerHTML = "";
+  refs.ddIdePlanArtifactsRow?.classList.add("hidden");
+  refs.ddIdePlanPlanOpen?.classList.add("hidden");
+  refs.ddIdePlanHistoryOpen?.classList.add("hidden");
+  refs.ddIdePlanBuildBtn?.classList.remove("hidden");
+  if (refs.ddIdePlanBuildBtn) refs.ddIdePlanBuildBtn.textContent = "Build";
+}
+
+function syncDesignDomainPlanArtifactUi() {
+  const p = state.ddProgress ?? readDdProgressFromPayload({});
+  const row = refs.ddIdePlanArtifactsRow;
+  const planB = refs.ddIdePlanPlanOpen;
+  if (!row || !planB) return;
+  if (p.has_build_plan_md) {
+    row.classList.remove("hidden");
+    planB.classList.remove("hidden");
+  } else {
+    planB.classList.add("hidden");
+    row.classList.add("hidden");
+  }
 }
 
 function readDdProgressFromPayload(data) {
@@ -2227,6 +3773,9 @@ function readDdProgressFromPayload(data) {
     has_design_preview_obj: Boolean(d.has_design_preview_obj),
     has_mesh_body_inp: Boolean(d.has_mesh_body_inp),
     has_for_beso_inp: Boolean(d.has_for_beso_inp),
+    design_domain_full_build_done: Boolean(d.design_domain_full_build_done),
+    has_build_plan_md: Boolean(d.has_build_plan_md),
+    has_build_history_md: Boolean(d.has_build_history_md),
   };
 }
 
@@ -2241,29 +3790,8 @@ function deepestDdRailStepDone(p) {
   return d;
 }
 
-function computeDdStepHint(p) {
-  if (!p.has_source_preview_obj) {
-    return "点「1 构建设计域」生成左侧 OBJ。";
-  }
-  if (!p.has_design_domain_step) {
-    return "左侧已就绪；点「1 构建设计域」生成 STEP 与右侧几何。";
-  }
-  if (!p.has_design_preview_obj) {
-    return "STEP 已就绪；点「2 导出 OBJ」刷新右侧。";
-  }
-  if (!p.has_mesh_body_inp) {
-    return "点「3 体网格」：先确认 Plan，再生成 02_mesh_body.inp。";
-  }
-  if (!p.has_for_beso_inp) {
-    return "点「4 划分载荷」生成 03_for_beso.inp，再「完成并进入编排」。";
-  }
-  return "可点「完成并进入编排」。";
-}
-
 function applyDesignDomainStepUi() {
   const sid = state.oc4DesignDomainSessionId;
-  const hintEl = refs.designDomainStepHint;
-  const rail = refs.designDomainStepRail;
   const p = sid ? state.ddProgress ?? readDdProgressFromPayload({}) : readDdProgressFromPayload({});
 
   let ddCur = null;
@@ -2285,89 +3813,55 @@ function applyDesignDomainStepUi() {
     ddCur = cur;
   }
 
-  if (hintEl) {
-    hintEl.textContent = sid ? computeDdStepHint(p) : "上传 IGES 后开始；尚无会话。";
-  }
-
-  if (rail && sid) {
-    for (let i = 0; i < 4; i += 1) {
-      const el = rail.querySelector(`.ddStep[data-idx="${i + 1}"]`);
-      if (!el) continue;
-      el.classList.toggle("ddStepDone", ddDone[i]);
-      el.classList.toggle("ddStepCurrent", ddCur === i + 1);
-      el.setAttribute("aria-current", ddCur === i + 1 ? "step" : "false");
-      el.classList.toggle("ddStepNavigable", true);
-      el.tabIndex = 0;
-    }
-  } else if (rail) {
-    rail.removeAttribute("data-rail-focus");
-    for (let i = 1; i <= 4; i += 1) {
-      const el = rail.querySelector(`.ddStep[data-idx="${i}"]`);
-      if (!el) continue;
-      el.classList.remove("ddStepDone", "ddStepCurrent", "ddStepNavigable");
-      el.setAttribute("aria-current", "false");
-      el.tabIndex = -1;
-    }
-  }
-
-  const tb = refs.designDomainToolbar;
-  const tbarSteps = [refs.ddBtnBuild, refs.ddBtnPreview, refs.ddBtnMesh, refs.ddBtnLoads];
-  if (tb) {
-    if (!sid) {
-      tb.removeAttribute("data-dd-active-step");
-      tb.removeAttribute("data-dd-all-done");
-      for (const b of tbarSteps) {
-        b?.classList.remove("ddTbarDone", "ddTbarCurrent");
-      }
-      refs.ddBtnFinalize?.classList.remove("ddTbarFinalizeReady");
-    } else {
-      tb.setAttribute("data-dd-active-step", ddCur === null ? "0" : String(ddCur));
-      if (ddCur === null) tb.setAttribute("data-dd-all-done", "");
-      else tb.removeAttribute("data-dd-all-done");
-      tbarSteps.forEach((b, i) => {
-        b?.classList.toggle("ddTbarDone", Boolean(ddDone[i]));
-        b?.classList.toggle("ddTbarCurrent", ddCur === i + 1);
-      });
-      refs.ddBtnFinalize?.classList.toggle("ddTbarFinalizeReady", Boolean(ddS4));
-    }
-  }
-
   const noSess = !sid;
-  const setBtn = (el, disabled, title) => {
-    if (!el) return;
-    el.disabled = Boolean(disabled);
-    el.title = title || "";
-  };
-  setBtn(refs.ddBtnBuild, noSess, noSess ? "请先上传 IGES 并进入本页。" : "");
-  setBtn(
-    refs.ddBtnPreview,
-    noSess || !p.has_design_domain_step,
-    !p.has_design_domain_step ? "需先有 01_design_domain.step：请先点「1 构建设计域」。" : "刷新两侧 OBJ（不重新执行 build）。",
-  );
-  setBtn(
-    refs.ddBtnMesh,
-    noSess || !p.has_design_domain_step,
-    !p.has_design_domain_step ? "请先完成设计域构建（步骤 1）。" : "",
-  );
-  setBtn(refs.ddBtnLoads, noSess || !p.has_mesh_body_inp, !p.has_mesh_body_inp ? "请先生成 02_mesh_body.inp（步骤 3）。" : "");
-  setBtn(
-    refs.ddBtnFinalize,
-    noSess || !p.has_for_beso_inp,
-    !p.has_for_beso_inp ? "请先生成 03_for_beso.inp（步骤 4）。" : "写入扫描目录并进入编排。",
-  );
-}
+  if (refs.ddBtnFinalize) {
+    refs.ddBtnFinalize.disabled = Boolean(noSess || !p.has_for_beso_inp);
+    refs.ddBtnFinalize.title = !p.has_for_beso_inp ? "载荷 INP 未就绪" : "写入扫描目录并进入编排";
+    refs.ddBtnFinalize.classList.toggle("ddTbarFinalizeReady", Boolean(ddS4) && Boolean(sid));
+  }
+  const fullBuildDone = Boolean(p.design_domain_full_build_done);
+  const histBtn = refs.ddIdePlanHistoryOpen;
+  const bbtn = refs.ddIdePlanBuildBtn;
+  if (fullBuildDone && histBtn && bbtn) {
+    bbtn.classList.add("hidden");
+    histBtn.classList.remove("hidden");
+    bbtn.disabled = true;
+  } else if (bbtn && histBtn) {
+    bbtn.classList.remove("hidden");
+    histBtn.classList.add("hidden");
+    bbtn.disabled = Boolean(noSess || state.ddPlanBuildBusy || fullBuildDone);
+    bbtn.title = noSess
+      ? "需先建立设计域会话"
+      : state.ddPlanBuildBusy
+        ? "正在执行 Build 管线…"
+        : "全流程：源 OBJ → 设计域 STEP/IGES → 设计 OBJ → 体网格 INP → 载荷 INP（完成后不可重复）";
+  }
 
-function mapDdRailIdxToToolbarBtn(idx) {
-  if (idx === 1) return refs.ddBtnBuild;
-  if (idx === 2) return refs.ddBtnPreview;
-  if (idx === 3) return refs.ddBtnMesh;
-  if (idx === 4) return refs.ddBtnLoads;
-  return null;
+  syncDesignDomainPlanArtifactUi();
+
+  const ide = ensureDesignDomainIde();
+  const topics = ["design", "preview", "mesh", "loads"];
+  topics.forEach((t, i) => {
+    if (ddCur === i + 1) ide?.syncPlanState?.({ topic: t, phase: "running" });
+  });
+  if (ddCur === null && sid) {
+    ide?.syncPlanState?.({ topic: "loads", phase: "done" });
+  } else if (!sid) {
+    ide?.syncPlanState?.({ topic: "design", phase: "reset" });
+  }
+
+  queueMicrotask(() => {
+    ide?.refreshFileTree?.();
+  });
+  if (sid) {
+    queueMicrotask(() => {
+      designDomainAgentUi?.hydrateFromStorage?.();
+    });
+  }
+  syncOpenWorkDirButtonsEnabled();
 }
 
 async function focusDesignDomainRailStep(idx) {
-  const rail = refs.designDomainStepRail;
-  if (rail) rail.setAttribute("data-rail-focus", String(idx));
   const sid = String(state.oc4DesignDomainSessionId || "").trim();
   const p = state.ddProgress ?? readDdProgressFromPayload({});
   const deep = deepestDdRailStepDone(p);
@@ -2378,7 +3872,7 @@ async function focusDesignDomainRailStep(idx) {
       didInvalidate = true;
       appendDesignDomainChat(
         "agent",
-        `已回溯到第 ${idx} 步：已删除第 ${idx + 1}～4 步在服务端生成的中间文件，请从工具栏重新执行对应步骤。`,
+        `已回溯到第 ${idx} 步：已删除第 ${idx + 1}～4 步在服务端生成的中间文件，可通过智能体重新执行后续工具。`,
       );
     } catch (e) {
       appendDesignDomainChat("agent", String(e?.message || e));
@@ -2387,22 +3881,9 @@ async function focusDesignDomainRailStep(idx) {
     await refreshDesignDomainPreviewsFromSession().catch(() => {});
     applyDesignDomainStepUi();
   }
-  const btn = mapDdRailIdxToToolbarBtn(idx);
-  if (btn) {
-    try {
-      btn.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    } catch {
-      btn.scrollIntoView();
-    }
-    try {
-      btn.focus({ preventScroll: true });
-    } catch {
-      btn.focus();
-    }
-  }
   if (!didInvalidate) {
     const names = ["", "构建设计域 / 源预览", "导出 OBJ 预览", "FreeCAD 体网格", "划分载荷"];
-    appendDesignDomainChat("agent", `步骤条：已定位到第 ${idx} 步「${names[idx] || ""}」，可在下方工具栏操作。`);
+    appendDesignDomainChat("agent", `当前会话进度参考：第 ${idx} 步「${names[idx] || ""}」。`);
   }
 }
 
@@ -2454,13 +3935,14 @@ async function runDdSourcePreviewOnly() {
     setDesignDomainOverlay("left", false);
   }
   await deferTwoFrames();
-  const v = ensureDesignDomainViewer();
-  if (v && urls?.source_obj) {
+  const p = getDdIdePreview3d();
+  if (p && urls?.source_obj) {
     try {
-      await v.loadLeft(urls.source_obj);
-      v.resizeAll?.();
+      ensureDesignDomainIde()?.setActiveTab?.("preview");
+      await p.loadObjFromUrl(urls.source_obj);
+      p.resize?.();
     } catch (e) {
-      appendDesignDomainChat("agent", `左侧 OBJ 预览加载失败：${e?.message || e}`);
+      appendDesignDomainChat("agent", `源 OBJ 预览加载失败：${e?.message || e}`);
     }
   }
   return urls;
@@ -2473,28 +3955,24 @@ async function refreshDesignDomainPreviewsFromSession() {
     const { ok, data } = await fetchOc4DesignDomainSessionJson();
     if (!ok) return;
     ingestDdSessionPayload(data);
-    const v = ensureDesignDomainViewer();
-    if (!v) return;
+    const p = getDdIdePreview3d();
+    if (!p) return;
     await deferTwoFrames();
-    v.resizeAll?.();
+    p.resize?.();
     const errs = [];
-    if (data.source_obj_url) {
+    const tryLoad = async (url, label) => {
+      if (!url) return;
       try {
-        await v.loadLeft(data.source_obj_url);
+        await p.loadObjFromUrl(url);
       } catch (e) {
-        errs.push(`左侧：${e?.message || e}`);
+        errs.push(`${label}：${e?.message || e}`);
       }
-    }
-    if (data.design_obj_url) {
-      try {
-        await v.loadRight(data.design_obj_url);
-      } catch (e) {
-        errs.push(`右侧：${e?.message || e}`);
-      }
-    }
-    v.resizeAll?.();
+    };
+    if (data.design_obj_url) await tryLoad(data.design_obj_url, "设计域 OBJ");
+    else if (data.source_obj_url) await tryLoad(data.source_obj_url, "源 OBJ");
+    ensureDesignDomainIde()?.setActiveTab?.("preview");
+    p.resize?.();
     if (errs.length) appendDesignDomainChat("agent", errs.join("；"));
-    /** 无 OBJ 时不刷屏：顶部步骤条与 designDomainStepHint 已提示「1 构建设计域」 */
   } catch (e) {
     appendDesignDomainChat("agent", `恢复预览失败：${e?.message || e}`);
   }
@@ -2509,8 +3987,8 @@ async function runDdBuildAndExportObj() {
       "/build",
       {
         session_id: sid,
-        cut_center_column: Boolean(refs.ddCutCenter?.checked),
-        include_source_geometry: Boolean(refs.ddIncludeSource?.checked),
+        cut_center_column: Boolean(state.oc4BuildCutCenter),
+        include_source_geometry: Boolean(state.oc4BuildIncludeSource),
       },
       { timeoutMs: 900000 },
     );
@@ -2529,17 +4007,50 @@ async function runDdBuildAndExportObj() {
     setDesignDomainOverlay("right", false);
   }
   await deferTwoFrames();
-  const v = ensureDesignDomainViewer();
-  if (v && urls?.design_obj) {
+  const p = getDdIdePreview3d();
+  if (p && urls?.design_obj) {
     try {
-      await v.loadRight(urls.design_obj);
-      v.resizeAll?.();
+      ensureDesignDomainIde()?.setActiveTab?.("preview");
+      await p.loadObjFromUrl(urls.design_obj);
+      p.resize?.();
     } catch (loadErr) {
-      appendDesignDomainChat("agent", `右侧 OBJ 加载失败：${loadErr?.message || loadErr}`);
+      appendDesignDomainChat("agent", `设计域 OBJ 加载失败：${loadErr?.message || loadErr}`);
       throw loadErr;
     }
   }
   return urls;
+}
+
+/** 与进入设计域时 autoPipeline 相同的构建步骤；由 Plan 区 Build 触发，不阻塞主线程绘制。 */
+async function runDdPlanBuildPipelineCore() {
+  ensureDesignDomainIde();
+  const buildBtn = refs.ddIdePlanBuildBtn;
+  state.ddPlanBuildBusy = true;
+  applyDesignDomainStepUi();
+  if (buildBtn) buildBtn.textContent = "执行中…";
+  try {
+    appendDesignDomainChat("agent", "Build：已根据偏好生成计划并启动五步全流程…");
+    if (!designDomainAgentUi?.consumePlanBuildStream) {
+      throw new Error("智能体面板未初始化");
+    }
+    await designDomainAgentUi.consumePlanBuildStream();
+    refreshDesignDomainIdeFiles();
+    await syncDesignDomainSessionProgress().catch(() => {});
+    await refreshDesignDomainPreviewsFromSession().catch(() => {});
+  } finally {
+    state.ddPlanBuildBusy = false;
+    if (buildBtn) buildBtn.textContent = "Build";
+    queueMicrotask(() => applyDesignDomainStepUi());
+  }
+}
+
+/** @param {{ skipPlanPrefModal?: boolean }} [opts] */
+async function runDdAutoBuildPipeline(opts = {}) {
+  if (!opts.skipPlanPrefModal) {
+    openDdPlanPrefModal();
+    return;
+  }
+  await runDdPlanBuildPipelineCore();
 }
 
 /** 串行化进入设计域，避免「运行流程 + 点卡片」等并发触发双次 POST /session */
@@ -2560,10 +4071,19 @@ async function enterOc4DesignDomainStageImpl(opts = {}) {
   const canSoftResume = Boolean(softResume && sidHas && !forceNewSession);
   if (canSoftResume) {
     layout.showStage("designDomain");
+    applyDesignDomainStepUi();
     await deferTwoFrames();
-    await refreshDesignDomainPreviewsFromSession();
+    void refreshDesignDomainPreviewsFromSession().catch(() => {});
     const hint = String(resumeHint || "").trim();
     if (hint) appendDesignDomainChat("agent", hint);
+    ensureDdPlanRailStepsIfEmpty();
+    queueMicrotask(() => {
+      try {
+        designDomainAgentUi?.remergeAgentTrace?.();
+      } catch {
+        /* ignore */
+      }
+    });
     return;
   }
   if (!state.currentFileId) {
@@ -2575,14 +4095,31 @@ async function enterOc4DesignDomainStageImpl(opts = {}) {
     return;
   }
   const hadSession = Boolean(state.oc4DesignDomainSessionId) && !forceNewSession;
-  if (!hadSession && refs.designDomainFlowLog) refs.designDomainFlowLog.innerHTML = "";
   if (!hadSession) {
+    ensureDesignDomainIde();
+    designDomainAgentUi?.resetPersistedForNewDesignSession?.();
+  }
+  if (!hadSession) {
+    try {
+      ensureDesignDomainIde()?.clearDynamicPlan?.();
+    } catch {
+      /* ignore */
+    }
+    resetDesignDomainPlanStreamUi();
     state.oc4ActivityLog = [];
     state.oc4LastSuggestedBuild = null;
     state.oc4LastSuggestedLoads = null;
     state.oc4PendingMesh = null;
     state.oc4PendingExport = null;
+    state.oc4BuildCutCenter = true;
+    state.oc4BuildIncludeSource = false;
+    state.oc4PlanMeshPreset = "balanced";
+    state.oc4PlanMeshCustomMm = "";
+    state.oc4PlanMeshNote = "";
   }
+  layout.showStage("designDomain");
+  applyDesignDomainStepUi();
+  await deferTwoFrames();
   try {
     if (!state.oc4DesignDomainSessionId || forceNewSession) {
       if (!forceNewSession) {
@@ -2598,30 +4135,36 @@ async function enterOc4DesignDomainStageImpl(opts = {}) {
           await taskManager.upsertTask({ oc4_design_domain_session_id: state.oc4DesignDomainSessionId }).catch(() => {});
           await taskManager.loadTasks().catch(() => {});
         }
+        resetDesignDomainPlanStreamUi();
+        if (!autoPipeline && designDomainAgentUi?.consumePlanDraftStream) {
+          void designDomainAgentUi.consumePlanDraftStream().catch((e) => {
+            appendDesignDomainChat("agent", `计划草稿未能流式生成：${e?.message || e}`);
+            ensureDdPlanRailStepsIfEmpty();
+          });
+        }
       } else {
         appendDesignDomainChat(
           "agent",
           `继续会话 ${state.oc4DesignDomainSessionId.slice(0, 8)}…（已从任务列表恢复，未新建会话）`,
         );
+        ensureDdPlanRailStepsIfEmpty();
       }
     } else {
       appendDesignDomainChat("agent", `继续会话 ${state.oc4DesignDomainSessionId.slice(0, 8)}…（重新上传文件可开启新会话）`);
+      ensureDdPlanRailStepsIfEmpty();
     }
-    /** 会话就绪后再进入舞台，避免 /session 失败时卡在「无会话」空白页 */
-    layout.showStage("designDomain");
     applyDesignDomainStepUi();
     await deferTwoFrames();
     if (autoPipeline) {
-      appendDesignDomainChat("agent", "先生成源几何 STEP 预览（左侧）…");
-      await runDdSourcePreviewOnly();
-      appendDesignDomainChat("agent", "源预览已就绪；正在构建设计域并更新右侧预览…");
-      await runDdBuildAndExportObj();
-      appendDesignDomainChat("agent", "预览已更新。步骤条「AI」打开专步对话；体网格默认偏粗以控制 INP 体积。");
+      await runDdAutoBuildPipeline({ skipPlanPrefModal: true });
     } else {
       await refreshDesignDomainPreviewsFromSession();
       const p = state.ddProgress ?? readDdProgressFromPayload({});
       if (!p.has_source_preview_obj) {
-        appendDesignDomainChat("agent", "下一步：点击工具栏「1 构建设计域」生成源预览与设计域几何。");
+        appendDesignDomainChat(
+          "agent",
+          "下一步：在右侧说明是否挖除中心柱、是否合并源几何等，让智能体调用 run_build / run_export_obj。",
+        );
       }
     }
   } catch (e) {
@@ -2635,6 +4178,13 @@ async function enterOc4DesignDomainStageImpl(opts = {}) {
     }
   } finally {
     await syncDesignDomainSessionProgress().catch(() => {});
+    queueMicrotask(() => {
+      try {
+        designDomainAgentUi?.remergeAgentTrace?.();
+      } catch {
+        /* ignore */
+      }
+    });
   }
 }
 
@@ -2675,17 +4225,20 @@ async function goBackToOc4DesignDomainFromPipeline(opts = {}) {
     );
     return;
   }
+  state.oc4OrchestrateShouldRegenerate = true;
   state.oc4DesignDomainFinalized = false;
-  const hint =
-    "已返回设计域。可重跑体网格或「4 划分载荷」，再「完成并进入编排」。";
+  const hint = "已返回设计域，可继续对话或 Build 更新产物。";
   await enterOc4DesignDomainStage({ softResume: true, forceNewSession: false, resumeHint: hint });
-  if (focusLoads) await focusDesignDomainRailStep(4);
+  if (focusLoads) appendDesignDomainChat("agent", "若需调整载荷，在对话中说明即可。");
   if (state.currentTaskId) await taskManager.upsertTask({ ui_stage: "design_domain" });
+  state.currentTaskUiStage = "design_domain";
   await taskManager.loadTasks().catch(() => {});
 }
 
 async function beginOrchestrationAfterLanding(opts = {}) {
   const { skipUserBubble = false, userMessage = "" } = opts;
+  state.oc4OrchestrateShouldRegenerate = false;
+  state.currentTaskUiStage = "orchestrate";
   if (!isOc4IgesFilename(state.currentFileName)) state.oc4ActivityLog = [];
   if (!state.currentTaskId) state.currentTaskId = crypto?.randomUUID?.() || `${Date.now()}`;
   const uMsg = String(userMessage || refs.msgLanding?.value || refs.msgEl?.value || "").trim();
@@ -2701,6 +4254,9 @@ async function beginOrchestrationAfterLanding(opts = {}) {
           file_id: String(pend.file_id).trim(),
           file_name: String(pend.file_name || "").trim(),
         };
+        if (typeof pend.file_size === "number" && Number.isFinite(pend.file_size)) {
+          bubbleOpts.attachment.file_size = pend.file_size;
+        }
         row.attachment = { ...bubbleOpts.attachment };
       }
       layout.addLandingBubble("user", shown, bubbleOpts);
@@ -2720,6 +4276,7 @@ async function beginOrchestrationAfterLanding(opts = {}) {
     progress: 12,
     step: 1,
     status: "orchestrating",
+    ui_stage: "orchestrate",
     file_name: state.currentFileName,
     scan_dir: state.uploadedSourceDir,
   });
@@ -2743,12 +4300,7 @@ async function handleLandingWorkflowCardClick(kind) {
       layout.showStage("landing");
       return;
     }
-    if (isOc4IgesFilename(state.currentFileName) && !state.oc4DesignDomainFinalized) {
-      layout.addLandingBubble("agent", "请先完成设计域流程，再进入构型优化编排。");
-      return;
-    }
-    await layout.playLandingSubflowBridge({ kind: "orchestrate", minMs: 1280 });
-    layout.showStage("orchestrate");
+    await openLandingOrchestrateSubflow({ skipUserBubble: true });
     return;
   }
   if (k === "design_domain") {
@@ -2757,7 +4309,7 @@ async function handleLandingWorkflowCardClick(kind) {
       return;
     }
     /** 与顶栏「设计域」入口一致，避免漏 persist / 会话分支与重复逻辑导致点击无反应 */
-    await layout.playLandingSubflowBridge({ kind: "design_domain", minMs: 1280 });
+    await layout.playLandingSubflowBridge({ kind: "design_domain", minMs: 1280, instant: true });
     await openDesignDomainFromLanding({ autoPipeline: false, softResume: true, forceNewSession: false }).catch((err) =>
       layout.addLandingBubble("agent", String(err?.message || err)),
     );
@@ -2878,6 +4430,7 @@ async function uploadSelectedFile(file) {
   state.landingAttachmentPending = {
     file_id: state.currentFileId,
     file_name: state.currentFileName || file.name || "",
+    file_size: file && typeof file.size === "number" ? file.size : null,
   };
   syncLandingPendingAttachBar();
   dismissLandingHero();
@@ -2894,6 +4447,7 @@ async function uploadSelectedFile(file) {
   persistLandingAssistantThread();
   updateLandingSubflowStrip();
   if (isOc4IgesFilename(state.currentFileName)) {
+    state.oc4OrchestrateShouldRegenerate = true;
     state.oc4DesignDomainSessionIdForResume = "";
     resetOc4DesignDomainState();
     state.oc4DesignDomainFinalized = false;
@@ -2986,14 +4540,16 @@ function resetCadPlanModalChrome() {
   if (refs.cadPlanStartBtn) refs.cadPlanStartBtn.textContent = "开始转换";
 }
 
-/** 设计域工具栏「疏密」→ Plan 弹窗：在 loadCadPlanDefaults 之后调用，覆盖默认以反映用户当前选择 */
-function syncCadPlanFromDesignDomainToolbar() {
-  const density = String(refs.ddMeshDensity?.value || "modal").trim();
-  if (density && density !== "modal" && CAD_MESH_PRESETS[density] && refs.cadPlanPreset) {
-    refs.cadPlanPreset.value = density;
-  }
-  const cm = String(refs.ddCharMax?.value || "").trim();
-  if (cm && refs.cadPlanCharMax) refs.cadPlanCharMax.value = cm;
+/** 设计域体网格：将 AI 已应用的 pending 写入 Plan 弹窗，便于在「3」步打开时预填 */
+function syncCadPlanFromOc4PendingMesh() {
+  const m = state.oc4PendingMesh;
+  if (!m || typeof m !== "object") return;
+  const mx = Number(m.characteristic_length_max);
+  if (Number.isFinite(mx) && mx > 0 && refs.cadPlanCharMax) refs.cadPlanCharMax.value = String(mx);
+  const mn = Number(m.characteristic_length_min);
+  if (Number.isFinite(mn) && mn >= 0 && refs.cadPlanCharMin) refs.cadPlanCharMin.value = String(mn);
+  const curv = Number(m.mesh_size_from_curvature);
+  if (Number.isFinite(curv) && refs.cadPlanCurvature) refs.cadPlanCurvature.value = String(curv);
 }
 
 function showCadPlanModal(config) {
@@ -3005,7 +4561,7 @@ function showCadPlanModal(config) {
     modalSubtitleHtml = null,
     primaryButtonText = "开始转换",
     fallbackPlan = null,
-    syncMeshToolbarIntoCadPlan = false,
+    syncOc4PendingMeshIntoCadPlan = false,
   } = config;
   return new Promise((resolve) => {
     const modal = refs.cadConvertPlanModal;
@@ -3032,7 +4588,7 @@ function showCadPlanModal(config) {
     }
     if (refs.cadPlanStartBtn) refs.cadPlanStartBtn.textContent = primaryButtonText;
     loadCadPlanDefaults();
-    if (syncMeshToolbarIntoCadPlan) syncCadPlanFromDesignDomainToolbar();
+    if (syncOc4PendingMeshIntoCadPlan) syncCadPlanFromOc4PendingMesh();
     modal.classList.remove("hidden");
     modal.setAttribute("aria-hidden", "false");
     const finish = (plan) => {
@@ -3070,7 +4626,7 @@ function showOc4MeshPlanModal() {
     modalTitle: "体网格方案",
     modalSubtitleText: "FreeCAD + Gmsh 生成 02_mesh_body.inp；char_max 越大越粗。需 FREECAD_CMD。",
     primaryButtonText: "开始体网格",
-    syncMeshToolbarIntoCadPlan: true,
+    syncOc4PendingMeshIntoCadPlan: true,
   });
 }
 
@@ -3360,6 +4916,7 @@ function applyScanDirectoryUI(data) {
     }, 95);
   }
   refreshCadGateAfterScan(data);
+  syncOpenWorkDirButtonsEnabled();
 }
 
 async function scanDirectory() {
@@ -3453,6 +5010,21 @@ function mergeLogsFromServer(serverLogs) {
 }
 
 function refreshLogSummaryViews() {
+  const jid = String(state.jobId || "").trim();
+  if (jid && Array.isArray(state.logs) && state.logs.length) {
+    state.logsByJobId[jid] = state.logs.slice();
+  }
+  const tid = String(state.currentTaskId || "").trim();
+  const titleEl = refs.logFloatDock?.querySelector?.(".logFloatDockTitle");
+  if (titleEl) {
+    if (tid && jid) {
+      titleEl.textContent = `任务日志（${tid.slice(0, 10)}${tid.length > 10 ? "…" : ""} · Job ${jid.slice(0, 10)}…）`;
+    } else if (tid) {
+      titleEl.textContent = `任务日志（${tid.slice(0, 12)}${tid.length > 12 ? "…" : ""}）`;
+    } else {
+      titleEl.textContent = "日志摘要";
+    }
+  }
   const statusLine = `- 当前任务状态：\`${state.currentTaskStatus || "unknown"}\``;
   const lastLogs = state.logs.slice(-80).map((x) => `- ${x}`).join("\n");
   const md = `## 日志摘要\n${statusLine}\n${lastLogs || "- (无)"}`;
@@ -3467,76 +5039,57 @@ function refreshLogSummaryViews() {
   }
   if (refs.logFloatToggle) {
     const n = state.logs.length;
-    refs.logFloatToggle.textContent = n ? `日志摘要 · ${n} 行` : "日志摘要";
+    refs.logFloatToggle.textContent = n ? `本任务日志 · ${n} 行` : "本任务日志";
   }
+}
+
+function applyFloatingLogDockPosition(dock) {
+  if (!dock || dock.classList.contains("hidden")) return;
+  dock.style.left = "auto";
+  dock.style.top = "auto";
+  try {
+    const raw = sessionStorage.getItem("beso.ui.logFloatPos");
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (typeof p.right === "number" && Number.isFinite(p.right)) {
+        dock.style.right = `${Math.max(8, Math.round(p.right))}px`;
+      } else {
+        dock.style.right = "16px";
+      }
+      if (typeof p.bottom === "number" && Number.isFinite(p.bottom)) {
+        dock.style.bottom = `${Math.max(8, Math.round(p.bottom))}px`;
+      } else {
+        dock.style.bottom = "16px";
+      }
+      return;
+    }
+  } catch {
+    /* ignore */
+  }
+  dock.style.right = "16px";
+  dock.style.bottom = "16px";
 }
 
 function updateLogDockVisibility() {
   if (!refs.logFloatDock) return;
   const inFlowStage = !!refs.flowMain && !refs.flowMain.classList.contains("hidden");
-  const visible = inFlowStage && state.currentStep === 3 && !!state.jobId;
+  const jid = String(state.jobId || "").trim();
+  /** 仅在拓扑分步流（flow）且已绑定当前 Job 时显示，避免无任务时占位 */
+  const visible = inFlowStage && !!jid;
   refs.logFloatDock.classList.toggle("hidden", !visible);
+  if (visible) applyFloatingLogDockPosition(refs.logFloatDock);
 }
 
 function wireLogFloatDock() {
   if (!refs.logFloatDock || !refs.logFloatToggle || !refs.logFloatMin) return;
   const dock = refs.logFloatDock;
-  // Portal to body so the dock is truly global/fixed and not affected by Step3 panel transforms/clipping.
-  if (dock.parentElement !== document.body) {
-    document.body.appendChild(dock);
+  dock.classList.remove("logFloatDock--embedded");
+  dock.classList.add("logFloatDock--floating");
+  const host = document.querySelector(".app") || document.body;
+  if (host && dock.parentElement !== host) {
+    host.appendChild(dock);
   }
-  const dragHandle = dock.querySelector(".logFloatDockHd");
-  const dockPanel = dock.querySelector(".logFloatDockPanel");
-  const minimizedHandle = refs.logFloatToggle;
-  let dragState = null;
-  let suppressToggleClick = false;
-
-  const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
-  const clearDockInlinePos = () => {
-    dock.style.left = "";
-    dock.style.top = "";
-    dock.style.right = "14px";
-    dock.style.bottom = "14px";
-  };
-  const applyDockPos = (x, y) => {
-    dock.style.left = `${x}px`;
-    dock.style.top = `${y}px`;
-    dock.style.right = "auto";
-    dock.style.bottom = "auto";
-  };
-  const saveDockPos = (x, y) => {
-    try {
-      sessionStorage.setItem("beso.ui.logFloatPos", JSON.stringify({ x, y }));
-    } catch {}
-  };
-  const restoreDockPos = () => {
-    try {
-      const raw = sessionStorage.getItem("beso.ui.logFloatPos");
-      if (!raw) return;
-      const p = JSON.parse(raw);
-      if (!Number.isFinite(p?.x) || !Number.isFinite(p?.y)) return;
-      applyDockPos(p.x, p.y);
-    } catch {}
-  };
-  const getDockBox = () => {
-    if (dock.classList.contains("minimized")) {
-      return refs.logFloatToggle?.getBoundingClientRect() || dock.getBoundingClientRect();
-    }
-    return dockPanel?.getBoundingClientRect() || dock.getBoundingClientRect();
-  };
-  const clampDockIntoViewport = () => {
-    const r = dock.getBoundingClientRect();
-    const box = getDockBox();
-    const w = Math.max(160, box.width || 220);
-    const h = Math.max(48, box.height || 48);
-    const maxX = Math.max(8, window.innerWidth - w - 8);
-    const maxY = Math.max(8, window.innerHeight - h - 8);
-    const x = clamp(r.left, 8, maxX);
-    const y = clamp(r.top, 8, maxY);
-    applyDockPos(x, y);
-    saveDockPos(x, y);
-  };
-
+  applyFloatingLogDockPosition(dock);
   try {
     const m = sessionStorage.getItem("beso.ui.logFloatMinimized");
     if (m === "0") dock.classList.remove("minimized");
@@ -3544,107 +5097,86 @@ function wireLogFloatDock() {
   } catch {
     dock.classList.add("minimized");
   }
-  restoreDockPos();
-  requestAnimationFrame(clampDockIntoViewport);
   refs.logFloatToggle.addEventListener("click", () => {
-    if (suppressToggleClick) {
-      suppressToggleClick = false;
-      return;
-    }
     dock.classList.remove("minimized");
     try {
       sessionStorage.setItem("beso.ui.logFloatMinimized", "0");
-    } catch {}
+    } catch {
+      /* ignore */
+    }
     refreshLogSummaryViews();
-    requestAnimationFrame(clampDockIntoViewport);
   });
   refs.logFloatMin.addEventListener("click", (e) => {
     e.stopPropagation();
     dock.classList.add("minimized");
     try {
       sessionStorage.setItem("beso.ui.logFloatMinimized", "1");
-    } catch {}
+    } catch {
+      /* ignore */
+    }
   });
 
-  const beginDrag = (e) => {
-      const isMinimized = dock.classList.contains("minimized");
-      if (isMinimized && e.currentTarget !== minimizedHandle) return;
-      if (!isMinimized && e.currentTarget !== dragHandle) return;
-      const target = e.target;
-      if (target && target.closest && target.closest("#logFloatMin")) return;
-      // Ensure we are in left/top coordinate mode before dragging.
-      const r0 = dock.getBoundingClientRect();
-      applyDockPos(r0.left, r0.top);
-      const r = dock.getBoundingClientRect();
-      dragState = {
-        pointerId: e.pointerId,
-        offsetX: e.clientX - r.left,
-        offsetY: e.clientY - r.top,
-        startX: e.clientX,
-        startY: e.clientY,
-        moved: false,
-      };
-      dock.classList.add("dragging");
-      try { e.currentTarget?.setPointerCapture?.(e.pointerId); } catch {}
+  const hd = dock.querySelector(".logFloatDockHd");
+  if (hd) {
+    hd.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      if (e.target.closest(".logFloatDockMin")) return;
+      if (dock.classList.contains("hidden")) return;
+      if (!dock.classList.contains("logFloatDock--floating")) return;
       e.preventDefault();
-  };
-  const onDragMove = (e) => {
-    if (!dragState || e.pointerId !== dragState.pointerId) return;
-    if (!dragState.moved) {
-      const dx = e.clientX - dragState.startX;
-      const dy = e.clientY - dragState.startY;
-      if ((dx * dx + dy * dy) >= 16) dragState.moved = true;
-    }
-    const box = getDockBox();
-    const w = Math.max(160, box.width || 220);
-    const h = Math.max(48, box.height || 48);
-    const maxX = Math.max(8, window.innerWidth - w - 8);
-    const maxY = Math.max(8, window.innerHeight - h - 8);
-    const x = clamp(e.clientX - dragState.offsetX, 8, maxX);
-    const y = clamp(e.clientY - dragState.offsetY, 8, maxY);
-    applyDockPos(x, y);
-  };
-  const endDrag = (e) => {
-    if (!dragState || e.pointerId !== dragState.pointerId) return;
-    const r = dock.getBoundingClientRect();
-    const box = getDockBox();
-    const w = Math.max(160, box.width || 220);
-    const h = Math.max(48, box.height || 48);
-    const maxX = Math.max(8, window.innerWidth - w - 8);
-    const maxY = Math.max(8, window.innerHeight - h - 8);
-    const x = clamp(r.left, 8, maxX);
-    const y = clamp(r.top, 8, maxY);
-    applyDockPos(x, y);
-    saveDockPos(x, y);
-    if (dragState.moved && dock.classList.contains("minimized")) {
-      // 拖动最小化胶囊后，抑制本次 click 展开行为
-      suppressToggleClick = true;
-    }
-    dock.classList.remove("dragging");
-    dragState = null;
-  };
-  if (dragHandle) {
-    dragHandle.addEventListener("pointerdown", beginDrag);
+      const capId = e.pointerId;
+      try {
+        dock.setPointerCapture(capId);
+      } catch {
+        /* ignore */
+      }
+      const rect = dock.getBoundingClientRect();
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startRight = window.innerWidth - rect.right;
+      const startBottom = window.innerHeight - rect.bottom;
+      dock.classList.add("dragging");
+      let finished = false;
+      const onMove = (ev) => {
+        if (!dock.classList.contains("logFloatDock--floating")) return;
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        const r2 = dock.getBoundingClientRect();
+        const w = r2.width || 200;
+        const h = r2.height || 72;
+        const right = Math.max(8, Math.min(window.innerWidth - w - 8, startRight - dx));
+        const bottom = Math.max(8, Math.min(window.innerHeight - h - 8, startBottom - dy));
+        dock.style.right = `${Math.round(right)}px`;
+        dock.style.bottom = `${Math.round(bottom)}px`;
+        dock.style.left = "auto";
+        dock.style.top = "auto";
+      };
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        try {
+          dock.releasePointerCapture(capId);
+        } catch {
+          /* ignore */
+        }
+        dock.classList.remove("dragging");
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", finish);
+        window.removeEventListener("pointercancel", finish);
+        const r = parseFloat(String(dock.style.right || "").replace("px", "")) || 16;
+        const b = parseFloat(String(dock.style.bottom || "").replace("px", "")) || 16;
+        try {
+          sessionStorage.setItem("beso.ui.logFloatPos", JSON.stringify({ right: r, bottom: b }));
+        } catch {
+          /* ignore */
+        }
+      };
+      window.addEventListener("pointermove", onMove, { passive: true });
+      window.addEventListener("pointerup", finish);
+      window.addEventListener("pointercancel", finish);
+    });
   }
-  if (minimizedHandle) {
-    minimizedHandle.addEventListener("pointerdown", beginDrag);
-  }
-  window.addEventListener("pointermove", onDragMove);
-  window.addEventListener("pointerup", endDrag);
-  window.addEventListener("pointercancel", endDrag);
 
-  window.addEventListener("resize", () => {
-    if (!dock) return;
-    requestAnimationFrame(clampDockIntoViewport);
-  });
-
-  try {
-    if (!sessionStorage.getItem("beso.ui.logFloatPos")) {
-      clearDockInlinePos();
-    }
-  } catch {
-    clearDockInlinePos();
-  }
   updateLogDockVisibility();
 }
 
@@ -3900,6 +5432,7 @@ async function createAndRun() {
   await taskManager.upsertTask({ job_id: state.jobId, status: "running", progress: 55, step: 2 });
   await taskManager.loadTasks();
   connectWs();
+  updateLogDockVisibility();
   const pp = data.parsed_params;
   if (pp && typeof pp === "object") {
     if (refs.massGoal && pp.mass_goal_ratio != null) refs.massGoal.value = String(pp.mass_goal_ratio);
@@ -3984,6 +5517,7 @@ refs.restartFlow?.addEventListener("click", () => {
     state.currentTaskId = null;
     state.jobId = null;
     state.activeTaskKey = "";
+    updateLogDockVisibility();
     stopJobPolling();
     stopSummaryRefresh();
     refs.jobIdEl && (refs.jobIdEl.textContent = "(未启动)");
@@ -4031,11 +5565,13 @@ refs.msgLanding?.addEventListener("keydown", (e) => {
   if (e.shiftKey) return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.isComposing) return;
+  if (refs.landingSendChatBtn?.disabled) return;
   e.preventDefault();
   void sendLandingAssistantChat();
 });
 refs.msgLanding?.addEventListener("input", () => {
   const v = String(refs.msgLanding?.value || "").trim();
+  syncLandingSendButtonState();
   if (state.currentTaskId && v.length >= 12) scheduleTaskTitleSummarize();
   if (_landingInputHeroRaf != null) cancelAnimationFrame(_landingInputHeroRaf);
   _landingInputHeroRaf = requestAnimationFrame(() => {
@@ -4043,22 +5579,23 @@ refs.msgLanding?.addEventListener("input", () => {
     syncLandingHeroVisibility();
   });
 });
-refs.runAgentFlow?.addEventListener("click", async () => {
-  if (!state.currentFileId) return layout.addLandingBubble("agent", "请先上传文件，再运行构型优化流程。");
+refs.landingToggleDeepThink?.addEventListener("click", () => {
+  state.landingDeepThink = !state.landingDeepThink;
   try {
-    if (isOc4IgesFilename(state.currentFileName) && !state.oc4DesignDomainFinalized) {
-      layout.addLandingBubble("agent", "IGES 需先完成设计域流程；已打开设计域。");
-      await layout.playLandingSubflowBridge({ kind: "design_domain", minMs: 1280 });
-      await openDesignDomainFromLanding({ autoPipeline: true, softResume: true }).catch((e) => {
-        layout.addLandingBubble("agent", `设计域步骤：${e?.message || e}`);
-      });
-      return;
-    }
-    await layout.playLandingSubflowBridge({ kind: "orchestrate", minMs: 1280 });
-    await beginOrchestrationAfterLanding();
-  } catch (e) {
-    layout.addLandingBubble("agent", String(e?.message || e));
+    localStorage.setItem("beso.landing.deepThink", state.landingDeepThink ? "1" : "0");
+  } catch {
+    /* ignore */
   }
+  syncLandingModeToggleUi();
+});
+refs.landingToggleWebSearch?.addEventListener("click", () => {
+  state.landingWebSearch = !state.landingWebSearch;
+  try {
+    localStorage.setItem("beso.landing.webSearch", state.landingWebSearch ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+  syncLandingModeToggleUi();
 });
 refs.landingMain?.addEventListener("click", (e) => {
   const chip = e.target.closest?.("[data-landing-prompt]");
@@ -4087,141 +5624,79 @@ refs.chatLanding?.addEventListener(
 
 refs.designDomainBackBtn?.addEventListener("click", () => {
   setDesignDomainOverlay("left", false);
-  setDesignDomainOverlay("right", false);
   closeDdNlModal();
   disposeDesignDomainViewer();
   layout.goHome();
 });
-refs.ddMeshDensity?.addEventListener("change", () => {
-  const v = String(refs.ddMeshDensity?.value || "modal");
-  if (v === "modal" || !refs.ddCharMax) return;
-  const pr = CAD_MESH_PRESETS[v];
-  if (pr && pr.max != null) refs.ddCharMax.value = String(pr.max);
-});
-refs.ddBtnBuild?.addEventListener("click", async () => {
+refs.ddIdePreviewFollowLockBtn?.addEventListener("click", () => {
+  state.ddPreviewFollowLock = !state.ddPreviewFollowLock;
   try {
-    appendDesignDomainChat("agent", "刷新源几何预览并按选项重建设计域…");
-    await runDdSourcePreviewOnly();
-    await runDdBuildAndExportObj();
-    appendDesignDomainChat("agent", "构建与预览已更新。");
-  } catch (e) {
-    appendDesignDomainChat("agent", String(e?.message || e));
-  } finally {
-    await syncDesignDomainSessionProgress().catch(() => {});
+    localStorage.setItem("beso.dd.previewFollowLock", state.ddPreviewFollowLock ? "1" : "0");
+  } catch {
+    /* ignore */
   }
+  syncDdPreviewFollowLockUi();
 });
-refs.ddBtnPreview?.addEventListener("click", async () => {
-  try {
-    setDesignDomainOverlay("left", true, "正在更新 STEP 与 OBJ 预览…");
-    setDesignDomainOverlay("right", true, "正在更新设计域预览…");
-    const body = { session_id: state.oc4DesignDomainSessionId, design_only: false };
-    const ex = state.oc4PendingExport;
-    if (ex && typeof ex === "object") {
-      const ls = Number(ex.linear_deflection_source);
-      const ld = Number(ex.linear_deflection_design);
-      if (Number.isFinite(ls) && ls >= 1) body.linear_deflection_source = ls;
-      if (Number.isFinite(ld) && ld >= 1) body.linear_deflection_design = ld;
-    }
-    const urls = await oc4DesignDomainApi("/export-obj", body, { timeoutMs: 900000 });
-    setDesignDomainOverlay("left", false);
-    setDesignDomainOverlay("right", false);
-    const v = ensureDesignDomainViewer();
-    if (v) {
-      try {
-        if (urls.source_obj) await v.loadLeft(urls.source_obj);
-        if (urls.design_obj) await v.loadRight(urls.design_obj);
-      } catch (loadErr) {
-        appendDesignDomainChat("agent", `OBJ 预览加载失败：${loadErr?.message || loadErr}`);
-      }
-    }
-    appendDesignDomainChat("agent", "OBJ 预览已刷新（未重新执行 build）。");
-  } catch (e) {
-    appendDesignDomainChat("agent", String(e?.message || e));
-  } finally {
-    setDesignDomainOverlay("left", false);
-    setDesignDomainOverlay("right", false);
-    await syncDesignDomainSessionProgress().catch(() => {});
+syncDdPreviewFollowLockUi();
+
+refs.ddIdePlanBuildBtn?.addEventListener("click", () => {
+  const sid = String(state.oc4DesignDomainSessionId || "").trim();
+  if (!sid) {
+    appendDesignDomainChat("agent", "请先等待设计域会话建立后再点 Build。");
+    return;
   }
+  void runDdAutoBuildPipeline().catch((e) => appendDesignDomainChat("agent", String(e?.message || e)));
 });
-refs.ddBtnMesh?.addEventListener("click", async () => {
-  const meshBtn = refs.ddBtnMesh;
-  try {
-    const plan = await showOc4MeshPlanModal();
-    if (!plan) {
-      appendDesignDomainChat("agent", "已取消体网格（未在 Plan 方案窗中确认）。");
-      return;
-    }
-    appendDesignDomainChat(
-      "agent",
-      "体网格进行中：FreeCAD + Gmsh 由 STEP 生成 02_mesh_body.inp，大模型可能需数分钟。",
-    );
-    if (meshBtn) {
-      meshBtn.disabled = true;
-      meshBtn.setAttribute("aria-busy", "true");
-    }
-    setDesignDomainOverlay(
-      "right",
-      true,
-      "正在生成体网格：FreeCAD + Gmsh 运行中，请稍候…",
-    );
-    const data = await oc4DesignDomainApi("/mesh", buildOc4MeshRequestBody(plan));
-    let sizeLine = `体网格已生成：${data.mesh_inp_url || data.mesh_inp || ""}`;
-    if (data.mesh_char_length_max_used != null) sizeLine += `（CharacteristicLengthMax≈${data.mesh_char_length_max_used}）`;
-    appendDesignDomainChat("agent", sizeLine);
-    if (data.mesh_inp_size_bytes != null) {
-      const mb = data.mesh_inp_size_bytes / (1024 * 1024);
-      appendDesignDomainChat("agent", `02_mesh_body.inp 约 ${mb.toFixed(2)} MB。`);
-    }
-    if (data.mesh_inp_size_warning) appendDesignDomainChat("agent", String(data.mesh_inp_size_warning));
-  } catch (e) {
-    appendDesignDomainChat("agent", String(e?.message || e));
-  } finally {
-    setDesignDomainOverlay("right", false);
-    if (meshBtn) meshBtn.setAttribute("aria-busy", "false");
-    await syncDesignDomainSessionProgress().catch(() => {});
-  }
+refs.ddPlanPrefCancel?.addEventListener("click", () => closeDdPlanPrefModal());
+refs.ddPlanPrefModalBackdrop?.addEventListener("click", () => closeDdPlanPrefModal());
+refs.ddPlanPrefConfirm?.addEventListener("click", () => {
+  if (!applyDdPlanPrefFromForm()) return;
+  closeDdPlanPrefModal();
+  void runDdPlanBuildPipelineCore().catch((e) => appendDesignDomainChat("agent", String(e?.message || e)));
 });
-refs.ddBtnLoads?.addEventListener("click", async () => {
-  const loadsBtn = refs.ddBtnLoads;
-  const nl = String(refs.ddNlLoadsTa?.value || "").trim();
+refs.ddPlanFloatDockBtn?.addEventListener("click", () => {
+  const p = refs.ddPlanFloatDockPanel;
+  const btn = refs.ddPlanFloatDockBtn;
+  if (!p || !btn) return;
+  const open = p.classList.toggle("hidden");
+  btn.setAttribute("aria-expanded", open ? "false" : "true");
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (!refs.ddPlanPrefModal || refs.ddPlanPrefModal.classList.contains("hidden")) return;
+  closeDdPlanPrefModal();
+});
+for (const el of document.querySelectorAll('input[name="ddPlanMeshPreset"]')) {
+  el?.addEventListener("change", () => {
+    const sel = document.querySelector('input[name="ddPlanMeshPreset"]:checked');
+    const v = sel instanceof HTMLInputElement ? sel.value : "";
+    if (refs.ddPlanMeshCustomMm) refs.ddPlanMeshCustomMm.disabled = v !== "custom";
+  });
+}
+refs.designDomainMain?.addEventListener("click", (e) => {
+  const btn = e.target?.closest?.("[data-dd-open]");
+  if (!btn || !refs.designDomainMain?.contains(btn)) return;
+  const rel = String(btn.getAttribute("data-dd-open") || "").trim();
+  if (!rel) return;
+  const low = rel.toLowerCase();
+  const preferPreview =
+    low.endsWith(".md") ||
+    low.endsWith(".markdown") ||
+    low.endsWith(".obj") ||
+    low.endsWith(".step") ||
+    low.endsWith(".stp") ||
+    pathWantsRichPreview(rel);
   try {
-    loadsBtn?.setAttribute("aria-busy", "true");
-    if (loadsBtn) loadsBtn.disabled = true;
-    const overlayMsg = nl
-      ? "划分载荷：大模型解析与 INP 写入中…"
-      : "划分载荷：正在划分 design / nondesign 并写入 INP…";
-    setDesignDomainOverlay("right", true, overlayMsg);
-    if (nl) {
-      appendDesignDomainChat(
-        "agent",
-        "正在调用 Qwen 解析载荷自然语言，随后划分 design/nondesign 并写入 *STEP / *CLOAD …",
-      );
-    } else {
-      appendDesignDomainChat("agent", "正在划分 design / nondesign 单元集并追加 *STEP（无自然语言时跳过 Qwen）…");
-    }
-    const data = await oc4DesignDomainApi("/loads", buildOc4LoadsRequestBody());
-    if (data.nl_reply) appendDesignDomainChat("agent", String(data.nl_reply));
-    const warns = data.validation_warnings || data.stats?.validation_warnings;
-    if (Array.isArray(warns) && warns.length) {
-      for (const w of warns) appendDesignDomainChat("agent", String(w));
-    }
-    appendDesignDomainChat(
-      "agent",
-      `载荷划分完成：${data.final_inp_url || data.final_inp || ""}（统计：${JSON.stringify(data.stats || {})}）`,
-    );
-  } catch (e) {
-    appendDesignDomainChat("agent", String(e?.message || e));
-  } finally {
-    setDesignDomainOverlay("right", false);
-    loadsBtn?.setAttribute("aria-busy", "false");
-    await syncDesignDomainSessionProgress().catch(() => {});
+    ensureDesignDomainIde()?.openRelPath?.(rel, { preferPreview });
+  } catch (err) {
+    appendDesignDomainChat("agent", String(err?.message || err));
   }
 });
 refs.ddBtnFinalize?.addEventListener("click", async () => {
   try {
     const prog = state.ddProgress ?? readDdProgressFromPayload({});
     if (!prog.has_for_beso_inp) {
-      const tip = "请先完成 1→3→4 步并生成 03_for_beso.inp，再进入构型优化编排。";
+      const tip = "载荷 INP 尚未就绪。";
       appendDesignDomainChat("agent", tip);
       layout.addLandingBubble("agent", tip);
       return;
@@ -4261,66 +5736,6 @@ refs.ddBtnFinalize?.addEventListener("click", async () => {
     await syncDesignDomainSessionProgress().catch(() => {});
   }
 });
-refs.designDomainStepRail?.addEventListener("click", (e) => {
-  if (!state.oc4DesignDomainSessionId) return;
-  if (e.target?.closest?.(".ddStepAiBtn")) return;
-  const stepEl = e.target?.closest?.(".ddStep");
-  if (!stepEl || !stepEl.classList.contains("ddStepNavigable")) return;
-  const idx = parseInt(stepEl.getAttribute("data-idx") || "0", 10);
-  if (!Number.isFinite(idx) || idx < 1 || idx > 4) return;
-  void focusDesignDomainRailStep(idx);
-});
-refs.designDomainStepRail?.addEventListener("keydown", (e) => {
-  if (e.key !== "Enter" && e.key !== " ") return;
-  const stepEl = e.target?.closest?.(".ddStep");
-  if (!stepEl || !stepEl.classList.contains("ddStepNavigable")) return;
-  e.preventDefault();
-  const idx = parseInt(stepEl.getAttribute("data-idx") || "0", 10);
-  if (!Number.isFinite(idx) || idx < 1 || idx > 4) return;
-  void focusDesignDomainRailStep(idx);
-});
-refs.designDomainMain?.addEventListener("click", (e) => {
-  const btn = e.target?.closest?.(".ddStepAiBtn");
-  if (!btn) return;
-  const topic = btn.getAttribute("data-dd-topic");
-  if (!topic) return;
-  openDdNlModal(topic);
-});
-refs.ddStepNlClose?.addEventListener("click", () => closeDdNlModal());
-refs.ddStepNlDialog?.addEventListener("click", (e) => {
-  if (e.target === refs.ddStepNlDialog) closeDdNlModal();
-});
-refs.ddStepNlDialogPanel?.addEventListener("click", (e) => e.stopPropagation());
-refs.ddStepNlSend?.addEventListener("click", async () => {
-  const topic = state.ddNlTopic;
-  if (!topic || !state.oc4DesignDomainSessionId) return;
-  const msg =
-    topic === "loads"
-      ? String(refs.ddNlLoadsTa?.value || "").trim()
-      : String(refs.ddStepNlInput?.value || "").trim();
-  if (!msg) return;
-  if (topic === "loads" && refs.ddNlLoadsTa) refs.ddNlLoadsTa.value = "";
-  else if (refs.ddStepNlInput) refs.ddStepNlInput.value = "";
-  appendDdNlLog("user", msg);
-  try {
-    const data = await oc4DesignDomainApi(
-      "/chat",
-      { session_id: state.oc4DesignDomainSessionId, message: msg, topic },
-      { timeoutMs: 120000 },
-    );
-    state.ddNlLastPayload = data;
-    appendDdNlLog("agent", data.reply || "(无回复)");
-    if (data.suggested_build && typeof data.suggested_build === "object") state.oc4LastSuggestedBuild = data.suggested_build;
-    if (data.suggested_loads && typeof data.suggested_loads === "object") state.oc4LastSuggestedLoads = data.suggested_loads;
-    if (data.suggested_mesh && typeof data.suggested_mesh === "object") state.oc4LastSuggestedMesh = data.suggested_mesh;
-    if (data.suggested_export && typeof data.suggested_export === "object") state.oc4LastSuggestedExport = data.suggested_export;
-    refreshDdNlApplyEnabled();
-  } catch (err) {
-    appendDdNlLog("agent", String(err?.message || err));
-  }
-});
-refs.ddStepNlApply?.addEventListener("click", () => applyDdNlSuggestions());
-
 refs.executePlannedTask?.addEventListener("click", async () => {
   layout.showStage("flow");
   layout.setStep(1);
@@ -4348,6 +5763,15 @@ refs.toggleSidebarBtn?.addEventListener("click", (e) => {
   e.stopPropagation();
   layout.setSidebarCollapsed(!refs.landingMain?.classList.contains("sidebarCollapsed"));
 });
+refs.taskSearchFocusBtn?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  layout.setSidebarCollapsed(false);
+  try {
+    refs.taskSearchInput?.focus();
+  } catch {
+    /* ignore */
+  }
+});
 refs.newLandingTaskBtn?.addEventListener("click", (e) => {
   e.stopPropagation();
   void startNewLandingTask();
@@ -4357,16 +5781,63 @@ refs.taskSidebarEl?.addEventListener("click", (e) => {
   if (
     e.target?.closest?.("#refreshTasksBtn") ||
     e.target?.closest?.("#toggleSidebarBtn") ||
-    e.target?.closest?.("#newLandingTaskBtn")
+    e.target?.closest?.("#taskSearchFocusBtn") ||
+    e.target?.closest?.("#newLandingTaskBtn") ||
+    e.target?.closest?.("#taskSearchWrap") ||
+    e.target?.closest?.("#taskSearchInput") ||
+    e.target?.closest?.("#taskSearchClear")
   ) {
     return;
   }
   if (!refs.landingMain?.classList.contains("sidebarCollapsed")) return;
   layout.setSidebarCollapsed(false);
 });
+
+function syncTaskSearchClearVisibility() {
+  const input = refs.taskSearchInput;
+  const clearBtn = refs.taskSearchClear;
+  if (!clearBtn || !input) return;
+  clearBtn.hidden = !String(input.value || "").trim();
+}
+
+let _taskSearchDebounceTimer = null;
+function scheduleTaskSearchApply() {
+  if (_taskSearchDebounceTimer) window.clearTimeout(_taskSearchDebounceTimer);
+  _taskSearchDebounceTimer = window.setTimeout(() => {
+    _taskSearchDebounceTimer = null;
+    syncTaskSearchClearVisibility();
+    taskManager?.reapplyTaskSearchFilter?.();
+  }, 120);
+}
+
+refs.taskSearchInput?.addEventListener("input", () => {
+  syncTaskSearchClearVisibility();
+  scheduleTaskSearchApply();
+});
+refs.taskSearchInput?.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    if (String(refs.taskSearchInput?.value || "").trim()) {
+      e.preventDefault();
+      if (refs.taskSearchInput) refs.taskSearchInput.value = "";
+      syncTaskSearchClearVisibility();
+      taskManager?.reapplyTaskSearchFilter?.();
+    }
+  }
+});
+refs.taskSearchClear?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (refs.taskSearchInput) refs.taskSearchInput.value = "";
+  syncTaskSearchClearVisibility();
+  taskManager?.reapplyTaskSearchFilter?.();
+  try {
+    refs.taskSearchInput?.focus();
+  } catch {
+    /* ignore */
+  }
+});
 refs.landingEnterDesignDomainBtn?.addEventListener("click", async () => {
   try {
-    await layout.playLandingSubflowBridge({ kind: "design_domain", minMs: 1280 });
+    await layout.playLandingSubflowBridge({ kind: "design_domain", minMs: 1280, instant: true });
     await openDesignDomainFromLanding({ autoPipeline: false, softResume: true, forceNewSession: false });
   } catch (err) {
     layout.addLandingBubble("agent", String(err?.message || err));
@@ -4375,20 +5846,15 @@ refs.landingEnterDesignDomainBtn?.addEventListener("click", async () => {
 refs.landingEnterOrchestrateBtn?.addEventListener("click", async () => {
   if (!state.currentFileId) return layout.addLandingBubble("agent", "请先上传文件。");
   try {
-    if (isOc4IgesFilename(state.currentFileName) && !state.oc4DesignDomainFinalized) {
-      layout.addLandingBubble("agent", "IGES 需先完成设计域流程；正在打开设计域。");
-      await layout.playLandingSubflowBridge({ kind: "design_domain", minMs: 1280 });
-      await openDesignDomainFromLanding({ autoPipeline: true, softResume: true }).catch((e) => {
-        layout.addLandingBubble("agent", `设计域步骤：${e?.message || e}`);
-      });
-      return;
-    }
-    await layout.playLandingSubflowBridge({ kind: "orchestrate", minMs: 1280 });
-    await beginOrchestrationAfterLanding();
+    await openLandingOrchestrateSubflow({ skipUserBubble: true });
   } catch (e) {
     layout.addLandingBubble("agent", String(e?.message || e));
   }
 });
+for (const el of [refs.flowOpenWorkDirBtn, refs.orchestrateOpenWorkDirBtn]) {
+  el?.addEventListener("click", () => void openExplorerForCurrentWorkDir());
+}
+refs.designDomainOpenWorkDirBtn?.addEventListener("click", () => void openExplorerForDesignDomainSession(""));
 refs.settingsBtn?.addEventListener("click", () => {
   syncAssistantPreferStreamUi();
   hydrateTopologyInputsFromStorage();
@@ -4449,8 +5915,74 @@ refs.qwenSave?.addEventListener("click", async () => {
     );
   } catch (e) {
     if (refs.qwenStatus) refs.qwenStatus.textContent = "连接失败";
+    const c = refs.qwenStatus?.closest?.(".settingsStatusChip");
+    if (c) {
+      c.classList.remove("settingsStatusChip--ok", "settingsStatusChip--warn");
+      c.classList.add("settingsStatusChip--err");
+    }
     layout.addLandingBubble("agent", `Qwen 配置失败：${e?.message || e}`);
   }
+});
+refs.ddAgentModelQuick?.addEventListener("change", async () => {
+  const v = String(refs.ddAgentModelQuick?.value || "").trim();
+  if (!v) return;
+  const base = normalizedBaseUrl().replace(/\/+$/, "");
+  try {
+    const resp = await fetch(`${base}/api/config/qwen/model`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: v }),
+    });
+    let data = {};
+    try {
+      data = await resp.json();
+    } catch {
+      data = {};
+    }
+    if (!resp.ok) {
+      const d = data?.detail;
+      throw new Error(typeof d === "string" ? d : `HTTP ${resp.status}`);
+    }
+    await refreshQwenConfigStatus();
+    if (refs.qwenModel && data.model) refs.qwenModel.value = String(data.model);
+    try {
+      designDomainAgentUi?.flushPersist?.();
+    } catch {
+      /* ignore */
+    }
+    const line = `已切换智能体模型为 ${String(data.model || v)}（下次请求生效）。`;
+    if (refs.designDomainMain && !refs.designDomainMain.classList.contains("hidden")) {
+      appendDesignDomainChat("agent", line, { skipPersist: true });
+    } else {
+      layout.addLandingBubble("agent", line);
+    }
+  } catch (e) {
+    if (refs.designDomainMain && !refs.designDomainMain.classList.contains("hidden")) {
+      appendDesignDomainChat("agent", `模型切换失败：${e?.message || e}`, { skipPersist: true });
+    } else {
+      layout.addLandingBubble("agent", `模型切换失败：${e?.message || e}`);
+    }
+    void refreshQwenConfigStatus();
+  }
+});
+refs.ddAgentModelSettingsBtn?.addEventListener("click", () => {
+  syncAssistantPreferStreamUi();
+  hydrateTopologyInputsFromStorage();
+  void refreshQwenConfigStatus().then(() => {
+    setSettingsDrawer(true);
+    queueMicrotask(() => {
+      try {
+        document.getElementById("settingsSecQwen")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      } catch {
+        /* ignore */
+      }
+      try {
+        refs.qwenModel?.focus?.();
+      } catch {
+        /* ignore */
+      }
+    });
+  });
 });
 refs.cadConvertManualBtn?.addEventListener("click", () => {
   runManualCadConvert().catch((e) => layout.addBubble("agent", `格式转换异常：${e?.message || e}`));
@@ -4504,6 +6036,7 @@ refs.spinToggleBtn?.addEventListener("click", () => {
 
 layout.setStep(1);
 layout.showStage("landing");
+initLandingHeroRandom();
 updateLogDockVisibility();
 syncLandingHeroVisibility();
 updateLandingSubflowStrip();
@@ -4517,6 +6050,8 @@ try {
   if (refs.qwenBaseUrl) refs.qwenBaseUrl.value = localStorage.getItem("beso.settings.qwenBaseUrl") || refs.qwenBaseUrl.value || "";
   if (refs.qwenModel) refs.qwenModel.value = localStorage.getItem("beso.settings.qwenModel") || refs.qwenModel.value || "";
   syncAssistantPreferStreamUi();
+  syncLandingModeToggleUi();
+  syncLandingSendButtonState();
   refs.baseUrlText && (refs.baseUrlText.textContent = normalizedBaseUrl().replace(/^https?:\/\//, ""));
   hydrateTopologyInputsFromStorage();
 } catch {}
@@ -4536,8 +6071,9 @@ try {
 }
 try {
   const raw = localStorage.getItem("beso.sidebar.collapsed");
-  const collapsed = raw === null ? true : raw === "1";
+  const collapsed = raw === null ? false : raw === "1";
   layout.setSidebarCollapsed(collapsed);
+  syncLandingWorkspaceChrome();
 } catch {}
 updateStepperClickableState();
 wireLogFloatDock();
@@ -4550,4 +6086,11 @@ queueMicrotask(() => updateOc4ReturnNavVisibility());
 const resultsViewer = mountResultsViewer();
 document.getElementById("resultsViewerBtn")?.addEventListener("click", () => {
   resultsViewer.open();
+});
+runtimeConsoleCtl = mountRuntimeConsole({
+  refs,
+  state,
+  normalizedBaseUrl,
+  getCachedTaskItems: () => taskManager?.getCachedTaskItems?.() || [],
+  onTrackActivate: ({ id }) => handleConsoleTrackActivate(id),
 });

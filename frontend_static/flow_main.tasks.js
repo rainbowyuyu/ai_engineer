@@ -5,21 +5,53 @@ function escapeHtml(s) {
     .replaceAll(">", "&gt;");
 }
 
+function formatTaskTime(v) {
+  if (!v) return "-";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return String(v);
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function taskIsGenericTitle(s) {
+  const x = String(s || "").trim();
+  if (!x || x === "未命名任务" || x === "未命名") return true;
+  if (x === "新对话") return true;
+  if (x.startsWith("新对话")) {
+    return !/\s*[·•]\s*\S/u.test(x);
+  }
+  return false;
+}
+
+/** 与侧栏列表一致：用于主页顶栏会话标题等 */
+export function taskListDisplayTitle(t) {
+  const raw = String(t?.title || "").trim();
+  if (raw && !taskIsGenericTitle(raw)) return raw;
+  const timeStr = formatTaskTime(t.updated_at || t.created_at);
+  const fileHint = String(t.file_name || "")
+    .replace(/^.*[/\\]/, "")
+    .trim()
+    .slice(0, 42);
+  if (fileHint) return fileHint;
+  const id = String(t.task_id || "").replace(/-/g, "");
+  const shortId = id.length >= 6 ? id.slice(0, 6).toUpperCase() : (id.toUpperCase() || "—");
+  return `对话 · ${shortId} · ${timeStr}`;
+}
+
 /** @param {string} status */
 export function formatTaskStatus(status) {
   const st = String(status || "").toLowerCase();
   const map = {
     uploaded: { label: "已上传", tone: "info" },
-    orchestrating: { label: "编排中", tone: "progress" },
+    orchestrating: { label: "编排中", tone: "orch" },
     ready_to_execute: { label: "待执行", tone: "ready" },
-    running: { label: "运行中", tone: "progress" },
+    running: { label: "运行中", tone: "busy" },
     completed: { label: "已完成", tone: "ok" },
     done: { label: "已完成", tone: "ok" },
     failed: { label: "失败", tone: "bad" },
     cancelled: { label: "已取消", tone: "muted" },
     missing: { label: "无记录", tone: "muted" },
-    pending: { label: "排队中", tone: "progress" },
-    queued: { label: "排队中", tone: "progress" },
+    pending: { label: "排队中", tone: "queue" },
+    queued: { label: "排队中", tone: "queue" },
   };
   if (map[st]) return map[st];
   if (!st) return { label: "-", tone: "muted" };
@@ -41,6 +73,13 @@ function taskSubprocessBadges(task) {
   return { designDomain, orchestrate };
 }
 
+/** 是否已进入子流程/工具链（设计域、编排、分步流或已有计算 Job）；否则视为仅主对话 */
+export function taskEnteredToolSubflow(task) {
+  if (String(task?.job_id || "").trim()) return true;
+  const { designDomain, orchestrate } = taskSubprocessBadges(task);
+  return Boolean(designDomain || orchestrate);
+}
+
 export function createTaskManager(deps) {
   const {
     refs,
@@ -50,15 +89,9 @@ export function createTaskManager(deps) {
     onTasksListUpdated,
     onBeforeSelectTask,
     onTaskBadgeClick,
+    onOpenTaskWorkDir,
     onTaskRemoved,
   } = deps;
-
-  function formatTaskTime(v) {
-    if (!v) return "-";
-    const d = new Date(v);
-    if (Number.isNaN(d.getTime())) return String(v);
-    return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  }
 
   function taskProgressByStep(step) {
     if (step <= 1) return 25;
@@ -89,6 +122,9 @@ export function createTaskManager(deps) {
     const body = { task_id: tid };
     for (const k of keys) {
       if (patch[k] !== undefined) body[k] = patch[k];
+    }
+    if (opts.allowSidebarReorder === true) {
+      body.allow_sidebar_reorder = true;
     }
     const pk = Object.keys(patch);
     const onlyStagePersist =
@@ -208,7 +244,7 @@ export function createTaskManager(deps) {
     const dlg = refs.taskRenameDialog;
     const input = refs.taskRenameInput;
     if (!dlg || !input) {
-      const next = window.prompt("请输入新的任务名称", String(currentTitle || "未命名任务"));
+      const next = window.prompt("请输入新的任务名称", String(currentTitle || "对话任务"));
       if (next == null || !String(next).trim()) return;
       renameTask(taskId, next).then(() => loadTasks());
       return;
@@ -237,10 +273,95 @@ export function createTaskManager(deps) {
     return "";
   }
 
+  /** 与「展示/顺序」相关的字段（不含 updated_at），用于避免仅时间戳变化时整表重绘闪烁 */
+  let _lastTaskListShapeSig = "";
+
+  function taskRowShape(t) {
+    const oc4Snip = lastOc4ActivitySnippet(t.oc4_activity);
+    return [
+      String(t.task_id || ""),
+      String(t.title || ""),
+      String(t.status || ""),
+      String(t.step ?? ""),
+      String(t.progress ?? ""),
+      String(t.job_id || ""),
+      String(t.ui_stage || ""),
+      String(t.oc4_design_domain_session_id || ""),
+      String(t.file_name || ""),
+      oc4Snip,
+    ].join("\x1e");
+  }
+
+  function orderShapeSig(items) {
+    return (items || []).map(taskRowShape).join("\x1f");
+  }
+
+  let _cachedTaskItems = [];
+
+  function taskSearchHaystack(t) {
+    const display = taskListDisplayTitle(t);
+    const stLabel = formatTaskStatus(t.status).label;
+    const oc4 = lastOc4ActivitySnippet(t.oc4_activity);
+    const pieces = [
+      display,
+      t?.title,
+      t?.file_name,
+      t?.task_id,
+      t?.status,
+      t?.scan_dir,
+      t?.job_id,
+      t?.ui_stage,
+      oc4,
+      stLabel,
+    ];
+    return pieces.map((x) => String(x || "").toLowerCase()).join("\n");
+  }
+
+  function taskMatchesQuery(t, q) {
+    if (!q) return true;
+    return taskSearchHaystack(t).includes(q);
+  }
+
+  function applySearchFilter(items, qRaw) {
+    const q = String(qRaw || "").trim().toLowerCase();
+    if (!q) return (items || []).slice();
+    let filtered = (items || []).filter((t) => taskMatchesQuery(t, q));
+    const cur = String(state.currentTaskId || "").trim();
+    if (cur && q) {
+      const has = filtered.some((t) => String(t.task_id || "").trim() === cur);
+      if (!has) {
+        const pinned = (items || []).find((x) => String(x.task_id || "").trim() === cur);
+        if (pinned) filtered = [pinned, ...filtered];
+      }
+    }
+    return filtered;
+  }
+
+  function patchTaskListActiveAndTimes(listEl, items, activeTaskId) {
+    const byId = new Map(
+      (items || []).map((t) => [String(t.task_id || "").trim(), t]).filter((e) => e[0]),
+    );
+    const aid = String(activeTaskId || "").trim();
+    listEl.querySelectorAll(".taskItem[data-task-id]").forEach((row) => {
+      const id = String(row.dataset.taskId || "").trim();
+      const t = byId.get(id);
+      if (!t) return;
+      row.classList.toggle("active", Boolean(aid && id === aid));
+      const timeStr = formatTaskTime(t.updated_at || t.created_at);
+      row.querySelectorAll(".taskItemTime").forEach((el) => {
+        el.textContent = timeStr;
+      });
+    });
+  }
+
   function renderTaskList(items) {
     if (!refs.taskListEl) return;
-    refs.taskListEl.innerHTML = "";
-    if (!items.length) {
+    const rawItems = Array.isArray(items) ? items : [];
+    _cachedTaskItems = rawItems.slice();
+
+    if (!rawItems.length) {
+      _lastTaskListShapeSig = "";
+      refs.taskListEl.innerHTML = "";
       const wrap = document.createElement("div");
       wrap.className = "taskListEmpty";
       wrap.innerHTML = `
@@ -252,11 +373,65 @@ export function createTaskManager(deps) {
       wrap.querySelector("#taskListEmptyRefresh")?.addEventListener("click", () => loadTasks().catch(() => {}));
       return;
     }
-    items.forEach((t) => {
-      const st = formatTaskStatus(t.status);
+
+    const q = String(refs.taskSearchInput?.value || "").trim().toLowerCase();
+    const filtered = applySearchFilter(rawItems, q);
+
+    if (q && !filtered.length) {
+      _lastTaskListShapeSig = "";
+      refs.taskListEl.innerHTML = "";
+      const wrap = document.createElement("div");
+      wrap.className = "taskListEmpty taskListEmpty--search";
+      const qDisp = String(refs.taskSearchInput?.value || "").trim();
+      wrap.innerHTML = `
+        <div class="taskListEmptyTitle">未找到匹配任务</div>
+        <p class="taskListEmptyDesc">没有任务与「<span class="taskListEmptyQuery">${escapeHtml(qDisp)}</span>」相符。可换个关键词，或清除搜索后查看全部任务。</p>
+        <button type="button" class="btn taskListEmptyRefresh" id="taskSearchEmptyClear">清除搜索</button>
+      `;
+      refs.taskListEl.appendChild(wrap);
+      wrap.querySelector("#taskSearchEmptyClear")?.addEventListener("click", () => {
+        if (refs.taskSearchInput) refs.taskSearchInput.value = "";
+        if (refs.taskSearchClear) refs.taskSearchClear.hidden = true;
+        renderTaskList(_cachedTaskItems);
+      });
+      return;
+    }
+
+    const nextSig = `${orderShapeSig(rawItems)}|q:${q}`;
+    const rowCount = refs.taskListEl.querySelectorAll(".taskItem[data-task-id]").length;
+    if (
+      nextSig === _lastTaskListShapeSig &&
+      _lastTaskListShapeSig &&
+      rowCount === filtered.length &&
+      rowCount > 0
+    ) {
+      patchTaskListActiveAndTimes(refs.taskListEl, filtered, String(state.currentTaskId || "").trim());
+      return;
+    }
+    _lastTaskListShapeSig = nextSig;
+    refs.taskListEl.innerHTML = "";
+    filtered.forEach((t) => {
+      const stRaw = String(t.status || "").toLowerCase();
+      const isTerminal = ["completed", "done", "failed", "cancelled", "missing"].includes(stRaw);
+      const enteredTool = taskEnteredToolSubflow(t);
+      const st =
+        !enteredTool && !isTerminal ? { label: "对话中", tone: "live" } : formatTaskStatus(t.status);
       const stepNum = Number(t.step);
-      const stepLabel = Number.isFinite(stepNum) && stepNum >= 1 && stepNum <= 4 ? `步骤 ${stepNum}/4` : "步骤 —";
+      const showStepBadge =
+        enteredTool ||
+        (isTerminal &&
+          (Boolean(String(t.job_id || "").trim()) ||
+            (Number.isFinite(stepNum) && stepNum >= 2)));
+      const stepLabel = showStepBadge
+        ? Number.isFinite(stepNum) && stepNum >= 1 && stepNum <= 4
+          ? `步骤 ${stepNum}/4`
+          : "步骤 —"
+        : "";
       const oc4Note = lastOc4ActivitySnippet(t.oc4_activity);
+      const timeStr = formatTaskTime(t.updated_at || t.created_at);
+      const rawTitle = String(t.title || "").trim();
+      const displayTitle = taskListDisplayTitle(t);
+      const titleDerived = taskIsGenericTitle(rawTitle);
       const { designDomain: hasDd, orchestrate: hasOrb } = taskSubprocessBadges(t);
       const svgDd =
         '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>';
@@ -266,6 +441,8 @@ export function createTaskManager(deps) {
         '<svg class="taskIconSvg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
       const svgDelete =
         '<svg class="taskIconSvg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/><path d="M10 11v6M14 11v6"/></svg>';
+      const svgFolder =
+        '<svg class="taskIconSvg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>';
       const badgeHtml =
         hasDd || hasOrb
           ? `<div class="taskItemBadgeRow" role="group" aria-label="子流程快捷入口">
@@ -283,25 +460,45 @@ export function createTaskManager(deps) {
           : "";
       const row = document.createElement("div");
       row.className = `taskItem${t.task_id === state.currentTaskId ? " active" : ""}`;
+      row.dataset.taskId = String(t.task_id || "");
       row.setAttribute("role", "listitem");
       row.setAttribute("tabindex", "0");
-      row.setAttribute("aria-label", `打开任务：${t.title || "未命名任务"}`);
+      row.setAttribute("aria-label", `打开任务：${displayTitle}`);
+      const chatOnlyLayout = !enteredTool && !isTerminal;
+      const showProgressBar = showStepBadge;
+      const titleClass = `taskItemTitle${titleDerived ? " taskItemTitle--derived" : ""}`;
+      const scanDirTrim = String(t.scan_dir || "").trim();
+      const folderBtn = scanDirTrim
+        ? `<button type="button" class="taskIconBtn taskOpenFolder" title="在资源管理器中打开该任务工作目录" aria-label="打开工作目录">${svgFolder}</button>`
+        : "";
+      const stepRowHtml = stepLabel
+        ? `<div class="taskItemStepRow"><span class="taskItemStepBadge">${escapeHtml(stepLabel)}</span></div>`
+        : "";
+      const oc4Html = oc4Note
+        ? `<div class="taskItemOc4" title="${escapeHtml(oc4Note)}"><span class="taskItemOc4Prefix">OC4</span><span class="taskItemOc4Text">${escapeHtml(oc4Note)}</span></div>`
+        : "";
+      const extraBlock = chatOnlyLayout
+        ? ""
+        : `<div class="taskItemExtra">
+        ${stepRowHtml}
+        ${oc4Html}
+        ${badgeHtml}
+        <div class="taskProgress${showProgressBar ? "" : " taskProgress--hidden"}" aria-hidden="true"><span style="width:${Math.max(0, Math.min(100, Number(t.progress || 0)))}%"></span></div>
+      </div>`;
+      if (!chatOnlyLayout) row.classList.add("taskItem--hasExtra");
       row.innerHTML = `
         <div class="taskItemTop">
-          <div class="taskItemTitle">${escapeHtml(t.title || "未命名任务")}</div>
+          <div class="${titleClass}">${escapeHtml(displayTitle)}</div>
           <span class="taskStatusPill taskStatus--${st.tone}">${escapeHtml(st.label)}</span>
         </div>
-        <div class="taskItemMetaRow">
-          <span class="taskItemStepBadge">${escapeHtml(stepLabel)}</span>
-          <span class="taskItemTime">${escapeHtml(formatTaskTime(t.updated_at || t.created_at))}</span>
-        </div>
-        ${oc4Note ? `<div class="taskItemOc4" title="${escapeHtml(oc4Note)}">OC4：${escapeHtml(oc4Note)}</div>` : ""}
-        ${badgeHtml}
-        <div class="taskProgress" aria-hidden="true"><span style="width:${Math.max(0, Math.min(100, Number(t.progress || 0)))}%"></span></div>
-        <div class="taskActions" role="toolbar" aria-label="任务操作">
-          <button type="button" class="taskIconBtn taskRename" title="重命名任务" aria-label="重命名任务">${svgRename}</button>
-          <span class="taskActionsSpacer" aria-hidden="true"></span>
-          <button type="button" class="taskIconBtn taskDelete" title="删除任务" aria-label="删除任务">${svgDelete}</button>
+        ${extraBlock}
+        <div class="taskItemFoot">
+          <span class="taskItemTime">${escapeHtml(timeStr)}</span>
+          <div class="taskItemFootActions" role="toolbar" aria-label="任务操作">
+            ${folderBtn}
+            <button type="button" class="taskIconBtn taskRename" title="重命名任务" aria-label="重命名任务">${svgRename}</button>
+            <button type="button" class="taskIconBtn taskDelete" title="删除任务" aria-label="删除任务">${svgDelete}</button>
+          </div>
         </div>
       `;
       row.querySelector(".taskDelete")?.addEventListener("click", async (e) => {
@@ -311,7 +508,16 @@ export function createTaskManager(deps) {
       });
       row.querySelector(".taskRename")?.addEventListener("click", async (e) => {
         e.stopPropagation();
-        openRenameDialog(t.task_id, t.title);
+        openRenameDialog(t.task_id, rawTitle || displayTitle);
+      });
+      row.querySelector(".taskOpenFolder")?.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (!onOpenTaskWorkDir) return;
+        try {
+          await onOpenTaskWorkDir(t);
+        } catch {
+          /* ignore */
+        }
       });
       row.querySelectorAll("[data-task-badge]").forEach((btn) => {
         btn.addEventListener("click", async (e) => {
@@ -328,18 +534,23 @@ export function createTaskManager(deps) {
       });
       row.addEventListener("click", async (ev) => {
         if (ev.target?.closest?.("button")) return;
+        const tid = String(t.task_id || "").trim();
+        const list = refs.taskListEl;
+        if (list) {
+          list.querySelectorAll(".taskItem").forEach((n) => n.classList.remove("active"));
+          row.classList.add("active");
+        }
         try {
-          await onBeforeSelectTask?.(t.task_id);
+          await onBeforeSelectTask?.(tid);
         } catch {
           /* ignore */
         }
-        state.currentTaskId = t.task_id;
+        state.currentTaskId = tid;
         state.jobId = t.job_id || null;
         state.uploadedSourceDir = t.scan_dir || "";
         state.currentFileName = t.file_name || "";
         state.currentFileId = t.file_id || null;
         await onOpenTask?.(t);
-        await loadTasks();
       });
       row.addEventListener("keydown", (ev) => {
         if (ev.key === "Enter" || ev.key === " ") {
@@ -377,5 +588,7 @@ export function createTaskManager(deps) {
     upsertTask,
     loadTasks,
     taskProgressByStep,
+    reapplyTaskSearchFilter: () => renderTaskList(_cachedTaskItems),
+    getCachedTaskItems: () => _cachedTaskItems.slice(),
   };
 }

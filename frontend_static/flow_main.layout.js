@@ -38,6 +38,26 @@ export function createLayoutManager(deps) {
       .replaceAll(">", "&gt;");
   }
 
+  function landingAttachmentExtLabel(fileName) {
+    const s = String(fileName || "");
+    const i = s.lastIndexOf(".");
+    if (i <= 0 || i >= s.length - 1) return "文件";
+    return s.slice(i + 1).toUpperCase().slice(0, 12);
+  }
+
+  function landingAttachmentMetaLine(fileName, fileSizeBytes) {
+    const ext = landingAttachmentExtLabel(fileName);
+    const n = Number(fileSizeBytes);
+    if (!Number.isFinite(n) || n < 0) return ext;
+    let sz = "";
+    if (n < 1024) sz = `${Math.round(n)} B`;
+    else if (n < 1024 * 1024) {
+      const kb = n / 1024;
+      sz = `${kb < 10 ? kb.toFixed(2) : kb.toFixed(1)} KB`;
+    } else sz = `${(n / (1024 * 1024)).toFixed(1)} MB`;
+    return `${ext} ${sz}`;
+  }
+
   /** Markdown：标题、列表、行内加粗/代码、``` 围栏代码块；流式时用不完整块也可接受 */
   function renderMd(md) {
     const parts = String(md || "").split("```");
@@ -317,7 +337,7 @@ export function createLayoutManager(deps) {
         return;
       }
       if (action === "share") {
-        const title = "AI Engineering";
+        const title = "AI Engineer";
         try {
           if (navigator.share) {
             await navigator.share({ title, text: raw });
@@ -335,6 +355,34 @@ export function createLayoutManager(deps) {
             /* ignore */
           }
         }
+        return;
+      }
+      if (action === "regenerate") {
+        if (!turn?.classList.contains("landingTurn--agent")) return;
+        refs.chatLanding.dispatchEvent(
+          new CustomEvent("beso:landing-regenerate", { bubbles: true, detail: { raw } }),
+        );
+        return;
+      }
+      if (action === "like" || action === "dislike") {
+        const bar = btn.closest(".bubbleActions");
+        if (!bar) return;
+        const likeBtn = bar.querySelector('[data-bubble-action="like"]');
+        const dislikeBtn = bar.querySelector('[data-bubble-action="dislike"]');
+        const partner = action === "like" ? dislikeBtn : likeBtn;
+        const turningOn = btn.getAttribute("aria-pressed") !== "true";
+        if (partner) {
+          partner.setAttribute("aria-pressed", "false");
+          partner.classList.remove("bubbleIconBtn--on");
+        }
+        if (turningOn) {
+          btn.setAttribute("aria-pressed", "true");
+          btn.classList.add("bubbleIconBtn--on");
+        } else {
+          btn.setAttribute("aria-pressed", "false");
+          btn.classList.remove("bubbleIconBtn--on");
+        }
+        return;
       }
     });
   }
@@ -351,6 +399,25 @@ export function createLayoutManager(deps) {
         <button type="button" class="bubbleIconBtn" data-bubble-action="share" title="分享" aria-label="分享">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v14"/>
+          </svg>
+        </button>
+        <button type="button" class="bubbleIconBtn" data-bubble-action="regenerate" title="重新生成" aria-label="重新生成">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+            <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+            <path d="M3 16v4h4M21 8V4h-4"/>
+          </svg>
+        </button>
+        <button type="button" class="bubbleIconBtn" data-bubble-action="like" title="有用" aria-label="有用" aria-pressed="false">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M7 10v12"/>
+            <path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2h2.9a2 2 0 0 0 1.69-.9l1.65-3.8A2 2 0 0 1 10.4 6H13"/>
+          </svg>
+        </button>
+        <button type="button" class="bubbleIconBtn" data-bubble-action="dislike" title="需改进" aria-label="需改进" aria-pressed="false">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M17 14V2"/>
+            <path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-2.9a2 2 0 0 0-1.69.9l-1.65 3.8A2 2 0 0 1 13.6 18H11"/>
           </svg>
         </button>
       </div>
@@ -381,21 +448,37 @@ export function createLayoutManager(deps) {
       inner.textContent = raw;
     }
     bubble.appendChild(inner);
-    wrap.appendChild(bubble);
     const att = role === "user" && opts.attachment && String(opts.attachment.file_name || opts.attachment.name || "").trim();
     if (att) {
-      const fn = escapeHtml(String(opts.attachment.file_name || opts.attachment.name || "").trim());
-      const row = document.createElement("div");
-      row.className = "landingUserAttachment";
-      row.setAttribute("role", "group");
-      row.setAttribute("aria-label", `附件 ${fn}`);
-      row.innerHTML = `
-        <span class="landingUserAttachmentInner" title="${fn}">
-          <span class="landingUserAttachmentIcon" aria-hidden="true">📎</span>
-          <span class="landingUserAttachmentName">${fn}</span>
-        </span>`;
-      wrap.appendChild(row);
+      const fn = String(opts.attachment.file_name || opts.attachment.name || "").trim();
+      const card = document.createElement("div");
+      card.className = "landingFileCard landingFileCard--sent";
+      card.setAttribute("role", "group");
+      card.setAttribute("aria-label", `附件 ${fn}`);
+      const iconWrap = document.createElement("div");
+      iconWrap.className = "landingFileCardIcon";
+      iconWrap.setAttribute("aria-hidden", "true");
+      iconWrap.innerHTML = `
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/>
+          <path d="M14 2v6h6" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/>
+          <path d="M8.5 14.5h7M8.5 17.5h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>`;
+      const body = document.createElement("div");
+      body.className = "landingFileCardBody";
+      const titleEl = document.createElement("span");
+      titleEl.className = "landingFileCardTitle";
+      titleEl.textContent = fn;
+      const metaEl = document.createElement("span");
+      metaEl.className = "landingFileCardMeta";
+      metaEl.textContent = landingAttachmentMetaLine(fn, opts.attachment.file_size);
+      body.appendChild(titleEl);
+      body.appendChild(metaEl);
+      card.appendChild(iconWrap);
+      card.appendChild(body);
+      wrap.appendChild(card);
     }
+    wrap.appendChild(bubble);
     const withToolbar = opts.withToolbar !== false;
     if (withToolbar && raw.trim()) {
       const tmp = document.createElement("div");
@@ -420,7 +503,7 @@ export function createLayoutManager(deps) {
         <div class="landingThinkingTop">
           <span class="landingThinkingOrb" aria-hidden="true"></span>
           <div class="landingThinkingTitles">
-            <span class="landingThinkingBrand">AI Engineering</span>
+            <span class="landingThinkingBrand">AI Engineer</span>
             <span class="landingThinkingSub">AI 工程助手 · 连接大模型与仿真上下文</span>
           </div>
         </div>
@@ -583,9 +666,11 @@ export function createLayoutManager(deps) {
 
   /**
    * 进入设计域 / 构型优化编排等子流程前：短暂全屏过渡 + 旋转指示，便于用户感知即将跳转。
-   * @param {{ kind?: "design_domain"|"orchestrate", minMs?: number }} opts
+   * @param {{ kind?: "design_domain"|"orchestrate", minMs?: number, instant?: boolean, skip?: boolean }} opts
+   * ``instant`` / ``skip``：不展示过渡层，立即 resolve（用于设计域等需秒开场景）。
    */
   function playLandingSubflowBridge(opts = {}) {
+    if (opts.instant === true || opts.skip === true) return Promise.resolve();
     const kind = String(opts.kind || "design_domain").toLowerCase() === "orchestrate" ? "orchestrate" : "design_domain";
     const minMs = Math.max(720, Math.min(3400, Number(opts.minMs) > 0 ? Number(opts.minMs) : 1480));
     const title = kind === "orchestrate" ? "即将进入构型优化编排" : "即将进入设计域（OC4）";
@@ -641,6 +726,7 @@ export function createLayoutManager(deps) {
           "- **锁定工作区**：以当前上传文件所在 `runs/<任务>/` 为根（或你在侧栏/流程里填写的扫描目录），列出目录内 `*.inp`、`*.vtk`、日志与附属 `*INCLUDE` 文件。\n" +
           "- **主 INP 体检**：检查优化用 `*ELSET`、`*STEP`、`*MATERIAL`、`*SOLID SECTION`、`*BOUNDARY`、`*CLOAD` 等是否与 BESO/CalculiX 预期一致；缺材料或 STEP 顺序错误会在后续执行时报错，本步尽量提前暴露。\n" +
           "- **几何分流**：若仅有 **IGES/STEP** 而无体网格 INP，应先走 **设计域**（STEP→体网格→`03_for_beso.inp`）；若已是四面体/六面体体网格 INP，则在本步完成后可直接进入「生成代码」。\n" +
+          "- **OC4 论文对齐（Chen et al., 2026, Ocean Engineering）**：设计域对应半潜三根边柱围成区域；载荷/边界概念上为系泊侧强约束 + 塔顶/主柱等效风推；编排完成后 BESO 默认按 **stiffness（柔度最小化）** 与 **约 15% 保留体积比** 写入 `beso_conf.py`（可在生成代码步再调）。\n" +
           "- **你可操作**：在流程页确认「自动关联扫描」树、必要时触发 **IGES → INP** 转换；顶栏 **← 设计域** 可随时回去改网格或载荷。",
         active: 1,
         conn: 0,
@@ -649,7 +735,7 @@ export function createLayoutManager(deps) {
         text:
           "## 步骤 2｜生成运行脚本与任务清单\n" +
           "- **写入清单**：生成或更新 `task_manifest.json`（或等效描述），记录主 INP、载荷/集合类辅助 INP、`step_mapping` 与扫描路径，供执行器按序拷贝进运行目录。\n" +
-          "- **生成 `beso_conf.py`**：写入 `mass_goal_ratio`（目标保留质量比）、`filter_list` 中 simple 滤波半径、`save_iteration_results`（与「每 N 轮保存中间结果」对应）、`optimization_base`（如 `failure_index`）等；OC4 双域时还会区分 `design_space` / `nondesign_space`。\n" +
+          "- **生成 `beso_conf.py`**：写入 `mass_goal_ratio`（目标保留质量比）、`filter_list` 中 simple 滤波半径、`save_iteration_results`（与「每 N 轮保存中间结果」对应）、`optimization_base`（OC4 设计域收尾默认 **stiffness** 以贴合 Chen 2026 柔度最小化表述；亦可改为 `failure_index`）等；OC4 双域时还会区分 `design_space` / `nondesign_space`。\n" +
           "- **脚本与入口**：产出 `run_generated` 调用链或包装脚本，使同一工作目录内可重复调用 **CalculiX（ccx）** 与 **BESO（Python）**；本步结束前不会在后台真正开始大规模迭代。\n" +
           "- **你可操作**：在下一步的「生成代码」面板核对各文件内容，再点 **接受本步骤并继续**。",
         active: 2,

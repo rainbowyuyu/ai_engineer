@@ -42,6 +42,21 @@ class AssistantChatRequest(BaseModel):
 
     messages: list[AssistantChatMessage] = Field(..., min_length=1, max_length=64)
     temperature: float | None = Field(default=0.6, ge=0, le=2)
+    attached_file_name: str | None = Field(
+        default=None,
+        max_length=512,
+        description="主页 landing 已绑定上传文件名时由前端传入",
+    )
+    attached_file_id: str | None = Field(
+        default=None,
+        max_length=128,
+        description="对应 file_id，可选",
+    )
+    deep_think: bool = Field(default=False, description="深度思考：系统提示强化分步推理，并略降低采样温度")
+    web_search: bool = Field(
+        default=False,
+        description="联网摘要：服务端用 DuckDuckGo Instant Answer 抓取与本轮用户问题相关的短摘要注入上下文",
+    )
 
     @field_validator("messages", mode="before")
     @classmethod

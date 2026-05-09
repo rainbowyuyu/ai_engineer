@@ -331,7 +331,7 @@ def _llm_choose_primary(bundle: InputBundle, qwen: QwenClient | None = None) -> 
     try:
         resp = qwen.chat(
             [
-                {"role": "system", "content": "你是「AI Engineering」中的结构优化主 INP 路由器，只输出 JSON。"},
+                {"role": "system", "content": "你是「AI Engineer」中的结构优化主 INP 路由器，只输出 JSON。"},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,

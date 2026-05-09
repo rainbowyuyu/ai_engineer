@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AI Engineering</title>
+    <title>AI Engineer</title>
     <link rel="icon" href="./assets/beso-agent-mark.svg" type="image/svg+xml" />
     <script type="importmap">
       {
@@ -636,27 +636,192 @@
   <body>
     <div class="app">
       <div class="top">
-        <div class="brand" title="AI Engineering · 设计域与拓扑优化工作流">
-          <img class="brandLogo" src="./assets/beso-agent-lockup.svg" width="200" height="28" alt="" aria-hidden="true" />
-          <span class="brandName">AI Engineering</span>
+        <div class="brand" title="AI Engineer · 设计域与拓扑优化工作流">
+          <img class="brandLogo" src="./assets/beso-agent-lockup.svg" width="200" height="28" alt="AI Engineer" />
         </div>
         <div class="topRight">
-          <span class="chip">后端：<span id="baseUrlText">127.0.0.1:8000</span></span>
-          <span class="chip">Job：<span id="jobId">(未启动)</span></span>
-          <span class="chip">状态：<span id="status">-</span></span>
-          <button type="button" class="btn resultsViewerTopBtn" id="resultsViewerBtn" title="打开拓扑优化结果查看器">结果查看器</button>
+          <div class="topRuntimeConsole" id="topRuntimeConsole">
+            <button
+              type="button"
+              class="topConsoleTrigger"
+              id="topConsoleTrigger"
+              aria-expanded="false"
+              aria-controls="topConsolePanel"
+              title="运行控制台：子流程、任务与资源占用"
+            >
+              <span class="topConsolePulseRing" id="topConsolePulseRing" aria-hidden="true"></span>
+              <span class="topConsoleTriggerText">
+                <span class="topConsoleTriggerK">运行控制台</span>
+                <span class="topConsoleTriggerSub" id="topConsoleTriggerSub">就绪</span>
+              </span>
+              <svg class="topConsoleChevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6" />
+              </svg>
+            </button>
+            <div class="topConsoleBackdrop" id="topConsoleBackdrop" aria-hidden="true"></div>
+            <section
+              class="topConsolePanel"
+              id="topConsolePanel"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="topConsolePanelTitle"
+              aria-hidden="true"
+            >
+              <div class="topConsolePanelCard">
+                <header class="topConsoleHeader">
+                  <div>
+                    <h2 class="topConsoleTitle" id="topConsolePanelTitle">运行控制台</h2>
+                    <p class="topConsoleSubtitle">运行监控与本机存储分栏切换 · 存储内可再分任务缓存与本体</p>
+                  </div>
+                  <button type="button" class="topConsoleCloseBtn" id="topConsoleClose" aria-label="关闭控制台">
+                    <span aria-hidden="true">✕</span>
+                  </button>
+                </header>
+                <div class="topConsoleBody">
+                  <div class="topConsoleMainHd">
+                    <div class="topConsoleMainHdText">
+                      <div class="topConsoleSectionLabel topConsoleSectionLabel--mainModes">控制台视图</div>
+                      <p class="topConsoleMainHint">监控与存储左右切换 · 与下方存储子页相互独立</p>
+                    </div>
+                    <div class="topConsoleMainSeg" id="topConsoleMainSeg" role="tablist" aria-label="运行控制台主视图">
+                      <button
+                        type="button"
+                        class="topConsoleMainSegBtn topConsoleMainSegBtn--active"
+                        id="topConsoleMainTabMonitor"
+                        role="tab"
+                        data-main-tab="monitor"
+                        aria-selected="true"
+                        aria-controls="topConsoleMainSlideMonitor"
+                      >
+                        运行监控
+                      </button>
+                      <button
+                        type="button"
+                        class="topConsoleMainSegBtn"
+                        id="topConsoleMainTabStorage"
+                        role="tab"
+                        data-main-tab="storage"
+                        aria-selected="false"
+                        aria-controls="topConsoleMainSlideStorage"
+                      >
+                        本机存储
+                      </button>
+                    </div>
+                  </div>
+                  <div class="topConsoleMainCarousel">
+                    <div class="topConsoleMainTrack" id="topConsoleMainTrack">
+                      <div
+                        class="topConsoleMainSlide topConsoleMainSlide--monitor"
+                        id="topConsoleMainSlideMonitor"
+                        role="tabpanel"
+                        aria-labelledby="topConsoleMainTabMonitor"
+                        aria-hidden="false"
+                      >
+                        <div class="topConsoleMonitorGrid">
+                          <div class="topConsoleCol topConsoleCol--tracks">
+                            <div class="topConsoleSectionLabel">活动轨道</div>
+                            <div class="topConsoleTracks" id="topConsoleTracks"></div>
+                          </div>
+                          <div class="topConsoleCol topConsoleCol--metrics">
+                            <div class="topConsoleSectionLabel">JS 堆内存 <span class="topConsoleHint">趋势</span></div>
+                            <div class="topConsoleChartWrap">
+                              <canvas id="topConsoleMemCanvas" width="560" height="140"></canvas>
+                            </div>
+                            <p class="topConsoleMemLegend" id="topConsoleMemLegend"></p>
+                            <div class="topConsoleSectionLabel topConsoleSectionLabel--spaced">连接</div>
+                            <div class="topConsoleNet" id="topConsoleNet"></div>
+                            <dl class="topConsoleDl">
+                              <div class="topConsoleDlRow">
+                                <dt>Job</dt>
+                                <dd id="jobId" class="topConsoleMono">(未启动)</dd>
+                              </div>
+                              <div class="topConsoleDlRow">
+                                <dt>状态</dt>
+                                <dd id="status" class="topConsoleMono">-</dd>
+                              </div>
+                              <div class="topConsoleDlRow">
+                                <dt>端点</dt>
+                                <dd id="baseUrlText" class="topConsoleMono">127.0.0.1:8000</dd>
+                              </div>
+                            </dl>
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        class="topConsoleMainSlide topConsoleMainSlide--storage"
+                        id="topConsoleMainSlideStorage"
+                        role="tabpanel"
+                        aria-labelledby="topConsoleMainTabStorage"
+                        aria-hidden="true"
+                      >
+                        <div class="topConsoleStoragePane">
+                          <div class="topConsoleStorageHd">
+                            <div class="topConsoleStorageHdText">
+                              <div class="topConsoleSectionLabel topConsoleSectionLabel--storage">本机存储</div>
+                              <p class="topConsoleStorageHint">按任务归档与全局项分栏查看 · 删除任务会清除对应任务缓存</p>
+                            </div>
+                            <div class="topConsoleStorageSeg" id="topConsoleStorageSeg" role="tablist" aria-label="存储子页">
+                              <button
+                                type="button"
+                                class="topConsoleStorageSegBtn topConsoleStorageSegBtn--active"
+                                id="topConsoleStorageTabTask"
+                                role="tab"
+                                data-storage-tab="task"
+                                aria-selected="true"
+                                aria-controls="topConsoleStorageSlideTask"
+                              >
+                                任务缓存
+                              </button>
+                              <button
+                                type="button"
+                                class="topConsoleStorageSegBtn"
+                                id="topConsoleStorageTabGlobal"
+                                role="tab"
+                                data-storage-tab="global"
+                                aria-selected="false"
+                                aria-controls="topConsoleStorageSlideGlobal"
+                              >
+                                本体存储
+                              </button>
+                            </div>
+                          </div>
+                          <div class="topConsoleStorageCarousel" aria-live="polite">
+                            <div class="topConsoleStorageTrack" id="topConsoleStorageTrack">
+                              <div class="topConsoleStorageSlide" id="topConsoleStorageSlideTask" role="tabpanel" aria-labelledby="topConsoleStorageTabTask" aria-hidden="false">
+                                <div id="topConsoleStorageHeroTask" class="topConsoleStorageHero"></div>
+                                <div id="topConsoleStorageListTask" class="topConsoleStorageList"></div>
+                              </div>
+                              <div class="topConsoleStorageSlide" id="topConsoleStorageSlideGlobal" role="tabpanel" aria-labelledby="topConsoleStorageTabGlobal" aria-hidden="true">
+                                <div id="topConsoleStorageHeroGlobal" class="topConsoleStorageHero"></div>
+                                <div id="topConsoleStorageListGlobal" class="topConsoleStorageList"></div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+          <div class="topUtilityCluster" aria-label="工具">
+            <button type="button" class="btn resultsViewerTopBtn" id="resultsViewerBtn" title="打开拓扑优化结果查看器">结果查看器</button>
+          </div>
           <button class="iconBtn" id="settingsBtn" title="连接与偏好">⚙</button>
         </div>
       </div>
 
-      <div class="panelHd hidden" id="flowStepper" style="margin:12px 14px 0;border-radius:14px;border:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-        <div class="btnRow" style="flex-wrap:wrap;gap:8px;align-items:center;">
-        <button class="btn backHomeBtn" id="backHomeFloating">&lt; 返回主页</button>
-        <button type="button" class="btn oc4ReturnToDesignBtn hidden" id="backToOc4FromFlowBtn" title="返回设计域：调整网格与载荷后再进入构型优化编排">
-          ← 设计域
-        </button>
+      <div class="panelHd hidden flowStepperBar" id="flowStepper">
+        <div class="flowStepperLead">
+          <div class="stageActionCluster" role="toolbar" aria-label="导航">
+            <button type="button" class="btn backHomeBtn" id="backHomeFloating">← 返回主页</button>
+            <button type="button" class="btn oc4ReturnToDesignBtn hidden" id="backToOc4FromFlowBtn" title="返回设计域：调整网格与载荷后再进入构型优化编排">
+              ← 设计域
+            </button>
+          </div>
         </div>
-        <div class="btnRow" style="justify-content:flex-end;">
+        <div class="flowStepperSteps" role="navigation" aria-label="流程步骤">
           <span class="chip" id="flowStep1" tabindex="-1" aria-disabled="true">1 搜索文件</span>
           <span class="chip" id="flowStep2" tabindex="-1" aria-disabled="true">2 生成代码</span>
           <span class="chip" id="flowStep3" tabindex="-1" aria-disabled="true">3 预览指标</span>
@@ -664,32 +829,40 @@
         </div>
       </div>
 
-      <div class="main chatgptHome sidebarCollapsed" id="landingMain">
-        <aside class="taskSidebar" aria-label="任务列表" aria-expanded="false">
+      <div class="main chatgptHome" id="landingMain">
+        <aside class="taskSidebar" aria-label="任务列表" aria-expanded="true">
           <div class="taskSidebarHd">
-            <div class="taskSidebarBrand">
-              <img class="taskSidebarBrandMark" src="./assets/beso-agent-mark.svg" width="22" height="22" alt="" />
-              <div class="title">任务</div>
-            </div>
-            <div class="taskSidebarTools taskSidebarToolStrip">
+            <div class="taskSidebarPill" role="toolbar" aria-label="侧栏快捷操作">
+              <button
+                type="button"
+                class="sidebarNavBtn sidebarToggle"
+                id="toggleSidebarBtn"
+                aria-expanded="true"
+                aria-controls="taskList"
+                title="收起侧栏"
+                aria-label="收起侧栏"
+              >
+                <svg class="navIcon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 5H5v14h4M14 19h5V5h-5M9 12h10" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="sidebarNavBtn taskSearchFocusBtn"
+                id="taskSearchFocusBtn"
+                title="搜索任务"
+                aria-label="聚焦任务搜索"
+              >
+                <svg class="navIcon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2" />
+                  <path d="M20 20l-4.3-4.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                </svg>
+              </button>
               <button type="button" class="sidebarNavBtn taskNewChatBtn" id="newLandingTaskBtn" title="新建对话" aria-label="新建对话">
                 <svg class="navIcon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
                   <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14" />
                 </svg>
                 <span class="taskNewChatLabel">新建</span>
-              </button>
-              <button
-                type="button"
-                class="sidebarNavBtn sidebarToggle"
-                id="toggleSidebarBtn"
-                aria-expanded="false"
-                aria-controls="taskList"
-                title="展开任务栏"
-                aria-label="展开任务栏"
-              >
-                <svg class="navIcon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
-                  <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 6l6 6-6 6" />
-                </svg>
               </button>
               <button type="button" class="sidebarNavBtn sidebarRefreshBtn" id="refreshTasksBtn" title="刷新任务" aria-label="刷新任务">
                 <svg class="navIcon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
@@ -706,66 +879,217 @@
               </button>
             </div>
           </div>
+          <div class="taskSidebarSearch" id="taskSearchWrap" role="search" aria-label="搜索任务">
+            <svg class="taskSearchIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" />
+              <path d="M20 20l-4.3-4.3" />
+            </svg>
+            <input
+              type="search"
+              id="taskSearchInput"
+              class="taskSearchInput"
+              placeholder="搜索任务…"
+              autocomplete="off"
+              spellcheck="false"
+              aria-label="按标题、文件名或状态筛选任务"
+            />
+            <button type="button" class="taskSearchClear" id="taskSearchClear" hidden aria-label="清除搜索">×</button>
+          </div>
           <div id="taskSessionDigest" class="taskSessionDigest" aria-label="本对话参与的子流程（仅摘要，请在对话中点击卡片进入）"></div>
           <div class="taskList" id="taskList"></div>
         </aside>
 
         <div class="landingMainCenter">
           <div class="introStage introStage--landing">
-            <header class="homeHero" id="landingHomeHero">
-              <img class="homeHeroMark" src="./assets/beso-agent-mark.svg" width="36" height="36" alt="" aria-hidden="true" />
-              <h1 class="heroTitle">今天想做什么工程优化？</h1>
-              <p class="homeHeroTagline">AI Engineering：上传几何或有限元模型，描述目标与约束；一键串联「设计域」与「拓扑优化编排」（底层集成 BESO / CalculiX）。</p>
+            <header class="landingWorkspaceChrome" id="landingWorkspaceChrome">
+              <div class="landingWorkspaceChromeInner">
+                <h2 class="landingWorkspaceTitle" id="landingWorkspaceTitle">主页工作台</h2>
+                <p class="landingWorkspaceSub" id="landingWorkspaceSub">标准对话 · 在侧栏新建或选择任务</p>
+              </div>
+            </header>
+            <header class="homeHero homeHero--minimal" id="landingHomeHero">
+              <div class="homeHeroRich">
+                <img class="homeHeroMark" src="./assets/beso-agent-mark.svg" width="48" height="48" alt="" aria-hidden="true" />
+                <h1 class="heroTitle" id="landingHeroTitle">今天想优化什么？</h1>
+                <p class="homeHeroTagline" id="landingHeroTagline">
+                  支持 INP、IGES、STEP：上传后用自然语言描述目标与约束，可审阅模型、走设计域体网格与载荷，或通过编排串联 BESO 与 CalculiX。Enter 发送，Shift+Enter 换行；侧栏管理任务与附件，runs 目录保存日志与中间结果。
+                </p>
+              </div>
             </header>
 
             <div id="chatLanding" class="chat landingChatScroll" role="log" aria-live="polite" aria-relevant="additions"></div>
 
-            <div id="landingSubflowStrip" class="landingSubflowStrip hidden" aria-label="从对话进入子流程">
-              <span class="landingSubflowStripLabel">子流程</span>
-              <button type="button" class="landingSubflowBtn" id="landingEnterDesignDomainBtn" title="进入设计域（需已上传 IGES）">设计域</button>
-              <button type="button" class="landingSubflowBtn landingSubflowBtn--primary" id="landingEnterOrchestrateBtn" title="进入构型优化编排（需已上传文件）">构型优化编排</button>
-            </div>
-
             <div class="landingComposerDock">
-              <div class="landingPendingAttachBar hidden" id="landingPendingAttachBar" role="status" aria-live="polite">
-                <span class="landingPendingAttachTag">待发送</span>
-                <span class="landingPendingAttachName" id="landingPendingAttachName"></span>
-                <button type="button" class="landingPendingAttachRemove" id="landingPendingAttachRemove" title="移除文件" aria-label="移除上传文件">×</button>
-              </div>
               <div class="homeComposer landingComposer">
                 <div class="composerPill">
-                  <button type="button" class="composerAttachBtn" id="pickBtnLanding" title="上传文件" aria-label="上传文件">
-                    <svg class="navIcon" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
-                      <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14" />
-                    </svg>
-                  </button>
                   <input id="fileInputLanding" type="file" accept=".inp,.vtk,.obj,.py,.log,.igs,.iges,.stp,.step" class="hidden" />
-                  <textarea
-                    class="homeTextarea"
-                    id="msgLanding"
-                    rows="1"
-                    placeholder="描述构型/拓扑优化、网格或载荷需求…"
-                  ></textarea>
-                  <button type="button" class="composerSendFab" id="landingSendChatBtn" title="发送对话（Enter）" aria-label="发送对话">
-                    <svg class="composerSendIcon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
-                      <path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6v6.55L16.65 12 3.4 13.85z" />
-                    </svg>
-                  </button>
-                </div>
-                <div class="landingQuickRow" role="toolbar" aria-label="快捷意图">
-                  <button type="button" class="landingQuickChip" data-landing-prompt="帮我审阅当前 inp 的网格、材料与边界条件，列出风险与改进建议。">
-                    审阅模型
-                  </button>
-                  <button type="button" class="landingQuickChip" data-landing-prompt="从 STEP/IGES 开始：生成设计域体网格并输出可用于 BESO 的 INP 流程说明。">
-                    几何到网格
-                  </button>
-                  <button type="button" class="landingQuickChip" data-landing-prompt="帮我对这个 inp 做拓扑优化：默认质量比约 0.25、每轮保存中间 OBJ 方便结果查看器回放，并说明如何看演化曲线与应力指标。">
-                    拓扑优化
-                  </button>
-                  <button type="button" class="landingRunAgentBtn" id="runAgentFlow">运行构型优化流程</button>
+                  <div id="landingSubflowStrip" class="landingSubflowStrip hidden" aria-label="从对话进入子流程">
+                    <span class="landingSubflowStripLabel">子流程</span>
+                    <button type="button" class="landingSubflowBtn" id="landingEnterDesignDomainBtn" title="进入设计域（需已上传 IGES）">设计域</button>
+                    <button type="button" class="landingSubflowBtn landingSubflowBtn--primary" id="landingEnterOrchestrateBtn" title="进入构型优化编排（需已上传文件）">构型优化编排</button>
+                  </div>
+                  <div class="composerPillTop">
+                    <div
+                      class="landingFileCard landingFileCard--pending hidden"
+                      id="landingPendingAttachBar"
+                      role="group"
+                      aria-live="polite"
+                      aria-label="待发送附件"
+                    >
+                      <div class="landingFileCardIcon" aria-hidden="true">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path
+                            d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"
+                            stroke="currentColor"
+                            stroke-width="1.75"
+                            stroke-linejoin="round"
+                          />
+                          <path d="M14 2v6h6" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" />
+                          <path
+                            d="M8.5 14.5h7M8.5 17.5h5"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                          />
+                        </svg>
+                      </div>
+                      <div class="landingFileCardBody">
+                        <span class="landingFileCardTitle" id="landingPendingAttachName"></span>
+                        <span class="landingFileCardMeta" id="landingPendingAttachMeta"></span>
+                      </div>
+                      <button
+                        type="button"
+                        class="landingFileCardRemove"
+                        id="landingPendingAttachRemove"
+                        title="移除文件"
+                        aria-label="移除上传文件"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                          <path d="M18 6L6 18M6 6l12 12" stroke-linecap="round" />
+                        </svg>
+                      </button>
+                    </div>
+                    <textarea
+                      class="homeTextarea composerPillTextarea"
+                      id="msgLanding"
+                      rows="2"
+                      placeholder="描述构型/拓扑优化、网格或载荷需求…"
+                    ></textarea>
+                  </div>
+                  <div class="composerPillFooter">
+                    <div class="composerPillFooterLeft">
+                      <div class="composerPillToolRow">
+                        <div class="composerPillModeCluster" role="group" aria-label="对话模式（点击保持开关）">
+                          <button
+                            type="button"
+                            class="landingModeToggle landingModeToggle--deep"
+                            id="landingToggleDeepThink"
+                            aria-pressed="false"
+                            title="深度思考：分步推理、略降随机性；再次点击关闭"
+                          >
+                            <svg class="landingModeToggleIcon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                              <path
+                                fill="currentColor"
+                                d="M9 21h6v-1H9v1zm2.09-13.95A5.002 5.002 0 0 0 7 12c0 1.77.92 3.32 2.3 4.2V17h5.4v-.8c1.38-.88 2.3-2.43 2.3-4.2 0-2.76-2.24-5-5-5-.92 0-1.77.25-2.51.68zM12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2v-2.26A6.99 6.99 0 0 1 5 9a7 7 0 0 1 7-7z"
+                              />
+                            </svg>
+                            <span class="landingModeToggleText">深度思考</span>
+                          </button>
+                          <button
+                            type="button"
+                            class="landingModeToggle landingModeToggle--web"
+                            id="landingToggleWebSearch"
+                            aria-pressed="false"
+                            title="联网搜索：发送时注入 DuckDuckGo 公开摘要；再次点击关闭"
+                          >
+                            <svg class="landingModeToggleIcon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                              <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2" />
+                              <path
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z"
+                              />
+                            </svg>
+                            <span class="landingModeToggleText">联网搜索</span>
+                          </button>
+                        </div>
+                        <div class="landingQuickRow" role="toolbar" aria-label="快捷提示词（点击填入输入框）">
+                          <button
+                            type="button"
+                            class="landingQuickChip landingQuickChip--prompt"
+                            data-landing-prompt="帮我审阅当前 inp 的网格、材料与边界条件，列出风险与改进建议。"
+                          >
+                            <svg class="landingQuickChipGlyph" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+                              <path
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linejoin="round"
+                                d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zM14 2v6h6M8 13h8M8 17h8M8 9h2"
+                              />
+                            </svg>
+                            <span>审阅模型</span>
+                          </button>
+                          <button
+                            type="button"
+                            class="landingQuickChip landingQuickChip--prompt"
+                            data-landing-prompt="从 STEP/IGES 开始：生成设计域体网格并输出可用于 BESO 的 INP 流程说明。"
+                          >
+                            <svg class="landingQuickChipGlyph" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+                              <path
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linejoin="round"
+                                d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zM14 2v6h6M8 13h8M8 17h8M8 9h2"
+                              />
+                            </svg>
+                            <span>几何到网格</span>
+                          </button>
+                          <button
+                            type="button"
+                            class="landingQuickChip landingQuickChip--prompt"
+                            data-landing-prompt="帮我对这个 inp 做拓扑优化：默认质量比约 0.25、每轮保存中间 OBJ 方便结果查看器回放，并说明如何看演化曲线与应力指标。"
+                          >
+                            <svg class="landingQuickChipGlyph" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+                              <path
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linejoin="round"
+                                d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zM14 2v6h6M8 13h8M8 17h8M8 9h2"
+                              />
+                            </svg>
+                            <span>拓扑优化</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="composerPillFooterRight">
+                      <button type="button" class="composerAttachBtn" id="pickBtnLanding" title="上传文件" aria-label="上传文件">
+                        <svg class="navIcon" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"
+                          />
+                        </svg>
+                      </button>
+                      <button type="button" class="composerSendFab" id="landingSendChatBtn" title="发送对话（Enter）" aria-label="发送对话" disabled>
+                        <svg class="composerSendIcon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                          <path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6v6.55L16.65 12 3.4 13.85z" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
                 </div>
                 <p class="landingRunsHint">
-                  回车发送对话 · Shift+Enter 换行 · 任务与进度在 <code>runs</code> 目录
+                  回车发送对话 · Shift+Enter 换行 · 任务与进度在 <code>runs</code> 目录 · 子流程入口在输入框上方
                 </p>
               </div>
             </div>
@@ -784,107 +1108,135 @@
                 </div>
               </div>
             </div>
-            <button type="button" class="btn backHomeBtn" id="designDomainBackBtn">返回主页</button>
-          </header>
-          <div class="designDomainBodyGrid">
-            <div class="designDomainWorkCol">
-              <nav class="designDomainStepRail" id="designDomainStepRail" aria-label="设计域分步">
-                <div class="ddStepCluster">
-                  <div class="ddStep" data-idx="1"><span class="ddStepNum">1</span><span class="ddStepLabel">源装配预览</span></div>
-                  <button type="button" class="ddStepAiBtn" data-dd-topic="design" title="步骤 1：设计域选项 AI">AI</button>
-                </div>
-                <span class="ddStepSep" aria-hidden="true">→</span>
-                <div class="ddStepCluster">
-                  <div class="ddStep" data-idx="2"><span class="ddStepNum">2</span><span class="ddStepLabel">设计域 OBJ</span></div>
-                  <button type="button" class="ddStepAiBtn" data-dd-topic="preview" title="步骤 2：OBJ 预览 AI">AI</button>
-                </div>
-                <span class="ddStepSep" aria-hidden="true">→</span>
-                <div class="ddStepCluster">
-                  <div class="ddStep" data-idx="3"><span class="ddStepNum">3</span><span class="ddStepLabel">体网格</span></div>
-                  <button type="button" class="ddStepAiBtn" data-dd-topic="mesh" title="步骤 3：FreeCAD 体网格 AI">AI</button>
-                </div>
-                <span class="ddStepSep" aria-hidden="true">→</span>
-                <div class="ddStepCluster">
-                  <div class="ddStep" data-idx="4"><span class="ddStepNum">4</span><span class="ddStepLabel">载荷 INP</span></div>
-                  <button type="button" class="ddStepAiBtn" data-dd-topic="loads" title="步骤 4：载荷 AI">AI</button>
-                </div>
-                <span class="ddStepSep" aria-hidden="true">→</span>
-                <span class="ddStepRailTail">「完成并进入编排」</span>
-              </nav>
-              <p class="designDomainStepHint" id="designDomainStepHint" role="status"></p>
-              <div class="designDomainPreviewRow">
-                <div class="designDomainViewportCard">
-                  <div class="designDomainViewportLabel">源几何（经 STEP 三角化预览）</div>
-                  <div class="designDomainViewport" id="designDomainViewportLeft">
-                    <div class="designDomainCanvasWrap" id="designDomainCanvasLeft"></div>
-                    <div class="designDomainViewportOverlay hidden" id="designDomainLeftOverlay" aria-hidden="true">
-                      <div class="designDomainOverlayInner">
-                        <div class="designDomainSpinner" aria-hidden="true"></div>
-                        <div class="designDomainOverlayText" id="designDomainLeftOverlayText">正在准备预览…</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div class="designDomainViewportCard">
-                  <div class="designDomainViewportLabel">设计域 STEP</div>
-                  <div class="designDomainViewport" id="designDomainViewportRight">
-                    <div class="designDomainCanvasWrap" id="designDomainCanvasRight"></div>
-                    <div class="designDomainViewportOverlay hidden" id="designDomainRightOverlay" aria-hidden="true">
-                      <div class="designDomainOverlayInner">
-                        <div class="designDomainSpinner" aria-hidden="true"></div>
-                        <div class="designDomainOverlayText" id="designDomainRightOverlayText">正在生成设计域…</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div class="designDomainToolbar" id="designDomainToolbar">
-                <div class="designDomainToolbarTop">
-                  <div class="designDomainToolbarChecks">
-                    <label class="designDomainCheck designDomainCheck--pill"
-                      ><input type="checkbox" id="ddCutCenter" checked /> 挖除中心柱</label
-                    >
-                    <label class="designDomainCheck designDomainCheck--pill"
-                      ><input type="checkbox" id="ddIncludeSource" /> 合并源几何（对照）</label
-                    >
-                  </div>
-                  <div class="designDomainToolbarMeshRow">
-                    <label class="designDomainToolbarMesh">
-                      <span class="designDomainToolbarMeshTxt">FreeCAD 疏密</span>
-                      <select
-                        id="ddMeshDensity"
-                        class="designDomainInput designDomainMeshSelect"
-                        title="预设会写入 char_max 与曲率加密；点「3」打开 Plan 时带入，仍可再改"
-                      >
-                        <option value="modal">与 Plan 弹窗一致</option>
-                        <option value="fine">细 · 更密</option>
-                        <option value="medium">中等</option>
-                        <option value="coarse">粗 · 试算快</option>
-                        <option value="xlarge">最粗 · 超大稀疏</option>
-                      </select>
-                    </label>
-                    <input
-                      type="number"
-                      id="ddCharMax"
-                      class="designDomainInput designDomainCharField"
-                      placeholder="char_max（可选）"
-                      title="Gmsh CharacteristicLengthMax（mm），数值越大网格越粗；可覆盖上方预设"
-                    />
-                  </div>
-                </div>
-                <div class="designDomainToolbarSteps" role="toolbar" aria-label="设计域操作步骤">
-                  <button type="button" class="btn ddTbarBtn ddTbarStep ddTbarStep--1" id="ddBtnBuild">1 构建设计域</button>
-                  <button type="button" class="btn ddTbarBtn ddTbarStep ddTbarStep--2" id="ddBtnPreview">2 导出 OBJ 预览</button>
-                  <button type="button" class="btn ddTbarBtn ddTbarStep ddTbarStep--3" id="ddBtnMesh">3 FreeCAD 体网格</button>
-                  <button type="button" class="btn ddTbarBtn ddTbarStep ddTbarStep--4" id="ddBtnLoads">4 划分载荷</button>
-                </div>
-                <div class="designDomainToolbarFinalizeWrap">
-                  <button type="button" class="btn btnPrimary ddTbarBtn ddTbarFinalize" id="ddBtnFinalize">完成并进入编排</button>
-                </div>
-              </div>
+            <div class="designDomainHeaderActions stageActionCluster" role="toolbar" aria-label="页面操作">
+              <button type="button" class="btn backHomeBtn" id="designDomainBackBtn">← 返回主页</button>
             </div>
-            <aside class="designDomainAgentCol" aria-label="AI Engineering 设计域对话与轨迹">
-              <div class="designDomainAgentPanel">
+          </header>
+          <div class="designDomainIdeGrid" id="designDomainIdeGrid">
+            <aside class="ddIdeFileRail" id="ddIdeFileRail" aria-label="会话工作区文件">
+              <div class="ddIdeFileRailHd">
+                <span class="ddIdeFileRailTitle">工作区</span>
+                <div class="ddIdeFileRailActions ddIdeIconToolbar" role="toolbar" aria-label="工作区操作">
+                  <button type="button" class="ddIdeIconBtn" id="ddIdeFileRefreshBtn" title="刷新文件列表" aria-label="刷新">
+                    <svg class="ddIdeIconSvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                      <path d="M3 3v5h5" />
+                      <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+                      <path d="M16 21h5v-5" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    class="ddIdeIconBtn openWorkDirBtn"
+                    id="designDomainOpenWorkDirBtn"
+                    disabled
+                    title="在文件资源管理器中打开 runs/_design_domain/当前会话（需本机运行后端）"
+                    aria-label="工作目录"
+                  >
+                    <svg class="ddIdeIconSvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                    </svg>
+                  </button>
+                  <button type="button" class="ddIdeIconBtn" id="ddIdeNewFileBtn" title="新建文本文件" aria-label="新建文件">
+                    <svg class="ddIdeIconSvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <path d="M14 2v6h6" />
+                      <path d="M12 18v-6" />
+                      <path d="M9 15h6" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    class="ddIdeIconBtn ddIdePreviewFollowLockBtn"
+                    id="ddIdePreviewFollowLockBtn"
+                    title="锁定：智能体生成新文件时不自动切换预览"
+                    aria-label="锁定自动跟随新文件预览"
+                    aria-pressed="false"
+                  >
+                    <svg class="ddIdeIconSvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <rect x="5" y="11" width="14" height="10" rx="2" />
+                      <path d="M12 15v2" />
+                      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="ddIdeFileTreeScroll">
+                <div class="ddIdeFileTree" id="ddIdeFileTree" role="tree" aria-label="设计域会话目录"></div>
+              </div>
+              <p class="ddIdeFileRailHint" id="ddIdeFileRailHint">进入会话后显示 <code class="mono">runs/_design_domain/&lt;id&gt;</code> 下文件。</p>
+            </aside>
+            <div class="ddIdeSplit ddIdeSplit--left" aria-hidden="true"></div>
+            <section class="ddIdeCenter" aria-label="文件预览与源码">
+              <div class="ddIdeEditorChrome">
+                <div class="ddIdeFileTabsRow">
+                  <div class="ddIdeFileTabsScrollWrap">
+                    <div class="ddIdeFileTabsScroll" role="tablist" aria-label="已打开文件">
+                      <div class="ddIdeFileTabs" id="ddIdeFileTabs"></div>
+                    </div>
+                    <details class="ddIdeTabsMoreDetails hidden" id="ddIdeTabsMoreDetails">
+                      <summary class="ddIdeTabsMoreSum" title="更多已打开文件" aria-label="更多标签">›</summary>
+                      <div class="ddIdeTabsMoreDropdown" id="ddIdeTabsMoreDropdown" role="menu"></div>
+                    </details>
+                  </div>
+                  <div
+                    class="ddIdeViewSeg"
+                    id="ddIdeViewSeg"
+                    role="group"
+                    aria-label="源码与预览"
+                    data-dd-view="source"
+                  >
+                    <button type="button" class="ddIdeViewSegBtn ddIdeViewSegBtn--active" data-dd-view-btn="source" title="源码编辑">源码</button>
+                    <button type="button" class="ddIdeViewSegBtn" data-dd-view-btn="preview" title="3D 预览">预览</button>
+                  </div>
+                </div>
+              </div>
+              <div class="ddIdeTabPanels">
+                <div class="ddIdePane ddIdePane--code" id="ddIdePaneSource" role="tabpanel">
+                  <div class="ddIdeSourceStack" id="ddIdeSourceStack">
+                    <iframe
+                      id="ddIdeVscodeFrame"
+                      class="ddIdeVscodeFrame hidden"
+                      title="VS Code Web（侧车）"
+                      sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-popups"
+                    ></iframe>
+                    <div class="ddIdeNativeCodeWrap" id="ddIdeNativeCodeWrap">
+                      <div class="ddIdeCodeHd">
+                        <span class="ddIdeCodePath mono" id="ddIdeCodePath">未选择文件</span>
+                        <span class="ddIdeCodeMeta" id="ddIdeCodeMeta"></span>
+                      </div>
+                      <textarea
+                        class="ddIdeCodeEditor mono"
+                        id="ddIdeCodeEditor"
+                        spellcheck="false"
+                        wrap="off"
+                        placeholder="在左侧选择或新建文件；支持 Ctrl+S 保存。"
+                      ></textarea>
+                    </div>
+                  </div>
+                </div>
+                <div class="ddIdePane ddIdePane--preview hidden" id="ddIdePanePreview" role="tabpanel" hidden>
+                  <div class="designDomainViewportCard ddIdePreviewCard">
+                    <div class="designDomainViewportLabel" id="ddIdePreviewLabel">3D 预览</div>
+                    <div class="ddIdeMdPreviewWrap hidden" id="ddIdeMdPreviewWrap">
+                      <div class="ddIdeMdPreview mdLiteRoot" id="ddIdeMdPreview"></div>
+                    </div>
+                    <div class="designDomainViewport" id="ddIdePreviewViewport">
+                      <div class="designDomainCanvasWrap" id="ddIdePreviewCanvasWrap"></div>
+                      <div class="designDomainViewportOverlay hidden" id="ddIdePreviewOverlay" aria-hidden="true">
+                        <div class="designDomainOverlayInner">
+                          <div class="designDomainSpinner" aria-hidden="true"></div>
+                          <div class="designDomainOverlayText" id="ddIdePreviewOverlayText">正在加载…</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+            <div class="ddIdeSplit ddIdeSplit--right" aria-hidden="true"></div>
+            <aside class="ddIdeAgentRail" aria-label="AI Engineer 智能体">
+              <div class="designDomainAgentPanel ddIdeAgentPanel ddAiUnifiedPanel">
                 <div class="designDomainAgentPanelHd">
                   <img
                     class="designDomainAgentLogo"
@@ -895,40 +1247,253 @@
                     aria-hidden="true"
                   />
                   <div class="designDomainAgentPanelTitles">
-                    <div class="designDomainAgentName">AI Engineering</div>
-                    <div class="designDomainAgentSub">设计域 · 网格与载荷的工程对话</div>
+                    <div class="designDomainAgentName">AI Engineer</div>
+                    <div class="designDomainAgentSub">中栏预览体：Plan、对话、思考与工具调用流向向下串行记录。</div>
                   </div>
                   <span class="designDomainAgentPulse" title="会话进行中"></span>
                 </div>
-                <div class="designDomainFlowLog designDomainFlowLog--rail" id="designDomainFlowLog" aria-live="polite"></div>
+                <div class="ddAgentThread" id="ddAgentThread" aria-label="AI Engineer 会话">
+                  <div class="ddAgentUnifiedScroll" id="ddAgentUnifiedScroll">
+                    <details class="ddAgentPlanDetails ddAiPlanEmbed ddIdePlan ddAiPlanEmbed--thread" id="ddIdePlan" aria-label="管线进度" open>
+                      <summary class="ddAgentPlanSummary">
+                        <span class="ddAgentPlanSummaryMain">
+                          <span class="ddAgentPlanSummaryK">AI Engineer · 执行计划</span>
+                          <span class="ddAgentPlanSummaryHint">四步管线 · 与下方流式记录联动</span>
+                        </span>
+                        <span class="ddAgentPlanSummaryChev" aria-hidden="true"></span>
+                      </summary>
+                      <div class="ddAgentPlanBody">
+                        <div class="ddIdePlanTop">
+                          <div class="ddIdePlanHd">Plan</div>
+                          <div class="ddIdePlanBuildSlot" id="ddIdePlanBuildSlot">
+                            <button type="button" class="btn btnPrimary ddIdePlanBuildBtn" id="ddIdePlanBuildBtn" title="按内置五步执行全流程（源预览→设计域→OBJ→体网格→载荷），完成后不可重复">
+                              Build
+                            </button>
+                            <button
+                              type="button"
+                              class="btn ddIdePlanHistoryBtn ddIdePlanDocBtn mono hidden"
+                              id="ddIdePlanHistoryOpen"
+                              data-dd-open="build_history.md"
+                              title="查看本次全流程 Build 过程记录"
+                            >
+                              build_history.md
+                            </button>
+                          </div>
+                        </div>
+                        <div class="ddIdePlanMdWrap hidden" id="ddIdePlanMdWrap" aria-label="计划草稿流式输出">
+                          <div class="ddIdePlanMdK">计划草稿</div>
+                          <div class="ddIdePlanMdStream mdLiteRoot aeMdSurface" id="ddIdePlanMdStream"></div>
+                        </div>
+                        <div class="ddIdePlanArtifactsRow mono hidden" id="ddIdePlanArtifactsRow">
+                          <button type="button" class="ddIdePlanDocBtn hidden" id="ddIdePlanPlanOpen" data-dd-open="build_plan.md" title="打开 build_plan.md">
+                            build_plan.md
+                          </button>
+                        </div>
+                        <ol class="ddIdePlanList ddIdePlanList--embed ddIdePlanList--stream" id="ddIdePlanList" aria-label="四步管线（流式生成）"></ol>
+                        <ol class="ddIdePlanList ddIdePlanList--embed ddIdePlanList--dyn hidden" id="ddIdePlanDynList" aria-label="模型生成的执行计划"></ol>
+                      </div>
+                    </details>
+                    <div id="ddAgentRunLog" class="ddAgentRunLog" aria-live="polite"></div>
+                  </div>
+                </div>
+                <div class="ddAgentSessionStats" id="ddAgentSessionStats" aria-live="polite">
+                  <button type="button" class="ddAgentStatHit" data-dd-stat="tools" aria-expanded="false" title="点击展开 / 收起工具调用明细">
+                    <span class="ddAgentStatHitInner">
+                      <span class="ddAgentStatChevHint" aria-hidden="true">›</span>
+                      <span class="ddAgentStatItem"
+                        ><span class="ddAgentStatLabel">工具</span> <strong id="ddAgentStatTools">0</strong></span
+                      >
+                    </span>
+                  </button>
+                  <span class="ddAgentStatSep" aria-hidden="true">·</span>
+                  <button type="button" class="ddAgentStatHit" data-dd-stat="files" aria-expanded="false" title="点击展开 / 收起文件事件明细">
+                    <span class="ddAgentStatHitInner">
+                      <span class="ddAgentStatChevHint" aria-hidden="true">›</span>
+                      <span class="ddAgentStatItem ddAgentStatItem--files">
+                        <span class="ddAgentStatPlus" title="产物/引用文件数">+</span>
+                        <strong id="ddAgentStatFiles">0</strong>
+                        <span class="ddAgentStatFilesLabel">文件</span>
+                      </span>
+                    </span>
+                  </button>
+                </div>
+                <div id="ddAgentStatDetail" class="ddAgentStatDetail ddAgentStatDrawer hidden" role="region" aria-label="统计抽屉">
+                  <div class="ddAgentStatDrawerGlow" aria-hidden="true"></div>
+                  <div class="ddAgentStatDrawerCard">
+                    <div class="ddAgentStatDetailHd ddAgentStatDrawerHd">
+                      <div class="ddAgentStatDrawerHdText">
+                        <span class="ddAgentStatDrawerKicker" id="ddAgentStatDrawerKicker">会话记录</span>
+                        <span class="ddAgentStatDetailTitle" id="ddAgentStatDetailTitle">明细</span>
+                      </div>
+                    </div>
+                    <div class="ddAgentStatDetailBody ddAgentStatDrawerBody" id="ddAgentStatDetailBody"></div>
+                  </div>
+                </div>
+                <div class="ddAgentComposer">
+                  <div class="ddAgentComposerBody">
+                    <textarea
+                      id="ddAgentInput"
+                      class="ddAgentInput"
+                      rows="2"
+                      maxlength="12000"
+                      placeholder="描述目标或执行进度；智能体可代为执行构建、导出 OBJ、体网格与载荷划分。"
+                    ></textarea>
+                    <div
+                      class="ddAgentComposerActions ddAgentComposerToolbar"
+                      id="ddAgentComposerToolbar"
+                      aria-label="上下文与发送"
+                    >
+                      <div class="ddAgentComposerModelCluster">
+                        <label class="ddAgentToolbarModelWrap" title="智能体模型">
+                          <span class="sr-only">智能体模型</span>
+                          <select
+                            id="ddAgentModelQuick"
+                            class="ddAgentModelQuick ddAgentModelQuick--toolbar"
+                            aria-label="设计域智能体所用 Qwen 兼容模型"
+                            title="切换后写入服务端进程，下一次智能体请求立即生效"
+                          >
+                            <option value="qwen-max">qwen-max</option>
+                            <option value="qwen-plus">qwen-plus</option>
+                            <option value="qwen-turbo">qwen-turbo</option>
+                            <option value="qwen3-max">qwen3-max</option>
+                            <option value="qwen3-plus">qwen3-plus</option>
+                            <option value="qwen3-turbo">qwen3-turbo</option>
+                            <option value="deepseek-v3">deepseek-v3</option>
+                          </select>
+                        </label>
+                        <button type="button" class="btn ddAgentIconSettings" id="ddAgentModelSettingsBtn" title="完整设置" aria-label="完整设置">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5" />
+                            <path
+                              d="M12 1.5v2M12 20.5v2M4.5 4.5l1.4 1.4M18.1 18.1l1.4 1.4M1.5 12h2M20.5 12h2M4.5 19.5l1.4-1.4M18.1 5.9l1.4-1.4"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                              stroke-linecap="round"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                      <span class="ddAgentToolbarGrow" aria-hidden="true"></span>
+                      <div class="ddAgentComposerActCluster">
+                        <div
+                          id="ddAgentContextHint"
+                          class="ddAgentContextRing"
+                          role="img"
+                          title="输入框字符与本轮流式上下文粗估（非精确 token）；悬停查看详情"
+                        >
+                          <svg class="ddAgentContextRingSvg" viewBox="0 0 36 36" aria-hidden="true">
+                            <g transform="rotate(-90 18 18)">
+                              <circle class="ddAgentContextRingTrack" cx="18" cy="18" r="14" fill="none" stroke-width="2.75" />
+                              <circle
+                                class="ddAgentContextRingProg"
+                                cx="18"
+                                cy="18"
+                                r="14"
+                                fill="none"
+                                stroke-width="2.75"
+                                stroke-linecap="round"
+                                pathLength="100"
+                                stroke-dasharray="100"
+                                stroke-dashoffset="100"
+                              />
+                            </g>
+                          </svg>
+                          <div class="ddAgentContextRingCore">
+                            <span class="ddAgentContextRingTok" id="ddAgentContextRingTok">~0</span>
+                            <span class="ddAgentContextRingSub">tok</span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          class="btn btnPrimary ddAgentIconFinalize ddTbarBtn ddTbarFinalize"
+                          id="ddBtnFinalize"
+                          title="完成并进入编排"
+                          aria-label="完成并进入编排"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path
+                              d="M5 12h14M12 5l7 7-7 7"
+                              stroke="currentColor"
+                              stroke-width="2"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                            />
+                          </svg>
+                        </button>
+                        <button type="button" class="btn btnPrimary ddAgentIconSend" id="ddAgentSend" title="发送 (Enter)" aria-label="发送">
+                          <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+                            <path fill="currentColor" d="M2.01 21L23 12L2.01 3L2 10l15 2-15 2z" />
+                          </svg>
+                        </button>
+                        <button type="button" class="btn ddAgentIconStop ddAgentStopBtn hidden" id="ddAgentStop" title="停止" aria-label="停止">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <rect x="7" y="7" width="10" height="10" rx="1.5" stroke="currentColor" stroke-width="1.75" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <p class="designDomainAgentFoot">与任务、拓扑优化编排页同步记录。</p>
               </div>
             </aside>
           </div>
         </div>
-        <dialog class="ddStepNlDialog" id="ddStepNlDialog" aria-labelledby="ddStepNlTitle">
-          <div class="ddStepNlDialogPanel" id="ddStepNlDialogPanel">
-            <div class="ddStepNlDialogHead">
-              <h2 class="ddStepNlTitle" id="ddStepNlTitle">AI Engineering</h2>
-              <button type="button" class="btn ddStepNlClose" id="ddStepNlClose" aria-label="关闭">×</button>
-            </div>
-            <p class="ddStepNlIntro" id="ddStepNlIntro"></p>
-            <div class="ddStepNlLog designDomainChatLog" id="ddStepNlLog"></div>
-            <label class="ddStepNlInputLbl hidden" id="ddNlLoadsLbl" for="ddNlLoadsTa">载荷自然语言（可选）</label>
-            <textarea
-              id="ddNlLoadsTa"
-              class="designDomainLoadsTextarea hidden"
-              rows="3"
-              maxlength="4000"
-              placeholder="例如：最高点单点向下 5MN；或顶端 20 节点各 50kN 向下。划分载荷时会与数值参数合并提交。"
-            ></textarea>
-            <textarea id="ddStepNlInput" class="ddStepNlInput" rows="3" maxlength="4000" placeholder="输入本步问题…"></textarea>
-            <div class="ddStepNlActions">
-              <button type="button" class="btn btnPrimary" id="ddStepNlSend">发送</button>
-              <button type="button" class="btn" id="ddStepNlApply">应用本步建议</button>
+        <div id="ddPlanFloatDock" class="ddPlanFloatDock hidden" aria-hidden="true">
+          <button type="button" class="ddPlanFloatDockBtn" id="ddPlanFloatDockBtn" aria-expanded="false" title="查看执行计划">
+            <span class="ddPlanFloatDockDot" aria-hidden="true"></span>
+            <span class="ddPlanFloatDockK">Plan</span>
+            <span class="ddPlanFloatDockChev" aria-hidden="true">▾</span>
+          </button>
+          <div id="ddPlanFloatDockPanel" class="ddPlanFloatDockPanel hidden" role="region" aria-label="执行计划速览">
+            <div class="ddPlanFloatDockPanelHd">执行计划</div>
+            <ol class="ddIdePlanList ddIdePlanList--embed ddPlanFloatDockList" id="ddPlanFloatDockList"></ol>
+          </div>
+        </div>
+        <div id="ddPlanPrefModal" class="ddPlanPrefModal hidden" aria-hidden="true">
+          <button type="button" class="ddPlanPrefModalBackdrop" id="ddPlanPrefModalBackdrop" tabindex="-1" aria-label="关闭"></button>
+          <div class="ddPlanPrefModalCard" role="dialog" aria-modal="true" aria-labelledby="ddPlanPrefModalTitle">
+            <h2 class="ddPlanPrefModalTitle" id="ddPlanPrefModalTitle">Build 前先确认参数</h2>
+            <p class="ddPlanPrefModalLead">
+              选择体网格精细程度（Gmsh <span class="mono">CharacteristicLengthMax</span>，数值<strong>越大网格越粗</strong>）。将用于大模型排期与后续
+              <code class="mono">run_mesh</code>；可补充说明供模型参考。
+            </p>
+            <fieldset class="ddPlanPrefFieldset">
+              <legend class="ddPlanPrefLegend">网格精细程度</legend>
+              <div class="ddPlanPrefRadioGrid">
+                <label class="ddPlanPrefRadio"
+                  ><input type="radio" name="ddPlanMeshPreset" value="coarse" />更粗（快、单元少）</label
+                >
+                <label class="ddPlanPrefRadio"
+                  ><input type="radio" name="ddPlanMeshPreset" value="balanced" checked />标准（推荐）</label
+                >
+                <label class="ddPlanPrefRadio"><input type="radio" name="ddPlanMeshPreset" value="fine" />更细</label>
+                <label class="ddPlanPrefRadio"><input type="radio" name="ddPlanMeshPreset" value="finer" />更细（耗时）</label>
+                <label class="ddPlanPrefRadio ddPlanPrefRadio--wide"
+                  ><input type="radio" name="ddPlanMeshPreset" value="custom" />其他（自填 mm）</label
+                >
+              </div>
+            </fieldset>
+            <label class="ddPlanPrefLabel" for="ddPlanMeshCustomMm">自定义最大特征长度（mm）</label>
+            <input
+              id="ddPlanMeshCustomMm"
+              class="ddPlanPrefInput mono"
+              type="number"
+              inputmode="decimal"
+              min="10"
+              max="25000"
+              step="1"
+              placeholder="例如 480"
+              disabled
+            />
+            <label class="ddPlanPrefLabel" for="ddPlanMeshNote">补充说明（可选，交给大模型）</label>
+            <textarea id="ddPlanMeshNote" class="ddPlanPrefTextarea" rows="2" maxlength="600" placeholder="例如：优先控制 INP 体积、避免过细导致求解过慢…"></textarea>
+            <div class="ddPlanPrefModalActions">
+              <button type="button" class="btn" id="ddPlanPrefCancel">取消</button>
+              <button type="button" class="btn btnPrimary" id="ddPlanPrefConfirm">生成计划并执行</button>
             </div>
           </div>
-        </dialog>
+        </div>
       </div>
 
       <div class="main hidden" id="orchestrateMain">
@@ -938,14 +1503,14 @@
               <div class="stageBrandRow">
                 <img class="stageLockup" src="./assets/beso-agent-mark.svg" width="26" height="26" alt="" aria-hidden="true" />
                 <div>
-                  <div class="title">AI Engineering · 拓扑优化编排</div>
+                  <div class="title">AI Engineer · 拓扑优化编排</div>
                   <div class="fieldLabel orchestrateHeaderSub">
                     四步：扫描清单 → 生成 BESO 配置与脚本 → 绑定预览 → 汇总后执行任务。下列轨道与左侧流式说明一一对应。
                   </div>
                 </div>
               </div>
             </div>
-            <span class="agentPulse" title="AI Engineering 编排进行中"></span>
+            <span class="agentPulse" title="AI Engineer 编排进行中"></span>
           </div>
           <div class="rail">
             <div class="railLine">
@@ -970,9 +1535,20 @@
               </button>
               <span class="orchestrateHint">流式说明走完后请核对清单，再点「执行任务」启动 CalculiX + BESO。</span>
             </div>
-            <div class="btnRow">
-              <button class="btn backHomeBtn" id="backHomeFromOrchestrate">返回主页</button>
-              <button class="btn btnPrimary" id="executePlannedTask" disabled>执行任务</button>
+            <div class="orchestrateActionRight">
+              <div class="stageActionCluster" role="toolbar" aria-label="目录与返回">
+                <button
+                  class="btn openWorkDirBtn"
+                  type="button"
+                  id="orchestrateOpenWorkDirBtn"
+                  disabled
+                  title="在文件资源管理器中打开当前扫描目录（需本机运行后端）"
+                >
+                  工作目录
+                </button>
+                <button type="button" class="btn backHomeBtn" id="backHomeFromOrchestrate">← 返回主页</button>
+              </div>
+              <button type="button" class="btn btnPrimary orchestrateExecuteBtn" id="executePlannedTask" disabled>执行任务</button>
             </div>
           </div>
         </div>
@@ -985,7 +1561,18 @@
             <span class="chip">子流程：搜索文件</span>
           </div>
           <div class="panelBd" style="border-bottom:1px solid var(--border);">
-            <div class="fieldLabel">当前文件</div>
+            <div class="fieldLabelRow">
+              <div class="fieldLabel">当前文件</div>
+              <button
+                type="button"
+                class="btn openWorkDirBtn openWorkDirBtn--compact"
+                id="flowOpenWorkDirBtn"
+                disabled
+                title="在文件资源管理器中打开当前扫描目录（需本机运行后端）"
+              >
+                工作目录
+              </button>
+            </div>
             <div class="previewBox" id="fileSummaryInline">(尚未选择文件)</div>
           </div>
 
@@ -1049,7 +1636,7 @@
                       <span class="logFloatDockTitle">日志摘要</span>
                       <button type="button" class="logFloatDockMin" id="logFloatMin" title="最小化">─</button>
                     </div>
-                    <div class="logFloatDockBody mdBox" id="logFloatBody"></div>
+                    <div class="logFloatDockBody mdBox" id="logFloatBody" tabindex="-1"></div>
                   </div>
                 </aside>
               </div>
@@ -1106,33 +1693,56 @@
           <div class="settingsPanelHd">
             <div class="settingsPanelHdText">
               <div class="settingsPanelKicker">工作区</div>
-              <div class="title" id="settingsPanelTitle">连接与优化参数</div>
-              <p class="settingsPanelLead">
-                统一配置后端地址、Qwen 与拓扑优化默认参数。侧栏对话、设计域、拓扑优化编排与分步执行均会读取此处（拓扑三项会存浏览器并在启动任务时随
-                <code>/api/chat</code> 提交；Qwen API Key 勿提交到 Git）。
-              </p>
+              <div class="title" id="settingsPanelTitle">连接与模型</div>
+              <p class="settingsPanelLead">后端、通义千问与拓扑默认参数集中在此；按区块填写后点「保存」或自动落盘即可。</p>
+              <details class="settingsDetails settingsDetails--inline">
+                <summary class="settingsDetailsSummary">数据流与隐私提示</summary>
+                <div class="settingsDetailsBody">
+                  <p>
+                    侧栏、设计域与编排页共用本页配置。拓扑三项写入本机浏览器，并在启动任务时随 <code>/api/chat</code> 提交。Qwen API Key 勿写入仓库；可仅在服务端配置
+                    <code>QWEN_API_KEY</code>。
+                  </p>
+                </div>
+              </details>
             </div>
-            <button type="button" class="settingsPanelClose iconBtn" id="settingsClose" title="关闭 (Esc)">✕</button>
+            <button type="button" class="settingsPanelClose iconBtn" id="settingsClose" title="关闭 (Esc)" aria-label="关闭设置">
+              <span class="settingsPanelCloseGlyph" aria-hidden="true"></span>
+            </button>
           </div>
           <div class="settingsPanelBody">
-            <section class="settingsSection" aria-labelledby="settingsSecApi">
-              <h3 class="settingsSectionTitle" id="settingsSecApi">服务与模型</h3>
-              <p class="settingsSectionHint">REST、WebSocket、上传与 <code>runs</code> 静态资源均基于此后端。</p>
-              <label class="settingsLabel" for="baseUrl">服务后端地址</label>
+            <section class="settingsSection settingsSection--api" aria-labelledby="settingsSecApi">
+              <div class="settingsSectionHd">
+                <span class="settingsSectionIcon settingsSectionIcon--api" aria-hidden="true"></span>
+                <h3 class="settingsSectionTitle" id="settingsSecApi">服务后端</h3>
+              </div>
+              <p class="settingsSectionOneLiner">REST、WebSocket 与上传均指向此根地址；同源部署可留空。</p>
+              <label class="settingsLabel" for="baseUrl">后端根地址</label>
               <input
                 id="baseUrl"
                 class="settingsInput"
                 type="text"
                 value=""
-                placeholder="留空 = 当前页面 origin（推荐同源）"
+                placeholder="留空 = 当前页面 origin（推荐）"
                 title="REST、WebSocket、文件上传均指向此地址"
                 autocomplete="url"
               />
-              <h3 class="settingsSectionTitle settingsSectionTitle--sub" id="settingsSecQwen">通义千问 Qwen</h3>
-              <p class="settingsSectionHint">
-                兼容 OpenAI 接口。用于 AI Engineering 侧栏对话、意图与拓扑参数解析、设计域载荷说明拆分、任务标题摘要。密钥可填在下方或配置服务端环境变量
-                <code>QWEN_API_KEY</code>（页面会显示「已配置」）；点「保存并启用」将浏览器中的密钥写入服务端进程内存。
-              </p>
+            </section>
+
+            <section class="settingsSection settingsSection--qwen" aria-labelledby="settingsSecQwen">
+              <div class="settingsSectionHd">
+                <span class="settingsSectionIcon settingsSectionIcon--qwen" aria-hidden="true"></span>
+                <h3 class="settingsSectionTitle" id="settingsSecQwen">通义千问 Qwen</h3>
+              </div>
+              <p class="settingsSectionOneLiner">侧栏对话、意图解析与设计域智能体；点「保存并启用」写入服务端。</p>
+              <details class="settingsDetails">
+                <summary class="settingsDetailsSummary">兼容接口与环境变量</summary>
+                <div class="settingsDetailsBody">
+                  <p>
+                    兼容 OpenAI 格式，默认对接 DashScope。密钥可填下方或由服务端 <code>QWEN_API_KEY</code> 提供（页面显示「已配置」）。保存后密钥进入服务端进程内存。
+                  </p>
+                  <p>设计域右栏可快速切模型；亦可用 <code>QWEN_DESIGN_DOMAIN_MODEL</code> 单独覆盖设计域所用模型。</p>
+                </div>
+              </details>
               <label class="settingsLabel" for="qwenBaseUrl">Base URL</label>
               <input
                 id="qwenBaseUrl"
@@ -1142,35 +1752,68 @@
                 title="DashScope 或其它 OpenAI 兼容网关"
               />
               <label class="settingsLabel" for="qwenModel">模型名</label>
-              <input id="qwenModel" class="settingsInput" type="text" placeholder="qwen-plus、qwen-turbo …" />
+              <input
+                id="qwenModel"
+                class="settingsInput"
+                type="text"
+                list="qwenModelPresetList"
+                placeholder="qwen-plus、qwen-max …"
+                title="可从下拉联想中选择；设计域智能体需稳定输出 JSON"
+              />
+              <datalist id="qwenModelPresetList">
+                <option value="qwen-max"></option>
+                <option value="qwen-plus"></option>
+                <option value="qwen-turbo"></option>
+                <option value="qwen3-max"></option>
+                <option value="qwen3-plus"></option>
+                <option value="qwen3-turbo"></option>
+                <option value="deepseek-v3"></option>
+              </datalist>
               <label class="settingsLabel" for="qwenKey">API Key</label>
               <input
                 id="qwenKey"
                 class="settingsInput settingsInput--mono"
                 type="password"
                 autocomplete="off"
-                placeholder="可不填：若服务端已设 QWEN_API_KEY 则沿用；填写则与 Base URL、模型一并保存到服务端会话"
+                placeholder="可不填：沿用服务端环境变量"
               />
               <div class="settingsActions">
-                <button type="button" class="btn btnPrimary" id="qwenSave">保存并启用</button>
-                <span class="settingsStatusChip">Qwen <span id="qwenStatus">检测中…</span></span>
+                <button type="button" class="btn btnPrimary settingsSaveBtn" id="qwenSave">保存并启用</button>
+                <span class="settingsStatusChip" role="status">
+                  <span class="settingsStatusDot" aria-hidden="true"></span>
+                  <span class="settingsStatusTxt">Qwen <span id="qwenStatus">检测中…</span></span>
+                </span>
               </div>
-              <label class="settingsCheck">
-                <input type="checkbox" id="assistantPreferStream" />
-                <span>优先 SSE 流式侧栏对话（经代理易断；默认关，用整包 + 本地渐进展示更稳）</span>
-              </label>
+              <div class="settingsSwitchRow">
+                <label class="settingsSwitch">
+                  <input type="checkbox" id="assistantPreferStream" class="settingsSwitchInput" />
+                  <span class="settingsSwitchTrack" aria-hidden="true"></span>
+                  <span class="settingsSwitchMeta">
+                    <span class="settingsSwitchTitle">侧栏优先 SSE 流式</span>
+                    <span class="settingsSwitchDesc">经代理易断；关闭为整包 + 本地渐进展示，通常更稳。</span>
+                  </span>
+                </label>
+              </div>
             </section>
 
-            <section class="settingsSection" aria-labelledby="settingsSecBeso">
-              <h3 class="settingsSectionTitle" id="settingsSecBeso">拓扑优化（BESO）默认</h3>
-              <p class="settingsSectionHint">
-                启动「构型优化编排」中的任务（POST <code>/api/chat</code>）时：<strong>mass_goal_ratio</strong> 与 <strong>save_every</strong> 始终按下方值发送（默认
-                0.25 与 1）；<strong>filter_radius</strong> 仅在为正数时发送，留空则由服务端结合网格自动抬升，避免滤波除零。
-                修改后会自动保存到本机浏览器。
-              </p>
+            <section class="settingsSection settingsSection--beso" aria-labelledby="settingsSecBeso">
+              <div class="settingsSectionHd">
+                <span class="settingsSectionIcon settingsSectionIcon--beso" aria-hidden="true"></span>
+                <h3 class="settingsSectionTitle" id="settingsSecBeso">拓扑优化（BESO）默认</h3>
+              </div>
+              <p class="settingsSectionOneLiner">启动编排任务时随请求发送；修改后自动存本机浏览器。</p>
+              <details class="settingsDetails">
+                <summary class="settingsDetailsSummary">参数说明</summary>
+                <div class="settingsDetailsBody">
+                  <p>
+                    <strong>mass_goal_ratio</strong> 与 <strong>save_every</strong> 始终按下方值发送（默认 0.25 与 1）。<strong>filter_radius</strong> 仅在为正数时发送；留空则由服务端结合网格自动抬升，避免滤波除零。
+                  </p>
+                </div>
+              </details>
               <div class="settingsFieldGrid">
                 <div class="settingsField">
-                  <label class="settingsLabel" for="massGoal">mass_goal_ratio</label>
+                  <label class="settingsLabel" for="massGoal"
+                    ><span class="settingsLabelMain">目标体积/质量比</span><span class="settingsLabelKey mono">mass_goal_ratio</span></label>
                   <input
                     id="massGoal"
                     class="settingsInput"
@@ -1182,18 +1825,20 @@
                   />
                 </div>
                 <div class="settingsField">
-                  <label class="settingsLabel" for="filterR">filter_radius</label>
+                  <label class="settingsLabel" for="filterR"
+                    ><span class="settingsLabelMain">滤波半径</span><span class="settingsLabelKey mono">filter_radius</span></label>
                   <input
                     id="filterR"
                     class="settingsInput"
                     type="text"
                     inputmode="decimal"
-                    placeholder="留空=由服务端按网格自动抬升"
+                    placeholder="留空 = 服务端自动"
                     title="simple 滤波半径（与 INP 坐标同单位）；大模型可留空，由服务端与 beso 运行前再抬底"
                   />
                 </div>
                 <div class="settingsField settingsField--wide">
-                  <label class="settingsLabel" for="saveEvery">save_every</label>
+                  <label class="settingsLabel" for="saveEvery"
+                    ><span class="settingsLabelMain">每 N 轮保存中间结果</span><span class="settingsLabelKey mono">save_every</span></label>
                   <input
                     id="saveEvery"
                     class="settingsInput"
@@ -1207,8 +1852,12 @@
               </div>
             </section>
 
-            <section class="settingsSection settingsSection--muted" aria-labelledby="settingsSecFile">
-              <h3 class="settingsSectionTitle" id="settingsSecFile">当前文件</h3>
+            <section class="settingsSection settingsSection--muted settingsSection--file" aria-labelledby="settingsSecFile">
+              <div class="settingsSectionHd">
+                <span class="settingsSectionIcon settingsSectionIcon--file" aria-hidden="true"></span>
+                <h3 class="settingsSectionTitle" id="settingsSecFile">当前文件</h3>
+              </div>
+              <p class="settingsSectionOneLiner">编排页所选 .inp 摘要与预览。</p>
               <div class="previewBox settingsPreview" id="fileSummary">（尚未选择或未上传 .inp）</div>
               <div class="settingsLabel" id="filePreviewLabel">.inp 预览（前 200 行）</div>
               <div class="previewBox settingsPreview settingsPreview--scroll" id="filePreview" aria-labelledby="filePreviewLabel"></div>

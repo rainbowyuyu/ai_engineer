@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from backend.oc4_methodology_chen2026 import LLM_CONTEXT_BLOCK_ZH
 from backend.qwen_client import QwenClient
 from backend.tools.inp_oc4_design_nondesign import summarize_mesh_for_loads
 
@@ -116,7 +117,7 @@ def parse_loads_natural_language(
 
     ctx = summarize_mesh_for_loads(mesh_inp)
     system = (
-        "你是「AI Engineering」中的 CalculiX / 海洋导管架静力分析载荷助手。根据「网格摘要」与用户自然语言，"
+        "你是「AI Engineer」中的 CalculiX / 海洋导管架静力分析载荷助手。根据「网格摘要」与用户自然语言，"
         "推断边界带 z_fix_band、柱走廊 band_scale，以及 *CLOAD 施加方式。\n"
         "你必须只输出**一个** JSON 对象，不要 Markdown 围栏，不要其它文字。\n"
         "JSON 键：\n"
@@ -135,6 +136,9 @@ def parse_loads_natural_language(
         '  - "explicit_cloads": [{"node":int,"dof":int,"magnitude":number}]|null，'
         "节点号必须来自摘要中的 top_node_ids_sample 或 load_node_max_z。\n"
         "约定：用户说「向下」「受压」指 Z 负方向；总力若分配到多节点，用 top_count + cload_each 表达。\n"
+        "若用户描述「轮毂风推力」「水平推力经塔传至主柱顶端」，优先用 **dof 1 或 2** 的水平分量在 **load_node_max_z** 附近节点施加，"
+        "并与底面全约束带共同形成与文献静力等效工况一致的边界。\n"
+        f"\n{LLM_CONTEXT_BLOCK_ZH}"
     )
     user = (
         "网格摘要（单位与网格文件一致）:\n"

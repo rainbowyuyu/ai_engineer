@@ -1,0 +1,21 @@
+# 示例：OpenVSCode Server / code-server 作为侧车，工作区挂载到与 beso 后端相同的 WORKSPACE_ROOT。
+# 复制为 docker-compose 片段后设置 BESO_VSCODE_IFRAME_BASE_URL 为可嵌入的 HTTPS 基址（如 https://vscode.local:8443）。
+#
+# 使用步骤概要：
+# 1) 将下方 volumes 中的主机路径改为你的仓库根（内含 runs/_design_domain）。
+# 2) 启动侧车后，在 beso 进程环境中设置 BESO_VSCODE_IFRAME_BASE_URL。
+# 3) 浏览器打开设计域时，GET /api/config/editor/session-open 会返回 ?folder= 绝对路径的 iframe URL。
+#
+# 注意：iframe 与主站需同源或正确配置 CORS / CSP；生产环境务必加鉴权与内网隔离。
+
+services:
+  openvscode-server:
+    image: gitpod/openvscode-server:latest
+    container_name: beso-openvscode-example
+    ports:
+      - "8443:3000"
+    environment:
+      - CONNECTION_TOKEN=change-me
+    volumes:
+      - /path/to/your/beso_ai:/workspace:cached
+    command: ["--host", "0.0.0.0", "--port", "3000", "--without-connection-token", "false"]

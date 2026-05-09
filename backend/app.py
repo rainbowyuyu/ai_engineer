@@ -4,12 +4,16 @@ import json
 import logging
 import os
 import shutil
+import subprocess
+import sys
 import threading
 import time
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote_plus
+from urllib.request import Request, urlopen
 
 from dotenv import load_dotenv
 
@@ -21,7 +25,7 @@ for _root in (_repo_root, Path(os.environ.get("WORKSPACE_ROOT", _repo_root)).res
     if _dotenv_file.is_file():
         load_dotenv(_dotenv_file, override=False)
 
-from fastapi import FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -33,7 +37,7 @@ from backend.generator import scan_input_directory, build_generated_code
 from backend.jobs.manager import jobs
 from backend.models import AssistantChatRequest, AssistantChatResponse, ChatRequest, ChatResponse
 from backend.qwen_client import QwenClient, assistant_chat_http_read_timeout_s
-from backend.qwen_runtime_config import get_qwen_config, set_qwen_config
+from backend.qwen_runtime_config import get_qwen_config, set_qwen_config, set_qwen_model_only
 from backend.pydantic_compat import model_to_dict
 from backend.tools.files import preview_inp, resolve_file, store_upload, uploads_root
 from backend.tools.cad_iges_to_inp import (
@@ -42,9 +46,56 @@ from backend.tools.cad_iges_to_inp import (
     run_cad_iges_to_inp,
     suggest_char_length_max,
 )
+from backend.oc4_design_domain_service import session_dir as oc4_design_domain_session_dir
 from backend.routes.oc4_design_domain_api import router as oc4_design_domain_router
 
 logger = logging.getLogger(__name__)
+
+
+def _ddg_snippet_for_query(query: str, *, timeout_s: float = 6.0) -> str:
+    """DuckDuckGo Instant Answer API：无密钥轻量摘要，供「联网搜索」开关注入上下文。"""
+    q = str(query or "").strip()
+    if len(q) < 2:
+        return ""
+    if len(q) > 240:
+        q = q[:240]
+    url = f"https://api.duckduckgo.com/?q={quote_plus(q)}&format=json&no_html=1&skip_disambig=1"
+    try:
+        req = Request(url, headers={"User-Agent": "AIEngineer/1.0 (assistant; +https://local)"})
+        with urlopen(req, timeout=timeout_s) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+        data = json.loads(raw)
+    except Exception as e:
+        logger.info("ddg instant answer failed: %s", e)
+        return ""
+    parts: list[str] = []
+    abst = str(data.get("AbstractText") or "").strip()
+    if abst:
+        parts.append(abst)
+    for t in data.get("RelatedTopics") or []:
+        if isinstance(t, dict) and str(t.get("Text") or "").strip():
+            parts.append(str(t["Text"]).strip())
+        if len(parts) >= 4:
+            break
+    out = "\n".join(parts).strip()
+    if len(out) > 1800:
+        out = out[:1800] + "…"
+    return out
+
+
+def _last_user_text_from_request(body: "AssistantChatRequest") -> str:
+    for m in reversed(list(body.messages or [])):
+        if m.role == "user":
+            return str(m.content or "").strip()
+    return ""
+
+
+def _effective_assistant_temperature(body: "AssistantChatRequest") -> float:
+    t = body.temperature if body.temperature is not None else 0.6
+    t = max(0.0, min(2.0, float(t)))
+    if body.deep_think:
+        t = max(0.12, min(t, 0.42))
+    return t
 
 
 WORKSPACE_ROOT = Path(os.environ.get("WORKSPACE_ROOT", r"D:\python_project\beso_ai")).resolve()
@@ -61,7 +112,7 @@ CAD_CONVERT_ROOT.mkdir(parents=True, exist_ok=True)
 _cad_convert_registry: dict[str, dict] = {}
 _cad_convert_registry_lock = threading.Lock()
 
-app = FastAPI(title="AI Engineering Web")
+app = FastAPI(title="AI Engineer Web")
 app.include_router(oc4_design_domain_router, prefix="/api/oc4/design-domain")
 
 app.add_middleware(
@@ -272,7 +323,7 @@ def assistant_chat(body: AssistantChatRequest):
         )
     msgs = _assistant_messages_for_qwen(body)
     try:
-        data = qwen.chat(msgs, temperature=float(body.temperature if body.temperature is not None else 0.6))
+        data = qwen.chat(msgs, temperature=_effective_assistant_temperature(body))
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
@@ -292,18 +343,64 @@ def assistant_chat(body: AssistantChatRequest):
 
 def _assistant_messages_for_qwen(body: AssistantChatRequest) -> list[dict[str, str]]:
     msgs: list[dict[str, str]] = [{"role": m.role, "content": m.content} for m in body.messages]
+    fn = str(body.attached_file_name or "").strip()
+    fid = str(body.attached_file_id or "").strip()
+    file_ctx = ""
+    if fn or fid:
+        who = f"「{fn}」" if fn else "（已绑定上传）"
+        fid_part = f" file_id={fid}" if fid else ""
+        file_ctx = (
+            "【会话上下文】当前工程任务已在平台关联上传文件："
+            f"{who}{fid_part}。"
+            "用户尚未进入设计域/构型优化编排子流程时，你也应默认该文件已存在且可被后续流程使用；"
+            "不要再说「未看到对方文件」「请先上传」「不知道用户有什么文件」等推脱；"
+            "若缺扫描目录、材料参数等需用户补充的信息，再明确追问。"
+            "\n"
+        )
+    base_system = (
+        "你是「AI Engineer」的对话助手；角色为 AI 工程与结构仿真方向的专家，熟悉结构/拓扑优化（含 BESO、SIMP）、CalculiX、"
+        "INP 网格与边界条件、以及本产品中设计域—拓扑优化编排—任务流程。"
+        "用简洁中文回答；需要时分点说明，可使用 Markdown；不要编造不存在的文件路径。"
+        "若用户讨论 **OC4 半潜式浮式风机** 概念阶段拓扑优化，可对照 **Chen et al. (2026) Ocean Engineering**："
+        "三边柱围成设计域、BESO 柔度最小化与约 15% 体积分数、系泊区强约束与塔顶水平风推等效载荷；"
+        "拓扑之后的水动力外形重构需结合 OpenFAST/AQWA 等另建模型，本工具链侧重生成可算的 BESO 输入。"
+    )
     if not msgs or msgs[0]["role"] != "system":
-        msgs = [
-            {
-                "role": "system",
-                "content": (
-                    "你是「AI Engineering」的对话助手；角色为 AI 工程与结构仿真方向的专家，熟悉结构/拓扑优化（含 BESO、SIMP）、CalculiX、"
-                    "INP 网格与边界条件、以及本产品中设计域—拓扑优化编排—任务流程。"
-                    "用简洁中文回答；需要时分点说明，可使用 Markdown；不要编造不存在的文件路径。"
-                ),
-            },
-            *msgs,
-        ]
+        msgs = [{"role": "system", "content": file_ctx + base_system}, *msgs]
+    elif file_ctx:
+        msgs[0] = {**msgs[0], "content": file_ctx + msgs[0]["content"]}
+
+    mode_parts: list[str] = []
+    if body.deep_think:
+        mode_parts.append(
+            "【深度思考模式·已开启】请采用显式结构：①已知条件与假设 ②分步推理 ③结论与注意事项；"
+            "对结构/仿真结论给出可检验依据，避免跳步；不确定处请声明。"
+        )
+    if body.web_search:
+        uq = _last_user_text_from_request(body)
+        if uq:
+            snippet = _ddg_snippet_for_query(uq)
+            if snippet:
+                mode_parts.append(
+                    "【联网检索摘要·DuckDuckGo Instant Answer】与「用户最后一条消息」相关的公开摘要（可能片面或与工程场景不符），"
+                    "请批判性取舍，勿当作正式规范或论文原文引用：\n"
+                    + snippet
+                )
+            else:
+                mode_parts.append(
+                    "【联网检索】已尝试抓取公开摘要但未获得有效条目；请基于训练知识与用户上下文作答，"
+                    "勿虚构网址或声称「实时网页已打开」。"
+                )
+        else:
+            mode_parts.append("【联网检索】对话中缺少用户文本，已跳过外部摘要。")
+    if mode_parts:
+        extra = "\n\n".join(mode_parts)
+        sys_i = next((i for i, m in enumerate(msgs) if m.get("role") == "system"), None)
+        if sys_i is not None:
+            cur = str(msgs[sys_i].get("content") or "")
+            msgs[sys_i] = {**msgs[sys_i], "content": (cur + "\n\n" + extra).strip()}
+        else:
+            msgs = [{"role": "system", "content": extra}, *msgs]
     return msgs
 
 
@@ -325,7 +422,7 @@ def assistant_chat_stream(body: AssistantChatRequest):
             return
         msgs = _assistant_messages_for_qwen(body)
         try:
-            for line in qwen.chat_stream(msgs, temperature=float(body.temperature if body.temperature is not None else 0.6)):
+            for line in qwen.chat_stream(msgs, temperature=_effective_assistant_temperature(body)):
                 yield line
         except RuntimeError as e:
             yield "data: " + json.dumps({"error": str(e)}, ensure_ascii=False) + "\n\n"
@@ -505,6 +602,96 @@ def scan_directory_legacy(scan_dir: str):
     return scan_directory(scan_dir)
 
 
+def _resolve_design_domain_explorer_target(session_id: str, rel: str = "") -> Path:
+    """解析设计域会话在 runs/_design_domain/<id> 下的目录，用于打开资源管理器。"""
+    sid = str(session_id or "").strip()
+    if not sid.isalnum() or len(sid) < 16:
+        raise HTTPException(status_code=400, detail="invalid design_domain_session_id")
+    sdir = oc4_design_domain_session_dir(WORKSPACE_ROOT, sid).resolve()
+    if not sdir.is_dir():
+        raise HTTPException(status_code=404, detail="设计域会话目录不存在")
+    if not _path_under_workspace(sdir):
+        raise HTTPException(status_code=400, detail="invalid session path")
+    raw = str(rel or "").strip().replace("\\", "/").lstrip("/")
+    if not raw:
+        return sdir
+    if ".." in Path(raw).parts:
+        raise HTTPException(status_code=400, detail="invalid design_domain_rel")
+    sub = (sdir / raw).resolve()
+    try:
+        sub.relative_to(sdir)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="path outside session") from e
+    if sub.is_dir():
+        return sub
+    return sub.parent.resolve()
+
+
+def _open_explorer_folder_core(raw: str) -> dict:
+    """
+    在本机打开工作区内的目录（Windows 资源管理器 / macOS Finder / Linux 文件管理器）。
+    仅当浏览器访问的后端与桌面在同一台机器上时有效；远程部署会失败属预期。
+    """
+    raw = str(raw or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="请提供 scan_dir 或 path")
+    try:
+        p = Path(raw).expanduser().resolve()
+    except OSError as e:
+        raise HTTPException(status_code=400, detail=f"路径无效: {e}") from e
+    if not p.exists():
+        raise HTTPException(status_code=400, detail="路径不存在或暂不可访问")
+    if not _path_under_workspace(p):
+        raise HTTPException(status_code=400, detail="仅允许打开 WORKSPACE_ROOT 工作区内的路径")
+    target = p if p.is_dir() else p.parent
+    try:
+        target = target.resolve()
+    except OSError as e:
+        raise HTTPException(status_code=400, detail=f"无法解析目录: {e}") from e
+    if not target.is_dir():
+        raise HTTPException(status_code=400, detail="无法解析为有效目录")
+    if not _path_under_workspace(target):
+        raise HTTPException(status_code=400, detail="目标目录必须位于工作区内")
+    try:
+        if sys.platform == "win32":
+            os.startfile(str(target))  # noqa: S606
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(target)], start_new_session=True)
+        else:
+            subprocess.Popen(["xdg-open", str(target)], start_new_session=True)
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"无法打开文件管理器: {e}") from e
+    return {"ok": True, "opened": str(target)}
+
+
+@app.post("/api/open-explorer-folder")
+def open_explorer_folder_post(body: dict | None = None):
+    b = body if isinstance(body, dict) else {}
+    sid = str(b.get("design_domain_session_id") or "").strip()
+    if sid:
+        rel = str(b.get("design_domain_rel") or b.get("rel") or "").strip()
+        target = _resolve_design_domain_explorer_target(sid, rel)
+        return _open_explorer_folder_core(str(target))
+    raw = str(b.get("scan_dir") or b.get("path") or "").strip()
+    return _open_explorer_folder_core(raw)
+
+
+@app.get("/api/open-explorer-folder")
+def open_explorer_folder_get(
+    scan_dir: str = "",
+    path: str = "",
+    design_domain_session_id: str = "",
+    design_domain_rel: str = "",
+):
+    """GET 别名：便于排查或受限环境下与 POST 等价。"""
+    sid = str(design_domain_session_id or "").strip()
+    if sid:
+        target = _resolve_design_domain_explorer_target(sid, str(design_domain_rel or "").strip())
+        return _open_explorer_folder_core(str(target))
+    raw = str(scan_dir or path or "").strip()
+    return _open_explorer_folder_core(raw)
+
+
 class ConvertIgesIn(BaseModel):
     scan_dir: str
     iges_name: str | None = None
@@ -665,7 +852,40 @@ def _load_task(task_id: str) -> dict | None:
         return None
 
 
-def _save_task(task_id: str, payload: dict) -> None:
+def _msg_is_user_turn(msg: object) -> bool:
+    if not isinstance(msg, dict):
+        return False
+    return str(msg.get("role", "")).strip().lower() == "user"
+
+
+def _user_turn_fingerprint(msg: object) -> tuple[str, str] | None:
+    """用于比较用户句是否变化，避免整段 dict 引用/键序导致误判。"""
+    if not isinstance(msg, dict) or not _msg_is_user_turn(msg):
+        return None
+    c = str(msg.get("content", "")).strip()
+    att = msg.get("attachment")
+    fid = ""
+    if isinstance(att, dict):
+        fid = str(att.get("file_id", "")).strip()
+    return (c, fid)
+
+
+def _user_input_bumps_task_order(old_th: object, new_th: object) -> bool:
+    """仅当线程里出现新的或变更的「用户」消息时把任务顶到侧栏最前；助手回复等不触发，避免列表闪动。"""
+    old_l: list = old_th if isinstance(old_th, list) else []
+    new_l: list = new_th if isinstance(new_th, list) else []
+    old_fps = [fp for m in old_l if (fp := _user_turn_fingerprint(m)) is not None]
+    new_fps = [fp for m in new_l if (fp := _user_turn_fingerprint(m)) is not None]
+    if len(new_fps) > len(old_fps):
+        return True
+    if not new_fps:
+        return False
+    if not old_fps:
+        return True
+    return new_fps[-1] != old_fps[-1]
+
+
+def _save_task(task_id: str, payload: dict, *, bump_order: bool = False) -> None:
     TASKS_ROOT.mkdir(parents=True, exist_ok=True)
     p = _task_file(task_id)
     payload = dict(payload or {})
@@ -679,9 +899,20 @@ def _save_task(task_id: str, payload: dict) -> None:
     )
 
     idx_file = _task_index_file()
-    ids = [x for x in _read_task_index_ids() if x != task_id]
-    ids.insert(0, task_id)
-    idx_file.write_text(json.dumps(ids, ensure_ascii=False, indent=2), encoding="utf-8")
+    old_ids = _read_task_index_ids()
+    stripped = [x for x in old_ids if x != task_id]
+    if task_id in old_ids:
+        pos = old_ids.index(task_id)
+        if bump_order:
+            new_ids = [task_id] + stripped
+        else:
+            new_ids = stripped[:pos] + [task_id] + stripped[pos:]
+    else:
+        if bump_order:
+            new_ids = [task_id] + stripped
+        else:
+            new_ids = stripped + [task_id]
+    idx_file.write_text(json.dumps(new_ids, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _remove_task(task_id: str) -> None:
@@ -745,6 +976,8 @@ class TaskUpsertIn(BaseModel):
     # 主页助手多轮对话（与任务同生命周期，删任务即删）
     assistant_thread: list | None = None
     landing_session_digest: list | None = None
+    # 为 True 时才允许根据「用户句」变化把任务顶到侧栏最前；同步/切任务等勿传，避免误触置顶
+    allow_sidebar_reorder: bool | None = None
 
 
 def _task_upsert_patch_dict(body: TaskUpsertIn) -> dict[str, object]:
@@ -763,8 +996,11 @@ def upsert_task(body: TaskUpsertIn):
         existing = _load_task(body.task_id) or {}
         payload = dict(existing)
         incoming = _task_upsert_patch_dict(body)
+        allow_reorder = incoming.get("allow_sidebar_reorder") is True
         for k, v in incoming.items():
             if k == "task_id":
+                continue
+            if k == "allow_sidebar_reorder":
                 continue
             if k == "file_id" and (v is None or v == ""):
                 payload.pop("file_id", None)
@@ -776,7 +1012,14 @@ def upsert_task(body: TaskUpsertIn):
             payload["assistant_thread"] = payload["assistant_thread"][-200:]
         if isinstance(payload.get("landing_session_digest"), list):
             payload["landing_session_digest"] = payload["landing_session_digest"][-80:]
-        _save_task(body.task_id, payload)
+        inc_th = incoming.get("assistant_thread")
+        if isinstance(inc_th, list):
+            inc_th = inc_th[-200:]
+        bump_order = bool(allow_reorder and inc_th is not None) and _user_input_bumps_task_order(
+            existing.get("assistant_thread"),
+            inc_th,
+        )
+        _save_task(body.task_id, payload, bump_order=bump_order)
         return {"ok": True, "task": payload}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"tasks/upsert failed: {e}") from e
@@ -839,6 +1082,10 @@ class QwenConfigIn(BaseModel):
     model: str | None = None
 
 
+class QwenModelOnlyIn(BaseModel):
+    model: str
+
+
 def _qwen_status_payload() -> dict[str, str | bool]:
     """合并进程内配置与 ``QWEN_*`` 环境变量（与 ``QwenClient`` 解析顺序一致，不把密钥回传给前端）。"""
     cfg = get_qwen_config()
@@ -863,6 +1110,48 @@ def set_qwen(body: QwenConfigIn):
     set_qwen_config(body.api_key, body.base_url, body.model)
     out = _qwen_status_payload()
     return {"ok": True, **out}
+
+
+@app.post("/api/config/qwen/model")
+def set_qwen_model(body: QwenModelOnlyIn):
+    m = (body.model or "").strip()
+    if not m:
+        raise HTTPException(status_code=400, detail="model 不能为空")
+    set_qwen_model_only(m)
+    return {"ok": True, **_qwen_status_payload()}
+
+
+@app.get("/api/config/editor")
+def get_editor_config():
+    """VS Code Web / OpenVSCode 侧车：iframe 基址（同源反代路径或绝对 URL）。未配置则前端使用内置 textarea。"""
+    base = (os.environ.get("BESO_VSCODE_IFRAME_BASE_URL") or "").strip().rstrip("/")
+    return {
+        "vscode_iframe_base": base or None,
+        "folder_query_param": "folder",
+        "hint": "将侧车工作区根目录映射到 WORKSPACE_ROOT；设计域会话路径为 runs/_design_domain/<session_id>。",
+    }
+
+
+@app.get("/api/config/editor/session-open")
+def editor_session_open(session_id: str = Query(..., min_length=16)):
+    """为设计域会话生成侧车 iframe 打开 URL（folder= 会话目录绝对路径）。"""
+    if not session_id.isalnum():
+        raise HTTPException(status_code=400, detail="invalid session_id")
+    base = (os.environ.get("BESO_VSCODE_IFRAME_BASE_URL") or "").strip().rstrip("/")
+    if not base:
+        return {"ok": False, "url": None}
+    root = Path(os.environ.get("WORKSPACE_ROOT", str(Path(__file__).resolve().parents[1]))).resolve()
+    folder = (root / "runs" / "_design_domain" / session_id).resolve()
+    if not folder.is_dir():
+        raise HTTPException(status_code=404, detail="session not found")
+    try:
+        folder.relative_to(root)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="invalid session path") from e
+    from urllib.parse import quote
+
+    u = f"{base}/?folder={quote(str(folder), safe='')}"
+    return {"ok": True, "url": u}
 
 
 @app.post("/api/jobs/{job_id}/start")
