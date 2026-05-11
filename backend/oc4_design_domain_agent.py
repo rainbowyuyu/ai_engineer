@@ -170,6 +170,9 @@ def _iter_tool_file_touch_events(
         for rel in ("01_design_domain.step", "01_design_domain.igs"):
             if (sdir / rel).is_file():
                 yield {"type": "file", "path": rel, "action": "updated"}
+        cn = str(read_session_meta(sdir).get("design_domain_compound_iges") or "").strip()
+        if cn and (sdir / cn).is_file():
+            yield {"type": "file", "path": cn, "action": "updated"}
         return
     if t == "run_export_obj":
         if (sdir / "design_preview.obj").is_file():
@@ -537,7 +540,11 @@ def iter_design_domain_agent_events(session_id: str, user_message: str) -> Itera
         "write_file：在会话目录内新建或覆盖说明类/配置类小文件，arguments 含 path（相对路径）、content（字符串）。"
         f"单文件不超过 {_MAX_SESSION_WRITE_BYTES // 1024}KB。\n"
         "规则：先 list_files / read_file 再改；mesh 前需已有 01_design_domain.step；loads 前需 02_mesh_body.inp；"
-        "finalize 前需 03_for_beso.inp。用户一句话可能要求多步，请分轮调用工具。\n"
+        "finalize 前需 03_for_beso.inp。管线内部固定使用 01_design_domain.step / 01_design_domain.igs；"
+        "run_build 默认按**源装配 OCC 包围盒**生成设计域实体（体量对齐 BESO3-Compound 一类整船包络，再减柱），"
+        "并另存 `{upload_cad_stem}-Compound.iges` 便于与主 IGES 并列扫描；体网格仍读 01_design_domain.step。"
+        "若模型不适配可用环境变量 OC4_DESIGN_DOMAIN_ENVELOPE=triangle 退回三棱柱包络。"
+        "用户一句话可能要求多步，请分轮调用工具。\n"
         f"当前进度标记: {json.dumps(prog, ensure_ascii=False)}\n"
         f"几何摘要: {json.dumps(summ, ensure_ascii=False)[:4000]}\n"
         f"文件树摘要:\n{files_snip[:6000]}\n\n{LLM_CONTEXT_BLOCK_ZH}"
@@ -627,7 +634,7 @@ def _default_plan_build_steps(cut_center_column: bool, include_source_geometry: 
         {
             "id": 2,
             "tool": "run_build",
-            "title": "2 构建设计域 STEP",
+            "title": "2 构建设计域 STEP + Compound IGES",
             "arguments": {
                 "cut_center_column": cut_center_column,
                 "include_source_geometry": include_source_geometry,

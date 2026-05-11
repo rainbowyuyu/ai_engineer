@@ -20,3 +20,6 @@ cadquery-ocp==7.9.3.1
 # pythonocc-core：Windows 上 PyPI 常无匹配轮子，会导致整份 requirements 安装失败。
 # 梁解析 OCC 路径为可选；OC4 设计域 Gmsh 链路不依赖此项。需要时再装：
 #   pip install -r backend/requirements-occ.txt
+#
+# text-to-cad / cad_skill_step（build123d STEP 生成，可选）：
+#   pip install -r backend/requirements-text-to-cad.txt

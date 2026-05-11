@@ -1,0 +1,49 @@
+/**
+ * 嵌入 beso「CAD 设计台」时由 /ui/cad_explorer_embed.css 加载，
+ * 将 Explorer 视觉对齐设计域控制台：冷色玻璃、柔和圆角与 Indigo 点缀。
+ */
+html.dark {
+  --background: oklch(0.22 0.04 270);
+  --foreground: oklch(0.97 0.01 270);
+  --card: oklch(0.28 0.045 275);
+  --card-foreground: oklch(0.97 0.008 270);
+  --popover: oklch(0.3 0.05 275);
+  --popover-foreground: oklch(0.98 0.008 270);
+  --primary: oklch(0.72 0.16 275);
+  --primary-foreground: oklch(0.18 0.04 275);
+  --secondary: oklch(0.34 0.04 275);
+  --secondary-foreground: oklch(0.96 0.01 270);
+  --muted: oklch(0.34 0.035 275);
+  --muted-foreground: oklch(0.78 0.03 270);
+  --accent: oklch(0.55 0.18 275);
+  --accent-foreground: oklch(0.99 0 0);
+  --destructive: oklch(0.62 0.2 25);
+  --border: oklch(0.45 0.06 275 / 0.35);
+  --input: oklch(0.4 0.05 275 / 0.45);
+  --ring: oklch(0.65 0.14 275);
+  --sidebar: oklch(0.26 0.045 278);
+  --sidebar-foreground: oklch(0.96 0.01 270);
+  --sidebar-primary: oklch(0.68 0.17 275);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.34 0.05 275);
+  --sidebar-accent-foreground: oklch(0.97 0.01 270);
+  --sidebar-border: oklch(0.5 0.06 275 / 0.28);
+  --sidebar-ring: oklch(0.62 0.14 275);
+  --ui-app-bg: var(--background);
+  --ui-app-gradient: radial-gradient(120% 80% at 50% -10%, rgba(99, 102, 241, 0.18), transparent 55%),
+    linear-gradient(180deg, oklch(0.24 0.04 272) 0%, oklch(0.2 0.035 275) 100%);
+  --ui-glass-surface: color-mix(in oklch, var(--card) 72%, transparent);
+  --ui-glass-popover: color-mix(in oklch, var(--popover) 78%, transparent);
+  --ui-glass-control: color-mix(in oklch, var(--background) 55%, transparent);
+  --ui-border: color-mix(in oklch, var(--border) 85%, white 5%);
+  --ui-shadow-panel: 0 20px 48px rgba(49, 46, 129, 0.14), 0 2px 12px rgba(15, 23, 42, 0.08);
+}
+
+html.dark body {
+  background-image: var(--ui-app-gradient);
+  background-color: var(--background);
+}
+
+#root {
+  min-height: 100vh;
+}

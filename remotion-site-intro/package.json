@@ -1,0 +1,22 @@
+{
+  "name": "remotion-site-intro",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "remotion studio --port=3333",
+    "build": "remotion bundle",
+    "render": "remotion render src/index.ts SiteIntro out/site-intro.mp4"
+  },
+  "dependencies": {
+    "@remotion/google-fonts": "^4.0.0",
+    "@remotion/media": "^4.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.0"
+  },
+  "devDependencies": {
+    "@remotion/cli": "^4.0.0",
+    "@types/react": "^18.3.3",
+    "typescript": "^5.6.3"
+  }
+}

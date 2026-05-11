@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CAD Explorer 未就绪</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        padding: 24px;
+        background: #0f172a;
+        color: #e2e8f0;
+        line-height: 1.6;
+      }
+      a {
+        color: #38bdf8;
+      }
+      code {
+        background: #1e293b;
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>CAD Explorer 静态资源未找到</h1>
+    <p>
+      后端在仓库中查找 <code>third_party/text-to-cad/cad_skill/explorer/dist</code> 目录。若不存在（例如未同步
+      text-to-cad），将显示本页而非完整 Explorer。
+    </p>
+    <p>请任选其一：</p>
+    <ul>
+      <li>将上游 <code>text-to-cad/.agents/skills/cad/explorer/dist</code> 复制到上述路径；或在该目录执行 <code>npm install &amp;&amp; npm run build</code> 生成 dist。</li>
+      <li>设置环境变量 <code>CAD_EXPLORER_DIST</code> 指向已有的 dist 绝对路径，并重启后端。</li>
+      <li>查看 <code>third_party/text-to-cad/README.md</code>。</li>
+    </ul>
+    <p><a href="/ui/">返回主页</a> · <a href="/api/cad-explorer/status">查看状态 JSON</a></p>
+  </body>
+</html>

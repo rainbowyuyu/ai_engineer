@@ -1,0 +1,169 @@
+
+---------------------------------------------------
+file_name = D:\python_project\beso_ai\examples\beso2\_fem_beso_work\beso_shell_topo_out\Analysis-beso-shell-dual.inp
+Start at    Mon May 11 04:11:33 2026
+
+elset_name              = design_space
+domain_optimized        = True
+domain_density          = [1e-06, 1]
+domain_thickness        = [1.0, 1.0]
+domain_offset           = 0.0
+domain_orientation      = []
+domain_FI               = [[('stress_von_Mises', 450000000.0)], [('stress_von_Mises', 450.0)]]
+domain_material         = ['*ELASTIC \n210000e-6,  0.3', '*ELASTIC \n210000,  0.3']
+domain_same_state       = False
+
+elset_name              = nondesign_space
+domain_optimized        = False
+domain_density          = [1e-06, 1]
+domain_thickness        = [1.0, 1.0]
+domain_offset           = 0.0
+domain_orientation      = []
+domain_FI               = [[('stress_von_Mises', 450000000.0)], [('stress_von_Mises', 450.0)]]
+domain_material         = ['*ELASTIC \n210000e-6,  0.3', '*ELASTIC \n210000,  0.3']
+domain_same_state       = False
+
+mass_goal_ratio         = 0.35
+continue_from           = 
+filter_list             = [['simple', 1440.6224554492574]]
+optimization_base       = stiffness
+cpu_cores               = 24
+FI_violated_tolerance   = 1
+decay_coefficient       = -0.2
+shells_as_composite     = False
+reference_points        = integration points
+reference_value         = max
+mass_addition_ratio     = 0.01
+mass_removal_ratio      = 0.03
+ratio_type              = relative
+compensate_state_filter = False
+sensitivity_averaging   = False
+steps_superposition     = []
+iterations_limit        = 2
+tolerance               = 0.001
+displacement_graph      = []
+save_iteration_results  = 1
+save_solver_files       = 
+save_resulting_format   = inp vtk
+
+domains: 2
+nodes  : 137855
+TRIA3  : 0
+TRIA6  : 67438
+QUAD4  : 0
+QUAD8  : 0
+TETRA4 : 0
+TETRA10: 0
+HEXA8  : 0
+HEXA20 : 0
+PENTA6 : 0
+PENTA15: 0
+
+INFO: areas and centres of gravity of TRIA6 elements ignore mid-nodes' positions
+
+domain order: 
+0) design_space
+1) nondesign_space
+
+   i              mass    ener_dens_mean FI_violated_0)   1) all)          FI_mean    _without_state0         FI_max_0)                1)              all)
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+   0 5234703288.548779  2478.627074086337         4441  641 5082 82.01860415783453  82.01860415783453 478.67086915858056 169.17490562788777 478.67086915858056
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+   1 5077375604.761338  2555.4298727946225         4441  641 5082 84.56003461799793  84.56003723818056 478.67086915858056 169.17490562788777 478.67086915858056
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+   2 5016697335.465851  2578.579928439354         4441  633 5074 85.46435537334897  85.46435908729708 476.81793567562517 168.88368831947278 476.81793567562517
+
+Finished at  Mon May 11 04:16:22 2026
+Total time   0 h 4 min 48 s
+
+
+---------------------------------------------------
+file_name = D:\python_project\beso_ai\examples\beso2\_fem_beso_work\beso_shell_topo_out\Analysis-beso-shell-dual.inp
+Start at    Mon May 11 04:20:56 2026
+
+elset_name              = design_space
+domain_optimized        = True
+domain_density          = [1e-06, 1]
+domain_thickness        = [1.0, 1.0]
+domain_offset           = 0.0
+domain_orientation      = []
+domain_FI               = [[('stress_von_Mises', 450000000.0)], [('stress_von_Mises', 450.0)]]
+domain_material         = ['*ELASTIC \n210000e-6,  0.3', '*ELASTIC \n210000,  0.3']
+domain_same_state       = False
+
+elset_name              = nondesign_space
+domain_optimized        = False
+domain_density          = [1e-06, 1]
+domain_thickness        = [1.0, 1.0]
+domain_offset           = 0.0
+domain_orientation      = []
+domain_FI               = [[('stress_von_Mises', 450000000.0)], [('stress_von_Mises', 450.0)]]
+domain_material         = ['*ELASTIC \n210000e-6,  0.3', '*ELASTIC \n210000,  0.3']
+domain_same_state       = False
+
+mass_goal_ratio         = 0.35
+continue_from           = 
+filter_list             = [['simple', 1440.6224554492574]]
+optimization_base       = stiffness
+cpu_cores               = 24
+FI_violated_tolerance   = 1
+decay_coefficient       = -0.2
+shells_as_composite     = False
+reference_points        = integration points
+reference_value         = max
+mass_addition_ratio     = 0.01
+mass_removal_ratio      = 0.03
+ratio_type              = relative
+compensate_state_filter = False
+sensitivity_averaging   = False
+steps_superposition     = []
+iterations_limit        = auto
+tolerance               = 0.001
+displacement_graph      = []
+save_iteration_results  = 1
+save_solver_files       = 
+save_resulting_format   = inp vtk
+
+domains: 2
+nodes  : 137855
+TRIA3  : 0
+TRIA6  : 67438
+QUAD4  : 0
+QUAD8  : 0
+TETRA4 : 0
+TETRA10: 0
+HEXA8  : 0
+HEXA20 : 0
+PENTA6 : 0
+PENTA15: 0
+
+INFO: areas and centres of gravity of TRIA6 elements ignore mid-nodes' positions
+
+iterations_limit        = 77
+
+domain order: 
+0) design_space
+1) nondesign_space
+
+   i              mass    ener_dens_mean FI_violated_0)   1) all)          FI_mean    _without_state0         FI_max_0)                1)              all)
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+   0 5234703288.548779  2478.627074086337         4441  641 5082 82.01860415783453  82.01860415783453 478.67086915858056 169.17490562788777 478.67086915858056
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+   1 5077375604.761338  2555.4298727946225         4441  641 5082 84.56003461799793  84.56003723818056 478.67086915858056 169.17490562788777 478.67086915858056
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+   2 5016697335.465851  2578.579928439354         4441  633 5074 85.46435537334897  85.46435908729708 476.81793567562517 168.88368831947278 476.81793567562517
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+   3  5016697335.46589  2578.579928439334         4441  633 5074  85.4643553733483  85.46435908729708 476.81793567562517 168.88368831947278 476.81793567562517
+
+OSCILLATION: model turns back to 2th iteration.
+
+Finished at  Mon May 11 04:24:31 2026
+Total time   0 h 3 min 35 s
+

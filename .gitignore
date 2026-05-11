@@ -3,6 +3,8 @@
 __pycache__/
 **/__pycache__/
 .venv/
+# 项目本地 Node（由 scripts/install_project_node.ps1 安装，勿提交）
+.node/
 # BESO 本地产出（体积大，勿提交）
 examples/base/beso_output/
 # 本地大模型密钥与覆盖配置（勿提交）

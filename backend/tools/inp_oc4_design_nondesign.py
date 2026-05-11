@@ -1037,3 +1037,76 @@ save_iteration_results = {max(1, int(save_iteration_results))}
 save_resulting_format = "inp vtk"
 '''
     target.write_text(txt, encoding="utf-8")
+
+
+def write_beso_conf_sector120_style(
+    target: Path,
+    *,
+    work_dir: Path,
+    ccx_path: Path,
+    inp_name: str,
+    mass_goal_ratio: float,
+    filter_radius: float,
+    optimization_base: str,
+    iterations_limit: int | str = 8,
+    save_iteration_results: int = 1,
+) -> None:
+    """``design_s0``/``design_s1``/``design_s2`` + ``nondesign_space``（仅 ``design_s0`` 开关优化，另两扇区由 beso_main 映射同步）。"""
+    work_dir = work_dir.resolve()
+    ccx_path = ccx_path.resolve()
+    il = _iter_line(iterations_limit)
+    txt = f'''# Auto-generated: beso3 120° sectors + nondesign_space
+
+path = r"{work_dir}"
+path_calculix = r"{ccx_path}"
+file_name = "{inp_name}"
+
+{il}
+
+elset_name = "design_s0"
+domain_optimized[elset_name] = True
+domain_density[elset_name] = [1e-6, 1]
+domain_thickness[elset_name] = [1.0, 1.0]
+domain_offset[elset_name] = 0.0
+domain_orientation[elset_name] = []
+domain_FI[elset_name] = [[("stress_von_Mises", 450.0e6)], [("stress_von_Mises", 450.0)]]
+domain_material[elset_name] = ["*ELASTIC \\n210000e-6,  0.3", "*ELASTIC \\n210000,  0.3"]
+domain_same_state[elset_name] = False
+
+elset_name = "design_s1"
+domain_optimized[elset_name] = False
+domain_density[elset_name] = [1e-6, 1]
+domain_thickness[elset_name] = [1.0, 1.0]
+domain_offset[elset_name] = 0.0
+domain_orientation[elset_name] = []
+domain_FI[elset_name] = [[("stress_von_Mises", 450.0e6)], [("stress_von_Mises", 450.0)]]
+domain_material[elset_name] = ["*ELASTIC \\n210000e-6,  0.3", "*ELASTIC \\n210000,  0.3"]
+domain_same_state[elset_name] = False
+
+elset_name = "design_s2"
+domain_optimized[elset_name] = False
+domain_density[elset_name] = [1e-6, 1]
+domain_thickness[elset_name] = [1.0, 1.0]
+domain_offset[elset_name] = 0.0
+domain_orientation[elset_name] = []
+domain_FI[elset_name] = [[("stress_von_Mises", 450.0e6)], [("stress_von_Mises", 450.0)]]
+domain_material[elset_name] = ["*ELASTIC \\n210000e-6,  0.3", "*ELASTIC \\n210000,  0.3"]
+domain_same_state[elset_name] = False
+
+elset_name = "nondesign_space"
+domain_optimized[elset_name] = False
+domain_density[elset_name] = [1e-6, 1]
+domain_thickness[elset_name] = [1.0, 1.0]
+domain_offset[elset_name] = 0.0
+domain_orientation[elset_name] = []
+domain_FI[elset_name] = [[("stress_von_Mises", 450.0e6)], [("stress_von_Mises", 450.0)]]
+domain_material[elset_name] = ["*ELASTIC \\n210000e-6,  0.3", "*ELASTIC \\n210000,  0.3"]
+domain_same_state[elset_name] = False
+
+mass_goal_ratio = {mass_goal_ratio}
+filter_list = [["simple", {filter_radius}]]
+optimization_base = "{optimization_base}"
+save_iteration_results = {max(1, int(save_iteration_results))}
+save_resulting_format = "inp vtk"
+'''
+    target.write_text(txt, encoding="utf-8")

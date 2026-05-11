@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 """
-OC4 导管架：由原始梁系 IGS（如 oc4.igs）生成「实心设计域」IGES/STEP，用途类比
-examples/base/BESO2-FEMMeshGmsh.inp 中的实体设计域——后续可在 Gmsh 中体网格再供 BESO。
+OC4 导管架：由原始梁系 IGS（如 oc4.igs）生成「实心设计域」IGES/STEP，供后续体网格与 BESO。
 
-几何意图：
-- 以外柱三角形为底、竖向拉伸的棱柱包络（包住下层水平弦杆与上部柱身/桩靴标高范围）；
-- 与 Chen et al. (2026, Ocean Engineering) 中半潜式 OC4 概念拓扑优化的「三边柱围成设计域」一致，便于后续 BESO 施加 120° 对称材料分布约束时在几何上自洽；
-- 布尔减去柱身/桩靴圆柱，使设计域在柱位开孔；
-- 默认减去中心柱 + 三根边柱；若仅需挖三根边柱，使用 --edge-columns-only。
+默认几何（``domain_envelope=hull_bbox``）对齐 ``examples/beso/BESO3-Compound.iges`` 一类**整装配包络**：
+在 Gmsh 中 merge 源 IGES，取 OCC 整体轴对齐包围盒，竖向与梁系推导的 ``[z_bot,z_top]`` 求交，
+得到一块「下层平台实体包络」长方体，再布尔减去柱身/桩靴圆柱（与 FCStd 中 Pad001 占据下层
+大块可设计体积的思路一致：用**全船装配外廓**而非三边柱内心小三角）。
+
+可选 ``domain_envelope=triangle_prism``：保留旧版以外柱三角形为底、竖向拉伸的棱柱包络
+（便于对照或特殊模型）；环境变量 ``OC4_DESIGN_DOMAIN_ENVELOPE=triangle`` 等价于该模式。
+
+布尔：默认减去中心柱 + 三根边柱；``--edge-columns-only`` 仅挖边柱。
 """
 
 import argparse
@@ -180,6 +183,35 @@ def _triangle_wire(gmsh, pts: list[np.ndarray]) -> int:
     l2 = gmsh.model.occ.addLine(p_tags[1], p_tags[2])
     l3 = gmsh.model.occ.addLine(p_tags[2], p_tags[0])
     return gmsh.model.occ.addWire([l1, l2, l3], checkClosed=True)
+
+
+def _domain_volume_hull_bbox_slab(gmsh, src_iges: Path, z_bot: float, z_top: float) -> tuple[int, int]:
+    """
+    与 BESO3-Compound.iges / oc4.igs 整装配包围盒一致：merge 源文件 → 读包围盒 → 删导入体 →
+    用 [xmin,xmax]×[ymin,ymax]×([z_bot,z_top]∩[zmin,zmax]) 建长方体设计域。
+    """
+    gmsh.merge(str(src_iges.resolve()))
+    gmsh.model.occ.synchronize()
+    hx0, hy0, hz0, hx1, hy1, hz1 = gmsh.model.getBoundingBox(-1, -1)
+    ents = gmsh.model.getEntities()
+    if ents:
+        gmsh.model.occ.remove(ents, True)
+    gmsh.model.occ.synchronize()
+    zb0 = max(float(z_bot), float(hz0))
+    zb1 = min(float(z_top), float(hz1))
+    if zb1 <= zb0 + 1000.0:
+        zb0, zb1 = float(z_bot), float(z_top)
+    x0, y0 = float(hx0), float(hy0)
+    dx = float(hx1) - float(hx0)
+    dy = float(hy1) - float(hy0)
+    dz = float(zb1) - float(zb0)
+    if dx <= 1.0 or dy <= 1.0 or dz <= 1.0:
+        raise ValueError(
+            "源 IGS 装配包围盒过小或与竖向范围无交；可改用三棱柱包络："
+            "环境变量 OC4_DESIGN_DOMAIN_ENVELOPE=triangle 或 API domain_envelope=triangle_prism。"
+        )
+    tag = int(gmsh.model.occ.addBox(x0, y0, float(zb0), dx, dy, dz))
+    return (3, tag)
 
 
 def _triangle_prism(gmsh, pts_bottom: list[np.ndarray], dz: float) -> tuple[int, int]:
@@ -926,6 +958,7 @@ def build_oc4_design_domain_iges(
     out_step: Path | None = None,
     cut_center_column: bool = True,
     include_source_geometry: bool = False,
+    domain_envelope: str = "hull_bbox",
 ) -> Path:
     segs_cache: list | None = None
     try:
@@ -949,6 +982,12 @@ def build_oc4_design_domain_iges(
     outer_bases: list[CylinderAxis | None] = []
     center_base: CylinderAxis | None = None
 
+    env_override = (os.environ.get("OC4_DESIGN_DOMAIN_ENVELOPE") or "").strip().lower()
+    if env_override.startswith("triangle"):
+        domain_envelope = "triangle_prism"
+    elif env_override in ("hull", "hull_bbox", "bbox", "compound"):
+        domain_envelope = "hull_bbox"
+
     if beam_geom is None:
         cyls = _extract_revolution_cylinders(src_iges)
         vertical = [c for c in cyls if abs(float(c.direction[2])) > 0.96]
@@ -969,6 +1008,12 @@ def build_oc4_design_domain_iges(
     # 叠在一起（预览像“未挖孔”或严重错位）。需要对照原模型时设 include_source_geometry=True。
     import gmsh
 
+    envelope = (domain_envelope or "hull_bbox").strip().lower()
+    if envelope not in ("hull_bbox", "triangle_prism"):
+        envelope = "hull_bbox"
+    if include_source_geometry:
+        envelope = "triangle_prism"
+
     gmsh.initialize()
     try:
         gmsh.option.setNumber("General.Terminal", 0)
@@ -977,7 +1022,7 @@ def build_oc4_design_domain_iges(
             gmsh.merge(str(src_iges.resolve()))
             gmsh.model.occ.synchronize()
 
-        # 1) 构建中部“实心设计域”（三角柱体，接近图二绿色域）
+        # 1) 实心设计域：默认 hull_bbox（与 BESO3-Compound / 整装配包络一致）；否则三角柱
         if beam_geom is not None:
             cxy = beam_geom.center_xy
             outer_xy = beam_geom.outer_xy_ccw
@@ -1008,25 +1053,27 @@ def build_oc4_design_domain_iges(
         if segs_cache:
             z_bot, z_top = _merge_z_bounds_with_brace_envelope((z_bot, z_top), segs_cache)
 
-        # 平面外扩：由桩靴圆心相对柱轴几何确定（与 oc4.igs 一致），不用经验系数
-        low_pts: list[np.ndarray] = []
-        if beam_geom is not None:
-            xy_pad = _triangle_xy_pad_from_beam_geom(beam_geom)
+        if envelope == "hull_bbox":
+            domain_vol = _domain_volume_hull_bbox_slab(gmsh, src_iges, z_bot, z_top)
         else:
-            r_outer = float(np.mean([o.radius for o in outer_cols])) if outer_cols else 3000.0
-            xy_pad = max(1600.0, 0.48 * r_outer)
-        outer_xy_arr = np.asarray(outer_xy, dtype=float)
-        # 外扩方向用三边柱围心 → 各顶点，避免中心柱 xy 与围心不一致时三角整体跑偏
-        radial_origin = np.mean(outer_xy_arr, axis=0) if outer_xy_arr.shape[0] >= 2 else np.asarray(cxy, dtype=float)
-        for pxy in outer_xy:
-            vxy = np.asarray(pxy, dtype=float) - radial_origin
-            nv = _norm(vxy)
-            if nv <= 1.0e-9:
-                pxy2 = np.asarray(pxy, dtype=float).copy()
+            # 平面外扩：由桩靴圆心相对柱轴几何确定（与 oc4.igs 一致），不用经验系数
+            low_pts: list[np.ndarray] = []
+            if beam_geom is not None:
+                xy_pad = _triangle_xy_pad_from_beam_geom(beam_geom)
             else:
-                pxy2 = np.asarray(pxy, dtype=float) + (vxy / nv) * xy_pad
-            low_pts.append(np.array([pxy2[0], pxy2[1], z_bot], dtype=float))
-        prism_vol = _triangle_prism(gmsh, low_pts, dz=float(z_top - z_bot))
+                r_outer = float(np.mean([o.radius for o in outer_cols])) if outer_cols else 3000.0
+                xy_pad = max(1600.0, 0.48 * r_outer)
+            outer_xy_arr = np.asarray(outer_xy, dtype=float)
+            radial_origin = np.mean(outer_xy_arr, axis=0) if outer_xy_arr.shape[0] >= 2 else np.asarray(cxy, dtype=float)
+            for pxy in outer_xy:
+                vxy = np.asarray(pxy, dtype=float) - radial_origin
+                nv = _norm(vxy)
+                if nv <= 1.0e-9:
+                    pxy2 = np.asarray(pxy, dtype=float).copy()
+                else:
+                    pxy2 = np.asarray(pxy, dtype=float) + (vxy / nv) * xy_pad
+                low_pts.append(np.array([pxy2[0], pxy2[1], z_bot], dtype=float))
+            domain_vol = _triangle_prism(gmsh, low_pts, dz=float(z_top - z_bot))
 
         gmsh.model.occ.synchronize()
 
@@ -1129,7 +1176,7 @@ def build_oc4_design_domain_iges(
                         z_cut_pad,
                         _boolean_radial_eps(float(obase.radius)),
                     )
-        gmsh.model.occ.cut([prism_vol], cut_tools, removeObject=True, removeTool=True)
+        gmsh.model.occ.cut([domain_vol], cut_tools, removeObject=True, removeTool=True)
 
         gmsh.model.occ.synchronize()
 
@@ -1177,6 +1224,12 @@ def main() -> int:
         action="store_true",
         help="把源 IGS 几何一并 merge 进模型再导出（仅调试用，默认只导出设计域实体）。",
     )
+    parser.add_argument(
+        "--envelope",
+        choices=("hull_bbox", "triangle_prism"),
+        default="hull_bbox",
+        help="hull_bbox：整装配轴对齐包围盒 slab（对齐 BESO3-Compound 体量）；triangle_prism：旧三棱柱包络。",
+    )
     args = parser.parse_args()
     build_oc4_design_domain_iges(
         Path(args.src_iges),
@@ -1184,6 +1237,7 @@ def main() -> int:
         out_step=Path(args.step) if args.step else None,
         cut_center_column=not args.edge_columns_only,
         include_source_geometry=bool(args.include_source),
+        domain_envelope=str(args.envelope),
     )
     return 0
 

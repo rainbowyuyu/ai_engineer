@@ -4,12 +4,20 @@ OC4 设计域前置会话：目录布局、几何摘要、与 ``build_oc4_design
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import uuid
 from pathlib import Path
 from typing import Any
 
 from backend.tools.files import resolve_file, StoredFile
+
+
+def upload_cad_stem_from_upload_name(filename: str) -> str:
+    """与 ``examples/beso/BESO3-Compound.iges`` 命名对齐：``{stem}-Compound.iges`` 的 stem 段。"""
+    stem = Path(str(filename or "")).stem
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", stem).strip("._-")
+    return (stem or "OC4Design")[:48]
 
 
 def _require_oc4_design_domain_dependencies() -> None:
@@ -82,9 +90,12 @@ def runs_file_url(workspace_root: Path, file_abs: Path) -> str:
 def session_progress_flags(sdir: Path) -> dict[str, bool]:
     """会话目录内关键产物是否存在（供前端分步引导与按钮禁用）。"""
     meta = read_session_meta(sdir)
+    cnm = str(meta.get("design_domain_compound_iges") or "").strip()
+    has_compound = bool(cnm) and (sdir / cnm).is_file()
     return {
         "has_source_preview_obj": (sdir / "source_preview.obj").is_file(),
         "has_design_domain_step": (sdir / "01_design_domain.step").is_file(),
+        "has_design_domain_compound_iges": has_compound,
         "has_design_preview_obj": (sdir / "design_preview.obj").is_file(),
         "has_mesh_body_inp": (sdir / "02_mesh_body.inp").is_file(),
         "has_for_beso_inp": (sdir / "03_for_beso.inp").is_file(),
@@ -148,6 +159,8 @@ def invalidate_oc4_downstream_from_rail_step(sdir: Path, *, rail_step: int) -> d
             rm(sdir / pat)
         for p in sorted(sdir.glob("01_design_domain.*")):
             rm(p)
+        for p in sorted(sdir.glob("*-Compound.iges")):
+            rm(p)
 
     patch: dict[str, Any] = {}
     if rail_step <= 3:
@@ -177,6 +190,7 @@ def invalidate_oc4_downstream_from_rail_step(sdir: Path, *, rail_step: int) -> d
                 "build_ok": False,
                 "design_domain_iges": None,
                 "design_domain_step": None,
+                "design_domain_compound_iges": None,
                 "design_obj_url": None,
                 "design_domain_full_build_done": False,
             }
@@ -202,6 +216,7 @@ def create_session_from_upload(workspace_root: Path, file_id: str) -> tuple[str,
         "session_id": sid,
         "file_id": file_id,
         "source_name": name,
+        "upload_cad_stem": upload_cad_stem_from_upload_name(sf.name),
         "workspace_relative": str(sdir.relative_to(workspace_root.resolve())).replace("\\", "/"),
     }
     write_session_meta(sdir, meta)
@@ -264,11 +279,26 @@ def _run_build_worker(
         cut_center_column=cut_center_column,
         include_source_geometry=include_source_geometry,
     )
+    meta0 = read_session_meta(sdir)
+    stem = str(meta0.get("upload_cad_stem") or "OC4Design").strip() or "OC4Design"
+    compound_nm = f"{stem}-Compound.iges"
+    compound_path = sdir / compound_nm
+    try:
+        for old in sdir.glob("*-Compound.iges"):
+            try:
+                if old.resolve() != compound_path.resolve():
+                    old.unlink(missing_ok=True)
+            except OSError:
+                pass
+    except OSError:
+        pass
+    shutil.copy2(out_iges, compound_path)
     merge_session_meta(
         sdir,
         {
             "design_domain_iges": "01_design_domain.igs",
             "design_domain_step": "01_design_domain.step",
+            "design_domain_compound_iges": compound_nm,
             "build_ok": True,
             "cut_center_column": cut_center_column,
             "include_source_geometry": include_source_geometry,
@@ -277,6 +307,7 @@ def _run_build_worker(
     return {
         "design_domain_iges": str(out_iges),
         "design_domain_step": str(out_step),
+        "design_domain_compound_iges": str(compound_path),
     }
 
 

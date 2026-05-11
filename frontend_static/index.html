@@ -806,6 +806,14 @@
             </section>
           </div>
           <div class="topUtilityCluster" aria-label="工具">
+            <a
+              class="btn resultsViewerTopBtn"
+              href="./cad_design_studio.html"
+              target="_blank"
+              rel="noopener"
+              title="内嵌 CAD Explorer + Qwen 对话（新标签页）"
+              >CAD 设计台</a
+            >
             <button type="button" class="btn resultsViewerTopBtn" id="resultsViewerBtn" title="打开拓扑优化结果查看器">结果查看器</button>
           </div>
           <button class="iconBtn" id="settingsBtn" title="连接与偏好">⚙</button>
@@ -1013,6 +1021,21 @@
                               />
                             </svg>
                             <span class="landingModeToggleText">联网搜索</span>
+                          </button>
+                          <button
+                            type="button"
+                            class="landingModeToggle landingModeToggle--tools"
+                            id="landingToggleAssistantTools"
+                            aria-pressed="false"
+                            title="CAD 工具：服务端可调用 FreeCAD 转换与打开结果查看器；关闭后仍为普通对话"
+                          >
+                            <svg class="landingModeToggleIcon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                              <path
+                                fill="currentColor"
+                                d="M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h12v2H4v-2z"
+                              />
+                            </svg>
+                            <span class="landingModeToggleText">CAD 工具</span>
                           </button>
                         </div>
                         <div class="landingQuickRow" role="toolbar" aria-label="快捷提示词（点击填入输入框）">

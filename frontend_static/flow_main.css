@@ -3948,6 +3948,49 @@ textarea{ height: 120px; resize: vertical; }
   position: relative;
   z-index: 4;
 }
+#landingMain .landingTurn--toolTrace{
+  align-items: stretch;
+  position: relative;
+  z-index: 3;
+}
+#landingMain .landingToolTrace{
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  background: rgba(248, 250, 252, 0.96);
+  padding: 6px 10px 8px;
+  font-size: 12px;
+  color: #0f172a;
+}
+#landingMain .landingToolTraceSumBtn{
+  cursor: pointer;
+  font-weight: 600;
+  color: #334155;
+}
+#landingMain .landingToolTraceList{
+  margin: 8px 0 0;
+  padding-left: 18px;
+  list-style: disc;
+}
+#landingMain .landingToolTraceRow{
+  margin: 4px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+#landingMain .landingToolTraceIcon{
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+#landingMain .landingToolTraceName{
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+#landingMain .landingToolTraceSum{
+  color: #475569;
+  word-break: break-word;
+}
 #landingMain .landingWorkflowCard{
   display: block;
   width: 100%;
@@ -8946,6 +8989,7 @@ textarea{ height: 120px; resize: vertical; }
 .resultsViewerTopBtn{
   border-radius: 999px;
   padding: 7px 14px;
+  font: inherit;
   font-size: 12px;
   font-weight: 750;
   letter-spacing: .02em;
@@ -8955,6 +8999,19 @@ textarea{ height: 120px; resize: vertical; }
   cursor: pointer;
   box-shadow: 0 8px 22px rgba(37,99,235,.14);
   transition: transform .22s cubic-bezier(.22,1,.36,1), box-shadow .22s ease, border-color .2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  line-height: 1.2;
+  -webkit-tap-highlight-color: transparent;
+}
+a.resultsViewerTopBtn{
+  text-decoration: none;
+  color: #1d4ed8;
+}
+a.resultsViewerTopBtn:visited{
+  color: #1d4ed8;
 }
 .resultsViewerTopBtn:hover{
   transform: translateY(-1px);
@@ -8968,11 +9025,11 @@ textarea{ height: 120px; resize: vertical; }
 .resultsViewerModal{
   position: fixed;
   inset: 0;
-  z-index: 10020;
+  z-index: 10045;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: clamp(10px, 2.5vw, 22px);
+  padding: max(clamp(14px, 3.5vw, 28px), env(safe-area-inset-top, 0px)) clamp(10px, 2.5vw, 22px) clamp(10px, 2.5vw, 22px);
   opacity: 0;
   pointer-events: none;
   transition: opacity .32s cubic-bezier(.22,1,.36,1);
@@ -9109,6 +9166,100 @@ textarea{ height: 120px; resize: vertical; }
   background: rgba(255,255,255,.55);
   flex-shrink: 0;
 }
+
+.resultsViewerVtkSeq{
+  padding: 8px 18px 10px;
+  border-bottom: 1px solid rgba(15,23,42,.06);
+  background: linear-gradient(180deg, rgba(224,231,255,.35), rgba(248,250,252,.75));
+  flex-shrink: 0;
+}
+.resultsViewerVtkSeq.hidden{
+  display: none;
+}
+.resultsViewerVtkSeqHd{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.resultsViewerMeshTrackLab{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #334155;
+  font-weight: 500;
+}
+.resultsViewerMeshTrackSelect{
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #fff;
+  min-width: 200px;
+  max-width: min(420px, 100%);
+}
+.resultsViewerVtkSeqHint{
+  font-size: 11px;
+  color: var(--muted);
+}
+.resultsViewerVtkSeqControls{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.resultsViewerVtkSlider{
+  flex: 1;
+  min-width: 120px;
+  max-width: 320px;
+  accent-color: #2563eb;
+}
+.resultsViewerVtkSpeedLab{
+  font-size: 11px;
+  color: #475569;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.resultsViewerIntervalSpin{
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.resultsViewerIntervalBtn{
+  min-width: 28px;
+  padding: 2px 6px;
+  font-size: 13px;
+  line-height: 1.2;
+}
+.resultsViewerIntervalMs{
+  width: 88px;
+  min-width: 72px;
+  max-width: 120px;
+  font-size: 12px;
+  font-family: var(--mono);
+  padding: 3px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #fff;
+  text-align: center;
+}
+.resultsViewerVtkSpeed{
+  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #fff;
+}
+.resultsViewerVtkSeqLabel{
+  font-size: 11px;
+  color: #0f172a;
+  margin-left: auto;
+}
+
 .resultsViewerMeta{
   font-size: 12px;
   color: var(--muted);

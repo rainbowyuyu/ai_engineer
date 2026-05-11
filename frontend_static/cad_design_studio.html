@@ -1,0 +1,1446 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CAD 设计台</title>
+    <link rel="icon" href="./assets/beso-agent-mark.svg" type="image/svg+xml" />
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js" crossorigin="anonymous"></script>
+    <style>
+      :root {
+        --cad-ink: #0f172a;
+        --cad-muted: #64748b;
+        --cad-line: rgba(148, 163, 184, 0.35);
+        --cad-indigo: #4f46e5;
+        --cad-indigo-soft: rgba(99, 102, 241, 0.12);
+        --cad-card: rgba(255, 255, 255, 0.92);
+        --cad-shadow: 0 24px 48px rgba(79, 70, 229, 0.08), 0 4px 16px rgba(15, 23, 42, 0.05);
+        --cad-radius: 18px;
+        --cad-font: "Segoe UI", ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+        --cad-mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        height: 100%;
+        min-height: 100%;
+        overflow: hidden;
+        font-family: var(--cad-font);
+        color: var(--cad-ink);
+        background:
+          radial-gradient(120% 90% at 50% -18%, rgba(99, 102, 241, 0.16), transparent 52%),
+          linear-gradient(180deg, #f8fafc 0%, #eef2ff 46%, #f1f5f9 100%);
+      }
+      .cad-shell {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        max-height: 100vh;
+        max-height: 100dvh;
+        min-height: 0;
+      }
+      .cad-top {
+        flex: 0 0 auto;
+        flex-shrink: 0;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 14px 20px 12px;
+        border-bottom: 1px solid var(--cad-line);
+        background: rgba(255, 255, 255, 0.72);
+        backdrop-filter: blur(10px);
+      }
+      .cad-top h1 {
+        margin: 0 0 4px;
+        font-size: 1.15rem;
+        font-weight: 750;
+        letter-spacing: -0.02em;
+        background: linear-gradient(120deg, #312e81, #4f46e5 55%, #6366f1);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .cad-top .cad-lead {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.55;
+        color: var(--cad-muted);
+        max-width: 52rem;
+      }
+      .cad-top .cad-lead code {
+        font-size: 12px;
+        padding: 1px 6px;
+        border-radius: 6px;
+        background: var(--cad-indigo-soft);
+        color: #4338ca;
+      }
+      .cad-top a {
+        color: var(--cad-indigo);
+        text-decoration: none;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 6px 12px;
+        border-radius: 10px;
+        transition: background 0.2s ease, color 0.2s ease;
+      }
+      .cad-top a:hover {
+        background: rgba(99, 102, 241, 0.1);
+      }
+      .cad-main {
+        flex: 1;
+        min-height: 0;
+        padding: 10px 14px 14px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .cad-grid {
+        flex: 1;
+        min-height: 0;
+        height: 100%;
+        display: grid;
+        grid-template-columns: minmax(0, 1.22fr) 8px minmax(360px, 0.78fr);
+        /* 关键：行高限制在视口内，避免右栏随消息无限增高导致无法出现内部滚动条 */
+        grid-template-rows: minmax(0, 1fr);
+        gap: 0;
+        align-items: stretch;
+      }
+      @media (max-width: 1080px) {
+        .cad-grid {
+          grid-template-columns: 1fr;
+          grid-template-rows: minmax(200px, 42vh) minmax(0, 1fr);
+        }
+        .cad-gutter {
+          display: none;
+        }
+      }
+      .cad-gutter {
+        cursor: col-resize;
+        background: linear-gradient(180deg, transparent, rgba(99, 102, 241, 0.08), transparent);
+      }
+      .cad-viewport-card {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        border-radius: var(--cad-radius);
+        border: 1px solid rgba(99, 102, 241, 0.22);
+        background: linear-gradient(168deg, rgba(255, 255, 255, 0.97), rgba(241, 245, 249, 0.94));
+        box-shadow: var(--cad-shadow), 0 0 0 1px rgba(255, 255, 255, 0.65) inset;
+        overflow: hidden;
+        animation: cadCardIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      @keyframes cadCardIn {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      .cad-viewport-label {
+        padding: 10px 16px;
+        font-size: 12px;
+        font-weight: 750;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #475569;
+        border-bottom: 1px solid var(--cad-line);
+        background: rgba(248, 250, 252, 0.9);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .cad-viewport-label span.tag {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0;
+        text-transform: none;
+        color: #6366f1;
+        padding: 3px 10px;
+        border-radius: 999px;
+        background: rgba(99, 102, 241, 0.12);
+        border: 1px solid rgba(99, 102, 241, 0.2);
+      }
+      .cad-viewport-body {
+        flex: 1;
+        min-height: 0;
+        position: relative;
+        background: linear-gradient(165deg, #0f172a 0%, #1e1b4b 100%);
+      }
+      .cad-viewport-body iframe {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        opacity: 0;
+        animation: cadIframeFade 0.45s ease 0.1s forwards;
+      }
+      @keyframes cadIframeFade {
+        to {
+          opacity: 1;
+        }
+      }
+      .cad-agent {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        min-width: 0;
+        border-radius: var(--cad-radius);
+        border: 1px solid rgba(99, 102, 241, 0.24);
+        background: linear-gradient(145deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 255, 0.95) 55%, rgba(241, 245, 249, 0.93) 100%);
+        box-shadow:
+          0 1px 0 rgba(255, 255, 255, 0.9) inset,
+          0 24px 48px rgba(79, 70, 229, 0.08),
+          0 4px 16px rgba(15, 23, 42, 0.04);
+        backdrop-filter: blur(10px);
+        overflow: hidden;
+        animation: cadCardIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.06s both;
+      }
+      /* 滚动放在本层：#msgs 仅承载内容，避免 flex 子项 overflow 在部分浏览器中高度解析失败 */
+      .cad-agent-scroll {
+        flex: 1 1 0%;
+        min-height: 0;
+        min-width: 0;
+        position: relative;
+        overflow-x: hidden;
+        overflow-y: scroll;
+        overscroll-behavior: contain;
+        touch-action: pan-y;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-gutter: stable;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(99, 102, 241, 0.45) rgba(148, 163, 184, 0.2);
+      }
+      .cad-agent-scroll::-webkit-scrollbar {
+        width: 10px;
+      }
+      .cad-agent-scroll::-webkit-scrollbar-track {
+        background: rgba(241, 245, 249, 0.95);
+        border-radius: 6px;
+      }
+      .cad-agent-scroll::-webkit-scrollbar-thumb {
+        background: rgba(99, 102, 241, 0.42);
+        border-radius: 6px;
+        border: 2px solid rgba(241, 245, 249, 0.96);
+      }
+      .cad-agent-scroll::-webkit-scrollbar-thumb:hover {
+        background: rgba(79, 70, 229, 0.58);
+      }
+      .cad-agent-hd {
+        flex: 0 0 auto;
+        padding: 12px 16px 10px;
+        border-bottom: 1px solid var(--cad-line);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .cad-agent-logo {
+        width: 36px;
+        height: 36px;
+        border-radius: 11px;
+        object-fit: contain;
+        background: linear-gradient(160deg, rgba(255, 255, 255, 0.95), rgba(239, 246, 255, 0.88));
+        border: 1px solid rgba(37, 99, 235, 0.2);
+        box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+      }
+      .cad-agent-titles {
+        flex: 1;
+        min-width: 0;
+      }
+      .cad-agent-titles .t1 {
+        font-size: 14px;
+        font-weight: 750;
+        color: #1e293b;
+      }
+      .cad-agent-titles .t2 {
+        font-size: 12px;
+        color: var(--cad-muted);
+        margin-top: 2px;
+      }
+      .cad-msgs {
+        padding: 12px 14px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        scroll-behavior: smooth;
+        min-width: 0;
+      }
+      .cad-msg-user-wrap {
+        align-self: flex-end;
+        max-width: 92%;
+      }
+      .cad-msg-user {
+        padding: 11px 14px;
+        border-radius: 16px 16px 4px 16px;
+        font-size: 14px;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: linear-gradient(135deg, #4f46e5, #6366f1);
+        color: #fff;
+        box-shadow: 0 8px 24px rgba(79, 70, 229, 0.25);
+      }
+      .cad-user-img-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 8px;
+      }
+      .cad-user-img-row img {
+        max-height: 76px;
+        max-width: 120px;
+        border-radius: 8px;
+        object-fit: cover;
+        border: 1px solid rgba(255, 255, 255, 0.35);
+      }
+      .cad-user-text {
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .cad-img-preview {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 8px;
+        min-height: 0;
+      }
+      .cad-img-preview .thumb {
+        position: relative;
+        width: 56px;
+        height: 56px;
+        border-radius: 10px;
+        overflow: hidden;
+        border: 1px solid var(--cad-line);
+        background: #f8fafc;
+      }
+      .cad-img-preview .thumb img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .cad-img-preview .thumb button {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        width: 20px;
+        height: 20px;
+        border: 0;
+        border-radius: 6px;
+        font-size: 12px;
+        line-height: 1;
+        cursor: pointer;
+        background: rgba(15, 23, 42, 0.55);
+        color: #fff;
+        padding: 0;
+      }
+      .cad-msg-assistant {
+        align-self: stretch;
+        max-width: 100%;
+        border-radius: 14px;
+        border: 1px solid rgba(148, 163, 184, 0.28);
+        background: rgba(255, 255, 255, 0.86);
+        overflow-x: hidden;
+        overflow-y: visible;
+      }
+      .cad-thinking {
+        padding: 10px 12px;
+        font-size: 12.5px;
+        line-height: 1.55;
+        color: #5b21b6;
+        background: linear-gradient(135deg, rgba(250, 245, 255, 0.95), rgba(243, 232, 255, 0.65));
+        border-bottom: 1px dashed rgba(139, 92, 246, 0.25);
+      }
+      .cad-thinking-hd {
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #7c3aed;
+        margin-bottom: 6px;
+      }
+      .cad-tools {
+        padding: 8px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .cad-tool-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 8px 10px;
+        border-radius: 10px;
+        font-size: 12.5px;
+        background: rgba(248, 250, 252, 0.95);
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      }
+      .cad-tool-row.is-pending {
+        border-color: rgba(99, 102, 241, 0.35);
+        box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.08);
+      }
+      .cad-tool-row.is-ok {
+        border-color: rgba(34, 197, 94, 0.35);
+      }
+      .cad-tool-row.is-fail {
+        border-color: rgba(239, 68, 68, 0.35);
+      }
+      .cad-tool-ico {
+        flex-shrink: 0;
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        display: grid;
+        place-items: center;
+        font-size: 11px;
+        font-weight: 800;
+        background: rgba(99, 102, 241, 0.15);
+        color: #4338ca;
+      }
+      .cad-tool-ico.ok {
+        background: rgba(34, 197, 94, 0.18);
+        color: #15803d;
+      }
+      .cad-tool-ico.fail {
+        background: rgba(248, 113, 113, 0.2);
+        color: #b91c1c;
+      }
+      .cad-tool-body {
+        flex: 1;
+        min-width: 0;
+      }
+      .cad-tool-name {
+        font-weight: 700;
+        color: #334155;
+      }
+      .cad-tool-sum {
+        color: var(--cad-muted);
+        margin-top: 2px;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .cad-artifacts {
+        margin-top: 6px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .cad-artifacts a,
+      .cad-artifacts code {
+        font-size: 11px;
+        padding: 3px 8px;
+        border-radius: 6px;
+        background: rgba(15, 23, 42, 0.06);
+        color: #4338ca;
+        word-break: break-all;
+        text-decoration: none;
+        border: 1px solid rgba(99, 102, 241, 0.15);
+      }
+      .cad-artifacts a:hover {
+        background: rgba(99, 102, 241, 0.1);
+      }
+      .cad-reply {
+        padding: 12px 14px 14px;
+        font-size: 14px;
+        line-height: 1.65;
+        word-break: break-word;
+        color: #1e293b;
+      }
+      .cad-md {
+        white-space: normal;
+      }
+      .cad-md > *:first-child {
+        margin-top: 0;
+      }
+      .cad-md > *:last-child {
+        margin-bottom: 0;
+      }
+      .cad-md h1,
+      .cad-md h2,
+      .cad-md h3,
+      .cad-md h4 {
+        margin: 0.75em 0 0.4em;
+        font-weight: 750;
+        color: #0f172a;
+        line-height: 1.35;
+      }
+      .cad-md h1 {
+        font-size: 1.15rem;
+      }
+      .cad-md h2 {
+        font-size: 1.05rem;
+      }
+      .cad-md h3,
+      .cad-md h4 {
+        font-size: 0.98rem;
+      }
+      .cad-md p {
+        margin: 0.45em 0;
+      }
+      .cad-md ul,
+      .cad-md ol {
+        margin: 0.45em 0;
+        padding-left: 1.35em;
+      }
+      .cad-md li {
+        margin: 0.2em 0;
+      }
+      .cad-md pre {
+        margin: 0.55em 0;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: rgba(15, 23, 42, 0.06);
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        overflow-x: auto;
+        font-family: var(--cad-mono);
+        font-size: 12.5px;
+        line-height: 1.5;
+      }
+      .cad-md code {
+        font-family: var(--cad-mono);
+        font-size: 0.9em;
+        padding: 0.12em 0.38em;
+        border-radius: 5px;
+        background: rgba(99, 102, 241, 0.1);
+        color: #4338ca;
+      }
+      .cad-md pre code {
+        padding: 0;
+        background: transparent;
+        color: #1e293b;
+        font-size: inherit;
+      }
+      .cad-md blockquote {
+        margin: 0.5em 0;
+        padding: 0.35em 0 0.35em 12px;
+        border-left: 3px solid rgba(99, 102, 241, 0.45);
+        color: #475569;
+        background: rgba(248, 250, 252, 0.8);
+        border-radius: 0 8px 8px 0;
+      }
+      .cad-md a {
+        color: #4f46e5;
+        font-weight: 600;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      .cad-md a:hover {
+        color: #3730a3;
+      }
+      .cad-md hr {
+        border: 0;
+        border-top: 1px solid var(--cad-line);
+        margin: 0.85em 0;
+      }
+      .cad-md table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 0.55em 0;
+        font-size: 13px;
+      }
+      .cad-md th,
+      .cad-md td {
+        border: 1px solid rgba(148, 163, 184, 0.45);
+        padding: 6px 8px;
+        text-align: left;
+      }
+      .cad-md th {
+        background: rgba(99, 102, 241, 0.08);
+      }
+      .cad-thinking-body.cad-md {
+        white-space: normal;
+      }
+      .cad-caret {
+        display: inline-block;
+        width: 7px;
+        height: 1.1em;
+        margin-left: 1px;
+        vertical-align: text-bottom;
+        background: #6366f1;
+        border-radius: 1px;
+        animation: cadBlink 1s step-end infinite;
+      }
+      .cad-caret.off {
+        display: none;
+      }
+      @keyframes cadBlink {
+        50% {
+          opacity: 0;
+        }
+      }
+      .cad-turn-meta {
+        font-size: 11px;
+        color: var(--cad-muted);
+        padding: 0 14px 8px;
+      }
+      .cad-agent-chrome {
+        flex: 0 0 auto;
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-top: 1px solid var(--cad-line);
+        background: rgba(248, 250, 252, 0.92);
+      }
+      .cad-jump-bottom {
+        display: none;
+        align-items: center;
+        gap: 4px;
+        border: 1px solid rgba(99, 102, 241, 0.35);
+        background: rgba(255, 255, 255, 0.95);
+        color: #4338ca;
+        font-size: 12px;
+        font-weight: 650;
+        padding: 6px 12px;
+        border-radius: 999px;
+        cursor: pointer;
+        box-shadow: 0 2px 8px rgba(79, 70, 229, 0.12);
+      }
+      .cad-jump-bottom:hover {
+        background: rgba(99, 102, 241, 0.1);
+      }
+      .cad-composer {
+        flex: 0 1 auto;
+        max-height: min(46vh, 440px);
+        overflow-x: hidden;
+        overflow-y: auto;
+        padding: 10px 14px 12px;
+        border-top: 1px solid var(--cad-line);
+        background: rgba(255, 255, 255, 0.55);
+        scrollbar-gutter: stable;
+        scrollbar-width: thin;
+      }
+      .cad-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      .cad-chk {
+        font-size: 12px;
+        color: #475569;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        user-select: none;
+      }
+      .cad-chk input {
+        accent-color: var(--cad-indigo);
+      }
+      .cad-file-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+      }
+      .cad-file-row .lbl {
+        font-size: 12px;
+        color: var(--cad-muted);
+        flex-shrink: 0;
+      }
+      .cad-file-row input[type="text"] {
+        flex: 1;
+        min-width: 0;
+        border-radius: 10px;
+        border: 1px solid var(--cad-line);
+        padding: 8px 11px;
+        font: inherit;
+        font-size: 13px;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      }
+      .cad-file-row input[type="text"]:focus {
+        outline: none;
+        border-color: rgba(99, 102, 241, 0.45);
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+      }
+      textarea#input {
+        width: 100%;
+        min-height: 76px;
+        max-height: 200px;
+        resize: vertical;
+        border-radius: 12px;
+        border: 1px solid var(--cad-line);
+        padding: 11px 12px;
+        font: inherit;
+        font-size: 14px;
+        line-height: 1.5;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      }
+      textarea#input:focus {
+        outline: none;
+        border-color: rgba(99, 102, 241, 0.45);
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+      }
+      .cad-actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        margin-top: 8px;
+      }
+      .cad-btn {
+        border: 0;
+        border-radius: 12px;
+        padding: 10px 20px;
+        font-weight: 700;
+        font-size: 13px;
+        cursor: pointer;
+        background: linear-gradient(135deg, #4f46e5, #6366f1);
+        color: #fff;
+        box-shadow: 0 8px 20px rgba(79, 70, 229, 0.28);
+        transition: transform 0.15s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+      }
+      .cad-btn:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 12px 28px rgba(79, 70, 229, 0.32);
+      }
+      .cad-btn:disabled {
+        opacity: 0.48;
+        cursor: not-allowed;
+        transform: none;
+      }
+      .cad-btn-ghost {
+        background: rgba(255, 255, 255, 0.9);
+        color: #4338ca;
+        border: 1px solid rgba(99, 102, 241, 0.28);
+        box-shadow: none;
+      }
+      .cad-btn-ghost:hover:not(:disabled) {
+        background: rgba(99, 102, 241, 0.08);
+      }
+      .cad-err {
+        color: #b91c1c;
+        font-size: 12px;
+        flex: 1;
+        min-width: 0;
+      }
+      .cad-hint {
+        font-size: 11px;
+        color: var(--cad-muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="cad-shell">
+      <header class="cad-top">
+        <div>
+          <h1>CAD 设计台</h1>
+          <p class="cad-lead">
+            布局对齐设计域子流程：左侧为 <strong>CAD Explorer</strong>（控制台风格视口），右侧为
+            <strong>Qwen</strong> 智能体；支持<strong>流式回复</strong>、<strong>思考过程</strong>与<strong>工具 / 产物</strong>可视化。API 读
+            <code>beso.settings.baseUrl</code> 或 URL 参数 <code>?api=</code>；需配置 <code>QWEN_API_KEY</code>。
+          </p>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px">
+          <a href="./index.html">← 返回主页</a>
+          <a id="statusLink" href="#" target="_blank" rel="noopener">Explorer 状态</a>
+        </div>
+      </header>
+      <main class="cad-main">
+        <div class="cad-grid">
+          <section class="cad-viewport-card">
+            <div class="cad-viewport-label">
+              几何视口
+              <span class="tag">/cad-explorer</span>
+            </div>
+            <div class="cad-viewport-body">
+              <iframe id="explorerFrame" title="CAD Explorer"></iframe>
+            </div>
+          </section>
+          <div class="cad-gutter" aria-hidden="true"></div>
+          <section class="cad-agent">
+            <div class="cad-agent-hd">
+              <img class="cad-agent-logo" src="./assets/beso-agent-mark.svg" alt="" width="36" height="36" />
+              <div class="cad-agent-titles">
+                <div class="t1">设计智能体</div>
+                <div class="t2">流式输出 · 工具链 cad_skill / Explorer</div>
+              </div>
+            </div>
+            <div class="cad-agent-scroll" id="cadAgentScrollPane" role="region" aria-label="设计智能体对话">
+              <div id="msgs" class="cad-msgs"></div>
+            </div>
+            <div class="cad-agent-chrome">
+              <button type="button" class="cad-jump-bottom" id="jumpBottomBtn" title="滚动到最新消息">
+                ↓ 回到底部
+              </button>
+            </div>
+            <div class="cad-composer">
+              <div class="cad-row">
+                <label class="cad-chk"><input type="checkbox" id="toolsEnabled" checked /> 启用工具</label>
+                <label class="cad-chk"><input type="checkbox" id="deepThink" /> 深度思考</label>
+                <span class="cad-hint">Enter 发送 · Ctrl+Enter 换行 · 可附图片（需视觉模型如 qwen-vl）</span>
+              </div>
+              <div class="cad-row cad-file-row">
+                <span class="lbl">默认模型路径</span>
+                <input type="text" id="defaultFile" value="third_party/text-to-cad/STEP/demo_mounting_plate.step" />
+                <button type="button" class="cad-btn cad-btn-ghost" id="reloadExplorer">刷新视口</button>
+              </div>
+              <div class="cad-row" style="margin-bottom: 0">
+                <input type="file" id="imagePick" accept="image/*" multiple style="display: none" />
+                <button type="button" class="cad-btn cad-btn-ghost" id="imagePickBtn" title="添加参考图">
+                  图片
+                </button>
+                <span class="cad-hint">JPEG/PNG，单张建议 &lt;4MB；发送前可压缩</span>
+              </div>
+              <div id="imagePreview" class="cad-img-preview" aria-live="polite"></div>
+              <textarea id="input" placeholder="描述零件或要求生成 STEP、打开 Explorer…"></textarea>
+              <div class="cad-actions">
+                <span id="err" class="cad-err"></span>
+                <button type="button" class="cad-btn" id="send">发送</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+    <script>
+      (function () {
+        function normalizeApiBase(raw) {
+          const s = String(raw || "").trim();
+          if (!s) return "";
+          try {
+            const parsed = new URL(s.startsWith("http") ? s : `http://${s}`);
+            let out =
+              parsed.origin + (parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/$/, ""));
+            out = out.replace(/\/$/, "").replace(/\/ui$/i, "").replace(/\/$/, "");
+            return out;
+          } catch {
+            return s.replace(/\/ui$/i, "").replace(/\/$/, "");
+          }
+        }
+
+        function apiBase() {
+          try {
+            const qp = new URLSearchParams(window.location.search || "").get("api");
+            if (qp && qp.trim()) {
+              const n = normalizeApiBase(qp.trim());
+              if (n) return n;
+            }
+          } catch {
+            /* ignore */
+          }
+          try {
+            const stored =
+              typeof localStorage !== "undefined"
+                ? String(localStorage.getItem("beso.settings.baseUrl") || "").trim()
+                : "";
+            if (stored) {
+              const n = normalizeApiBase(stored);
+              if (n) return n;
+            }
+          } catch {
+            /* ignore */
+          }
+          const href = typeof window !== "undefined" && window.location && window.location.href;
+          if (href) {
+            try {
+              const p = new URL(href);
+              if (p.origin && p.origin !== "null") {
+                return normalizeApiBase(p.origin) || String(p.origin).replace(/\/$/, "");
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+          return "http://127.0.0.1:8000";
+        }
+
+        function explorerUrl() {
+          const base = apiBase();
+          const f = String(document.getElementById("defaultFile").value || "").trim();
+          const cb = "_cb=" + Date.now();
+          return f
+            ? `${base}/cad-explorer/?file=${encodeURIComponent(f)}&${cb}`
+            : `${base}/cad-explorer/?${cb}`;
+        }
+
+        function reloadExplorer() {
+          const iframe = document.getElementById("explorerFrame");
+          iframe.style.animation = "none";
+          iframe.offsetHeight;
+          iframe.src = explorerUrl();
+          iframe.style.animation = "";
+        }
+
+        const SCROLL_PIN_PX = 100;
+
+        function msgsList() {
+          return document.getElementById("msgs");
+        }
+
+        function scrollPane() {
+          return document.getElementById("cadAgentScrollPane");
+        }
+
+        function updateJumpBottomBtn() {
+          const pane = scrollPane();
+          const btn = document.getElementById("jumpBottomBtn");
+          if (!pane || !btn) return;
+          const overflow = pane.scrollHeight > pane.clientHeight + 16;
+          const nearBottom =
+            pane.scrollHeight - pane.scrollTop - pane.clientHeight < SCROLL_PIN_PX;
+          btn.style.display = overflow && !nearBottom ? "inline-flex" : "none";
+        }
+
+        function msgsNearBottom() {
+          const el = scrollPane();
+          if (!el) return true;
+          return el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_PIN_PX;
+        }
+
+        /** 流式更新时仅在用户未上滑阅读时跟随到底部；{ force: true } 用于新发用户消息等 */
+        function scrollMsgs(opt) {
+          const el = scrollPane();
+          if (!el) return;
+          const force = opt && opt.force === true;
+          if (force || msgsNearBottom()) {
+            el.scrollTop = el.scrollHeight;
+          }
+          updateJumpBottomBtn();
+        }
+
+        function appendUser(displayText, imagePreviewUrls) {
+          const wrap = document.createElement("div");
+          wrap.className = "cad-msg-user-wrap";
+          const inner = document.createElement("div");
+          inner.className = "cad-msg-user";
+          if (imagePreviewUrls && imagePreviewUrls.length) {
+            const ir = document.createElement("div");
+            ir.className = "cad-user-img-row";
+            imagePreviewUrls.forEach(function (url) {
+              const im = document.createElement("img");
+              im.src = url;
+              im.alt = "";
+              ir.appendChild(im);
+            });
+            inner.appendChild(ir);
+          }
+          const tx = document.createElement("div");
+          tx.className = "cad-user-text";
+          tx.textContent = displayText || "";
+          inner.appendChild(tx);
+          wrap.appendChild(inner);
+          msgsList().appendChild(wrap);
+          scrollMsgs({ force: true });
+        }
+
+        function beginAssistantTurn() {
+          const wrap = document.createElement("div");
+          wrap.className = "cad-msg-assistant";
+          const thinking = document.createElement("div");
+          thinking.className = "cad-thinking";
+          thinking.style.display = "none";
+          thinking.innerHTML =
+            '<div class="cad-thinking-hd">思考过程</div><div class="cad-thinking-body cad-md"></div>';
+          const tools = document.createElement("div");
+          tools.className = "cad-tools";
+          const reply = document.createElement("div");
+          reply.className = "cad-reply";
+          const inner = document.createElement("div");
+          inner.className = "cad-reply-inner cad-md";
+          const caret = document.createElement("span");
+          caret.className = "cad-caret";
+          reply.appendChild(inner);
+          reply.appendChild(caret);
+          const meta = document.createElement("div");
+          meta.className = "cad-turn-meta";
+          meta.style.display = "none";
+          wrap.appendChild(thinking);
+          wrap.appendChild(tools);
+          wrap.appendChild(reply);
+          wrap.appendChild(meta);
+          msgsList().appendChild(wrap);
+          scrollMsgs({ force: true });
+          return {
+            wrap,
+            thinking,
+            thinkingBody: thinking.querySelector(".cad-thinking-body"),
+            tools,
+            inner,
+            caret,
+            meta,
+            pendingTools: new Map(),
+            _replyTimer: null,
+            _replyBuf: "",
+          };
+        }
+
+        if (typeof marked !== "undefined" && marked.setOptions) {
+          marked.setOptions({ breaks: true, gfm: true, mangle: false, headerIds: false });
+        }
+
+        function renderMarkdownInto(el, raw) {
+          if (!el) return;
+          const s = String(raw || "");
+          if (typeof marked === "undefined" || typeof DOMPurify === "undefined") {
+            el.textContent = s;
+            return;
+          }
+          try {
+            const dirty = marked.parse(s, { async: false });
+            el.innerHTML = DOMPurify.sanitize(dirty, { USE_PROFILES: { html: true } });
+          } catch {
+            el.textContent = s;
+          }
+        }
+
+        function scheduleAssistantReplyMd(ui, full, immediate) {
+          ui._replyBuf = full == null ? "" : String(full);
+          function apply() {
+            renderMarkdownInto(ui.inner, ui._replyBuf);
+          }
+          if (immediate) {
+            if (ui._replyTimer) {
+              clearTimeout(ui._replyTimer);
+              ui._replyTimer = null;
+            }
+            apply();
+            return;
+          }
+          if (ui._replyTimer) clearTimeout(ui._replyTimer);
+          ui._replyTimer = setTimeout(function () {
+            ui._replyTimer = null;
+            apply();
+            scrollMsgs();
+          }, 90);
+        }
+
+        function setThinking(ui, text) {
+          if (!text) return;
+          ui.thinking.style.display = "";
+          renderMarkdownInto(ui.thinkingBody, text);
+          scrollMsgs();
+        }
+
+        function ensureToolRow(ui, name) {
+          if (ui.pendingTools.has(name)) return ui.pendingTools.get(name);
+          const row = document.createElement("div");
+          row.className = "cad-tool-row is-pending";
+          row.innerHTML =
+            '<div class="cad-tool-ico">⋯</div><div class="cad-tool-body">' +
+            '<div class="cad-tool-name"></div><div class="cad-tool-sum">执行中…</div><div class="cad-artifacts"></div></div>';
+          row.querySelector(".cad-tool-name").textContent = name;
+          ui.tools.appendChild(row);
+          ui.pendingTools.set(name, row);
+          scrollMsgs();
+          return row;
+        }
+
+        function finishToolRow(row, ok, summary, artifacts) {
+          row.classList.remove("is-pending");
+          row.classList.add(ok ? "is-ok" : "is-fail");
+          const ico = row.querySelector(".cad-tool-ico");
+          ico.textContent = ok ? "✓" : "!";
+          ico.classList.toggle("ok", ok);
+          ico.classList.toggle("fail", !ok);
+          const sum = row.querySelector(".cad-tool-sum");
+          sum.textContent = summary || "";
+          const art = row.querySelector(".cad-artifacts");
+          art.innerHTML = "";
+          (artifacts || []).forEach(function (a) {
+            if (!a || !a.path) return;
+            const kind = String(a.kind || "file");
+            const path = String(a.path);
+            const el = document.createElement("a");
+            el.href = "#";
+            el.title = path;
+            el.textContent = kind + ": " + path;
+            el.addEventListener("click", function (ev) {
+              ev.preventDefault();
+              try {
+                navigator.clipboard.writeText(path);
+              } catch {
+                /* ignore */
+              }
+            });
+            art.appendChild(el);
+          });
+          scrollMsgs();
+        }
+
+        function runClientActions(actions) {
+          const base = apiBase();
+          for (const a of actions || []) {
+            if (a && a.type === "open_cad_explorer") {
+              const f = String(a.file || "").trim();
+              const url = f ? `${base}/cad-explorer/?file=${encodeURIComponent(f)}` : `${base}/cad-explorer/`;
+              window.open(url, "_blank", "noopener");
+            }
+            if (a && a.type === "open_results_viewer" && a.scan_dir) {
+              appendUser("（提示）结果查看器请在主页打开：\n" + String(a.scan_dir));
+            }
+          }
+        }
+
+        async function readSseJsonLines(response, onObj) {
+          const reader = response.body && response.body.getReader();
+          if (!reader) throw new Error("无响应体");
+          const dec = new TextDecoder();
+          let buf = "";
+          function consumeLines(flushAll) {
+            const parts = buf.split("\n");
+            buf = flushAll ? "" : parts.pop() || "";
+            for (let i = 0; i < parts.length; i++) {
+              const t = parts[i].trim();
+              if (!t.startsWith("data:")) continue;
+              const raw = t.replace(/^data:\s*/i, "").trim();
+              if (!raw || raw === "[DONE]") continue;
+              try {
+                onObj(JSON.parse(raw));
+              } catch {
+                /* ignore */
+              }
+            }
+          }
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) {
+              consumeLines(true);
+              break;
+            }
+            buf += dec.decode(value, { stream: true });
+            consumeLines(false);
+          }
+        }
+
+        const history = [];
+        let pendingImageDataUrls = [];
+
+        function renderImagePreview() {
+          const host = document.getElementById("imagePreview");
+          if (!host) return;
+          host.innerHTML = "";
+          pendingImageDataUrls.forEach(function (url) {
+            const t = document.createElement("div");
+            t.className = "thumb";
+            const im = document.createElement("img");
+            im.src = url;
+            im.alt = "";
+            const rm = document.createElement("button");
+            rm.type = "button";
+            rm.textContent = "×";
+            rm.title = "移除";
+            rm.addEventListener("click", function () {
+              const j = pendingImageDataUrls.indexOf(url);
+              if (j >= 0) pendingImageDataUrls.splice(j, 1);
+              renderImagePreview();
+            });
+            t.appendChild(im);
+            t.appendChild(rm);
+            host.appendChild(t);
+          });
+        }
+
+        function imageFileToJpegDataUrl(file, maxSide) {
+          return new Promise(function (resolve, reject) {
+            const fr = new FileReader();
+            fr.onload = function () {
+              const img = new Image();
+              img.onload = function () {
+                let w = img.width;
+                let h = img.height;
+                const m = Math.max(w, h);
+                if (m > maxSide) {
+                  const s = maxSide / m;
+                  w = Math.round(w * s);
+                  h = Math.round(h * s);
+                }
+                const c = document.createElement("canvas");
+                c.width = w;
+                c.height = h;
+                const ctx = c.getContext("2d");
+                if (!ctx) {
+                  reject(new Error("canvas"));
+                  return;
+                }
+                ctx.drawImage(img, 0, 0, w, h);
+                try {
+                  resolve(c.toDataURL("image/jpeg", 0.86));
+                } catch (e2) {
+                  reject(e2);
+                }
+              };
+              img.onerror = reject;
+              img.src = fr.result;
+            };
+            fr.onerror = reject;
+            fr.readAsDataURL(file);
+          });
+        }
+
+        async function sendToolStream(body, ui) {
+          const r = await fetch(`${apiBase()}/api/assistant/chat/stream-tools`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (!r.ok) {
+            const t = await r.text();
+            let msg = "请求失败 " + r.status;
+            try {
+              const j = JSON.parse(t);
+              if (j.detail) msg = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+            } catch {
+              if (t) msg = t.slice(0, 400);
+            }
+            throw new Error(msg);
+          }
+          let full = "";
+          await readSseJsonLines(r, function (ev) {
+            const ty = ev && ev.type;
+            if (ty === "thinking" && ev.text) setThinking(ui, ev.text);
+            if (ty === "tool_start") ensureToolRow(ui, ev.name);
+            if (ty === "tool_done") {
+              const row = ui.pendingTools.get(ev.name) || ensureToolRow(ui, ev.name);
+              finishToolRow(row, Boolean(ev.ok), String(ev.summary || ""), ev.artifacts);
+            }
+            if (ty === "delta" && ev.text) {
+              full += ev.text;
+              scheduleAssistantReplyMd(ui, full, false);
+              scrollMsgs();
+            }
+            if (ty === "error" && ev.message) {
+              full += "\n\n**错误** " + String(ev.message);
+              scheduleAssistantReplyMd(ui, full, true);
+              scrollMsgs();
+            }
+            if (ty === "done") {
+              full = String(ev.reply || full || "");
+              scheduleAssistantReplyMd(ui, full, true);
+              ui.caret.classList.add("off");
+              ui.meta.style.display = "";
+              ui.meta.textContent =
+                (ev.model ? "模型 · " + ev.model : "") +
+                (Array.isArray(ev.tool_trace) && ev.tool_trace.length
+                  ? " · 工具 " + ev.tool_trace.length + " 次"
+                  : "");
+              runClientActions(ev.client_actions);
+              history.push({ role: "assistant", content: full });
+              scrollMsgs();
+            }
+          });
+        }
+
+        async function sendPlainStream(body, ui) {
+          const r = await fetch(`${apiBase()}/api/assistant/chat/stream`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (!r.ok) {
+            const t = await r.text();
+            let msg = "请求失败 " + r.status;
+            try {
+              const j = JSON.parse(t);
+              if (j.detail) msg = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+            } catch {
+              if (t) msg = t.slice(0, 400);
+            }
+            throw new Error(msg);
+          }
+          let full = "";
+          await readSseJsonLines(r, function (obj) {
+            if (obj.error) {
+              full += "\n\n`错误` " + String(obj.error);
+              scheduleAssistantReplyMd(ui, full, true);
+              return;
+            }
+            const choice = (obj.choices && obj.choices[0]) || {};
+            const delta = choice.delta || {};
+            const piece =
+              delta.content != null
+                ? String(delta.content)
+                : delta.reasoning_content != null
+                  ? String(delta.reasoning_content)
+                  : "";
+            if (piece) {
+              full += piece;
+              scheduleAssistantReplyMd(ui, full, false);
+              scrollMsgs();
+            }
+          });
+          scheduleAssistantReplyMd(ui, full, true);
+          ui.caret.classList.add("off");
+          history.push({ role: "assistant", content: full });
+          scrollMsgs();
+        }
+
+        async function send() {
+          const err = document.getElementById("err");
+          err.textContent = "";
+          const raw = String(document.getElementById("input").value || "").trim();
+          const imgs = pendingImageDataUrls.slice();
+          if (!raw && !imgs.length) return;
+          document.getElementById("send").disabled = true;
+
+          let userContent;
+          let displayText;
+          if (imgs.length) {
+            const parts = [];
+            if (raw) parts.push({ type: "text", text: raw });
+            imgs.forEach(function (u) {
+              parts.push({ type: "image_url", image_url: { url: u } });
+            });
+            userContent = parts;
+            displayText = raw || "（已附加 " + imgs.length + " 张图片）";
+          } else {
+            userContent = raw;
+            displayText = raw;
+          }
+          appendUser(displayText, imgs.length ? imgs : null);
+          history.push({ role: "user", content: userContent });
+          pendingImageDataUrls = [];
+          renderImagePreview();
+          document.getElementById("input").value = "";
+
+          const body = {
+            messages: history.slice(-32),
+            temperature: 0.55,
+            tools_enabled: Boolean(document.getElementById("toolsEnabled").checked),
+            deep_think: Boolean(document.getElementById("deepThink").checked),
+            web_search: false,
+          };
+
+          const ui = beginAssistantTurn();
+
+          try {
+            if (body.tools_enabled) {
+              await sendToolStream(body, ui);
+            } else {
+              await sendPlainStream(body, ui);
+            }
+          } catch (e) {
+            err.textContent = String(e.message || e);
+            renderMarkdownInto(
+              ui.inner,
+              "### 请求中断\n\n" + String(e.message || e) + "\n\n请检查网络、API Key 或稍后重试。",
+            );
+            ui.caret.classList.add("off");
+          } finally {
+            document.getElementById("send").disabled = false;
+            scrollMsgs();
+          }
+        }
+
+        document.getElementById("reloadExplorer").addEventListener("click", reloadExplorer);
+        const _scrollPane = scrollPane();
+        if (_scrollPane) {
+          _scrollPane.addEventListener(
+            "scroll",
+            function () {
+              updateJumpBottomBtn();
+            },
+            { passive: true },
+          );
+        }
+        const _jumpBtn = document.getElementById("jumpBottomBtn");
+        if (_jumpBtn) {
+          _jumpBtn.addEventListener("click", function () {
+            scrollMsgs({ force: true });
+          });
+        }
+        window.addEventListener("resize", function () {
+          updateJumpBottomBtn();
+        });
+        document.getElementById("send").addEventListener("click", send);
+        document.getElementById("input").addEventListener("keydown", function (ev) {
+          if (ev.key !== "Enter") return;
+          if (ev.ctrlKey || ev.metaKey) {
+            ev.preventDefault();
+            const ta = ev.target;
+            const s = ta.selectionStart;
+            const e2 = ta.selectionEnd;
+            const v = ta.value;
+            ta.value = v.slice(0, s) + "\n" + v.slice(e2);
+            ta.selectionStart = ta.selectionEnd = s + 1;
+            return;
+          }
+          if (ev.shiftKey) return;
+          ev.preventDefault();
+          send();
+        });
+
+        (function wireImagePick() {
+          const btn = document.getElementById("imagePickBtn");
+          const inp = document.getElementById("imagePick");
+          if (!btn || !inp) return;
+          btn.addEventListener("click", function () {
+            inp.click();
+          });
+          inp.addEventListener("change", async function () {
+            const files = Array.prototype.slice.call(inp.files || [], 0);
+            inp.value = "";
+            const err = document.getElementById("err");
+            for (let i = 0; i < files.length; i++) {
+              const f = files[i];
+              if (!f.type || f.type.indexOf("image/") !== 0) continue;
+              if (f.size > 6 * 1024 * 1024) {
+                err.textContent = "单张图片过大（>6MB），已跳过：" + (f.name || "");
+                continue;
+              }
+              try {
+                const u = await imageFileToJpegDataUrl(f, 1536);
+                pendingImageDataUrls.push(u);
+              } catch {
+                err.textContent = "图片处理失败：" + (f.name || "");
+              }
+            }
+            if (pendingImageDataUrls.length > 6) {
+              pendingImageDataUrls = pendingImageDataUrls.slice(0, 6);
+              err.textContent = "最多保留 6 张参考图";
+            }
+            renderImagePreview();
+          });
+        })();
+
+        const st = document.getElementById("statusLink");
+        if (st) st.href = `${apiBase()}/api/cad-explorer/status`;
+
+        reloadExplorer();
+
+        function bootWelcome() {
+          const ui = beginAssistantTurn();
+          ui.thinking.style.display = "none";
+          renderMarkdownInto(
+            ui.inner,
+            "### 你好\n\n" +
+              "- 勾选 **启用工具** 时，会流式展示思考摘要、工具步骤与产物路径，**最终回复支持 Markdown**。\n" +
+              "- 支持 `cad_skill_help`、`cad_skill_step`、`open_cad_explorer` 等；`output_step` 请用 **POSIX `/`** 路径。\n" +
+              "- **Enter** 发送，**Ctrl+Enter** 换行；可点 **图片** 附参考图（需视觉模型如 qwen-vl）。\n" +
+              "- 左侧视口需已构建 Explorer **dist** 并能加载 `/ui/cad_explorer_embed.css`。",
+          );
+          ui.caret.classList.add("off");
+          ui.meta.style.display = "";
+          ui.meta.textContent = "就绪";
+          history.push({
+            role: "assistant",
+            content: "你好。我可使用工具协助 CAD 与 Explorer 相关操作。",
+          });
+        }
+        bootWelcome();
+        updateJumpBottomBtn();
+
+        try {
+          fetch(`${apiBase()}/api/assistant/qwen-warmup`, { method: "GET" }).catch(function () {});
+        } catch {
+          /* ignore */
+        }
+      })();
+    </script>
+  </body>
+</html>

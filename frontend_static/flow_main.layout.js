@@ -656,6 +656,32 @@ export function createLayoutManager(deps) {
     return wrap.querySelector(".landingWorkflowCard");
   }
 
+  /** 助手工具轨迹：可折叠列表，不参与 Qwen role 回传 */
+  function addLandingToolTraceCard(trace) {
+    wireLandingBubbleActionsOnce();
+    if (!refs.chatLanding) return null;
+    const arr = Array.isArray(trace) ? trace : [];
+    const rows = arr
+      .map((t) => {
+        const ok = Boolean(t?.ok);
+        const name = escapeHtml(String(t?.name || "tool"));
+        const sum = escapeHtml(String(t?.summary || "").slice(0, 220));
+        const icon = ok ? "✓" : "✗";
+        return `<li class="landingToolTraceRow"><span class="landingToolTraceIcon" aria-hidden="true">${icon}</span><span class="landingToolTraceName">${name}</span><span class="landingToolTraceSum">${sum}</span></li>`;
+      })
+      .join("");
+    const wrap = document.createElement("div");
+    wrap.className = "landingTurn landingTurn--toolTrace";
+    wrap.innerHTML = `
+      <details class="landingToolTrace">
+        <summary class="landingToolTraceSumBtn">工具调用（${arr.length}）· 展开</summary>
+        <ul class="landingToolTraceList">${rows || "<li>（无条目）</li>"}</ul>
+      </details>`;
+    refs.chatLanding.appendChild(wrap);
+    refs.chatLanding.scrollTop = refs.chatLanding.scrollHeight;
+    return wrap;
+  }
+
   function showStage(mode) {
     refs.landingMain?.classList.toggle("hidden", mode !== "landing");
     refs.designDomainMain?.classList.toggle("hidden", mode !== "designDomain");
@@ -843,6 +869,7 @@ export function createLayoutManager(deps) {
     removeLandingTyping,
     beginLandingAgentStream,
     addLandingWorkflowCard,
+    addLandingToolTraceCard,
     showStage,
     goHome,
     streamOrchestration,

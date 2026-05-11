@@ -65,6 +65,7 @@ const refs = {
   restartFlow: $("restartFlow"),
   landingToggleDeepThink: $("landingToggleDeepThink"),
   landingToggleWebSearch: $("landingToggleWebSearch"),
+  landingToggleAssistantTools: $("landingToggleAssistantTools"),
   landingSendChatBtn: $("landingSendChatBtn"),
   newLandingTaskBtn: $("newLandingTaskBtn"),
   landingSubflowStrip: $("landingSubflowStrip"),
@@ -310,6 +311,8 @@ const state = {
   /** 主页对话：深度思考 / 联网搜索（与 localStorage 同步，跨会话保持） */
   landingDeepThink: false,
   landingWebSearch: false,
+  /** 开启后 POST /api/assistant/chat 携带 tools_enabled，走服务端工具循环 */
+  landingAssistantTools: false,
 };
 try {
   state.ddPreviewFollowLock = localStorage.getItem("beso.dd.previewFollowLock") === "1";
@@ -319,6 +322,7 @@ try {
 try {
   state.landingDeepThink = localStorage.getItem("beso.landing.deepThink") === "1";
   state.landingWebSearch = localStorage.getItem("beso.landing.webSearch") === "1";
+  state.landingAssistantTools = localStorage.getItem("beso.landing.assistantTools") === "1";
 } catch {
   /* ignore */
 }
@@ -1208,12 +1212,26 @@ function landingAssistantOptionsPayload() {
   return {
     deep_think: Boolean(state.landingDeepThink),
     web_search: Boolean(state.landingWebSearch),
+    tools_enabled: Boolean(state.landingAssistantTools),
   };
+}
+
+function pushAssistantToolTraceCardForTask(taskId, tool_trace) {
+  const tid = String(taskId || "").trim();
+  const trace = Array.isArray(tool_trace) ? tool_trace : [];
+  if (!tid || !trace.length) return;
+  const card = { role: "card", kind: "tool_trace", trace };
+  if (String(state.currentTaskId || "").trim() === tid) {
+    state.assistantThread.push(card);
+  } else {
+    mergeAssistantMsgIntoBackgroundTask(tid, card);
+  }
 }
 
 function syncLandingModeToggleUi() {
   const d = refs.landingToggleDeepThink;
   const w = refs.landingToggleWebSearch;
+  const t = refs.landingToggleAssistantTools;
   if (d) {
     d.setAttribute("aria-pressed", state.landingDeepThink ? "true" : "false");
     d.classList.toggle("landingModeToggle--on", state.landingDeepThink);
@@ -1221,6 +1239,10 @@ function syncLandingModeToggleUi() {
   if (w) {
     w.setAttribute("aria-pressed", state.landingWebSearch ? "true" : "false");
     w.classList.toggle("landingModeToggle--on", state.landingWebSearch);
+  }
+  if (t) {
+    t.setAttribute("aria-pressed", state.landingAssistantTools ? "true" : "false");
+    t.classList.toggle("landingModeToggle--on", state.landingAssistantTools);
   }
   syncLandingWorkspaceChrome();
 }
@@ -1232,6 +1254,7 @@ function landingWorkspaceModeSubtitle() {
   const parts = [];
   if (state.landingDeepThink) parts.push("深度思考");
   if (state.landingWebSearch) parts.push("联网检索");
+  if (state.landingAssistantTools) parts.push("CAD / text-to-cad 工具");
   return parts.length ? parts.join(" · ") : "标准对话";
 }
 
@@ -1299,18 +1322,47 @@ async function fetchAssistantChatOnce(messages, signal, forTaskId = null) {
       } catch {
         if (raw) msg = raw.slice(0, 500);
       }
-      return { ok: false, reply: "", errorText: msg, aborted: false };
+      return {
+        ok: false,
+        reply: "",
+        errorText: msg,
+        aborted: false,
+        client_actions: [],
+        tool_trace: [],
+      };
     }
     try {
       const j = JSON.parse(raw);
       const reply = String(j.reply ?? "").trim();
-      return { ok: true, reply: reply || "（无回复）", errorText: "", aborted: false };
+      return {
+        ok: true,
+        reply: reply || "（无回复）",
+        errorText: "",
+        aborted: false,
+        client_actions: Array.isArray(j.client_actions) ? j.client_actions : [],
+        tool_trace: Array.isArray(j.tool_trace) ? j.tool_trace : [],
+      };
     } catch {
-      return { ok: false, reply: "", errorText: "响应不是合法 JSON", aborted: false };
+      return {
+        ok: false,
+        reply: "",
+        errorText: "响应不是合法 JSON",
+        aborted: false,
+        client_actions: [],
+        tool_trace: [],
+      };
     }
   } catch (e) {
-    if (signal?.aborted) return { ok: false, reply: "", errorText: "", aborted: true };
-    return { ok: false, reply: "", errorText: `网络错误：${e?.message || e}`, aborted: false };
+    if (signal?.aborted)
+      return { ok: false, reply: "", errorText: "", aborted: true, client_actions: [], tool_trace: [] };
+    return {
+      ok: false,
+      reply: "",
+      errorText: `网络错误：${e?.message || e}`,
+      aborted: false,
+      client_actions: [],
+      tool_trace: [],
+    };
   }
 }
 
@@ -1469,6 +1521,8 @@ function renderLandingChatFromThread() {
           ? "md"
           : "plain";
       layout.addLandingBubble("agent", m.content, { format: fmt });
+    } else if (m.role === "card" && m.kind === "tool_trace") {
+      layout.addLandingToolTraceCard(m.trace || []);
     } else if (m.role === "card") {
       layout.addLandingWorkflowCard({
         kind: m.kind,
@@ -2433,11 +2487,13 @@ async function handleLandingAssistantRegenerate(stripRaw) {
       return;
     }
     await bumpThinkWait();
+    pushAssistantToolTraceCardForTask(myTaskId, once.tool_trace);
     const reply = String(once.reply || "").trim() || "（无回复）";
     await replayAssistantProgressive(streamCtrl, reply, ac.signal, () => !ac.signal.aborted);
     streamCtrl.finalize(reply);
     const fmt = assistantReplyFormatFromBody(reply);
     pushAssistantTurnForTask(myTaskId, { role: "assistant", content: reply, format: fmt });
+    runAssistantClientActions(once.client_actions);
     persistMyTaskIfViewing();
   } catch (e) {
     const errText = String(e?.message || e);
@@ -2623,7 +2679,8 @@ async function sendLandingAssistantChat() {
           persistMyTaskIfViewing();
         }
       };
-      const finishExchange = async (replyRaw, viaProgressive) => {
+      const finishExchange = async (replyRaw, viaProgressive, extras = {}) => {
+        pushAssistantToolTraceCardForTask(myTaskId, extras.tool_trace);
         const reply = String(replyRaw || "").trim() || "（无回复）";
         if (!streamMayContinue()) return;
         if (viaProgressive && streamCtrl) {
@@ -2631,19 +2688,21 @@ async function sendLandingAssistantChat() {
           if (!streamMayContinue()) return;
         }
         streamCtrl?.finalize(reply);
-        const asstTurn = { role: "assistant", content: reply, format: "md" };
+        const fmt = assistantReplyFormatFromBody(reply);
+        const asstTurn = { role: "assistant", content: reply, format: fmt };
         if (String(state.currentTaskId || "").trim() === myTaskId) {
           state.assistantThread.push(asstTurn);
         } else {
           mergeAssistantMsgIntoBackgroundTask(myTaskId, asstTurn);
         }
         if (!streamMayContinue()) return;
+        runAssistantClientActions(extras.client_actions);
         if (String(state.currentTaskId || "").trim() !== myTaskId) return;
         await runOrchestrateBlock();
         await runDesignDomainBlock();
       };
 
-      const preferStream = readAssistantPreferStream();
+      const preferStream = readAssistantPreferStream() && !state.landingAssistantTools;
       if (!preferStream) {
         const once = await fetchAssistantChatOnce(messages, ac.signal, myTaskId);
         if (!flightLive()) return;
@@ -2661,7 +2720,10 @@ async function sendLandingAssistantChat() {
         await bumpThinkWait();
         if (!flightLive()) return;
         openStreamSurfaceOrBail();
-        await finishExchange(once.reply, true);
+        await finishExchange(once.reply, true, {
+          tool_trace: once.tool_trace,
+          client_actions: once.client_actions,
+        });
         return;
       }
 
@@ -2727,7 +2789,10 @@ async function sendLandingAssistantChat() {
         const fb = await fetchAssistantChatOnce(messages, ac.signal, myTaskId);
         if (!flightLive() || fb.aborted || ac.signal.aborted) return;
         if (fb.ok) {
-          await finishExchange(fb.reply, false);
+          await finishExchange(fb.reply, false, {
+            tool_trace: fb.tool_trace,
+            client_actions: fb.client_actions,
+          });
           return;
         }
         const errLine = `对话失败：${fb.errorText || consumed.error?.message || "未知错误"}`;
@@ -2736,7 +2801,7 @@ async function sendLandingAssistantChat() {
         persistMyTaskIfViewing();
         return;
       }
-      await finishExchange(consumed.full, false);
+      await finishExchange(consumed.full, false, {});
     } catch (e) {
       if (!flightLive()) return;
       const aborted =
@@ -5597,6 +5662,15 @@ refs.landingToggleWebSearch?.addEventListener("click", () => {
   }
   syncLandingModeToggleUi();
 });
+refs.landingToggleAssistantTools?.addEventListener("click", () => {
+  state.landingAssistantTools = !state.landingAssistantTools;
+  try {
+    localStorage.setItem("beso.landing.assistantTools", state.landingAssistantTools ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+  syncLandingModeToggleUi();
+});
 refs.landingMain?.addEventListener("click", (e) => {
   const chip = e.target.closest?.("[data-landing-prompt]");
   if (!chip || !refs.landingMain?.contains(chip)) return;
@@ -6083,10 +6157,76 @@ taskManager.loadTasks().catch(() => {});
 queueMicrotask(() => applyDesignDomainStepUi());
 queueMicrotask(() => updateOc4ReturnNavVisibility());
 
-const resultsViewer = mountResultsViewer();
-document.getElementById("resultsViewerBtn")?.addEventListener("click", () => {
-  resultsViewer.open();
-});
+/** @type {{ open: () => void; close?: () => void; openFromScanDir?: (s: string) => Promise<void>; applyImportedFiles?: (f: File[]) => void; destroy?: () => void }} */
+let resultsViewer;
+try {
+  resultsViewer = mountResultsViewer({ normalizedBaseUrl });
+} catch (e) {
+  console.error("[resultsViewer] mount failed", e);
+  resultsViewer = {
+    open() {
+      try {
+        window.alert(`结果查看器加载失败：${e?.message || e}\n请刷新页面或检查控制台。`);
+      } catch {
+        /* ignore */
+      }
+    },
+    openFromScanDir: async () => {
+      resultsViewer.open();
+    },
+    applyImportedFiles: () => {},
+    destroy: () => {},
+  };
+}
+
+function runAssistantClientActions(client_actions) {
+  const arr = Array.isArray(client_actions) ? client_actions : [];
+  for (const a of arr) {
+    if (a?.type === "open_results_viewer" && a.scan_dir) {
+      void resultsViewer.openFromScanDir(String(a.scan_dir)).catch((e) => {
+        try {
+          layout.addLandingBubble("agent", `打开结果查看器失败：${e?.message || e}`);
+        } catch {
+          /* ignore */
+        }
+      });
+    }
+    if (a?.type === "open_cad_explorer") {
+      try {
+        const base = normalizedBaseUrl();
+        const f = String(a.file || "").trim();
+        const url = f ? `${base}/cad-explorer/?file=${encodeURIComponent(f)}` : `${base}/cad-explorer/`;
+        window.open(url, "_blank", "noopener");
+      } catch (e) {
+        try {
+          layout.addLandingBubble("agent", `打开 CAD Explorer 失败：${e?.message || e}`);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
+}
+
+function wireResultsViewerButton() {
+  const btn = document.getElementById("resultsViewerBtn");
+  if (!btn) {
+    console.warn("[resultsViewer] #resultsViewerBtn not found");
+    return;
+  }
+  btn.addEventListener("click", () => {
+    try {
+      resultsViewer.open();
+    } catch (e) {
+      console.error("[resultsViewer] open failed", e);
+    }
+  });
+}
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", wireResultsViewerButton, { once: true });
+} else {
+  wireResultsViewerButton();
+}
 runtimeConsoleCtl = mountRuntimeConsole({
   refs,
   state,

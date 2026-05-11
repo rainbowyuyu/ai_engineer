@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="remotion: npm run render" type="js.build_tools.npm" factoryName="npm">
+    <package-json value="$PROJECT_DIR$/remotion-site-intro/package.json" />
+    <command value="run" />
+    <scripts>
+      <script value="render" />
+    </scripts>
+    <node-interpreter value="$PROJECT_DIR$/.node/node.exe" />
+    <envs />
+    <method v="2" />
+  </configuration>
+</component>

@@ -6,12 +6,13 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
 
@@ -26,7 +27,7 @@ for _root in (_repo_root, Path(os.environ.get("WORKSPACE_ROOT", _repo_root)).res
         load_dotenv(_dotenv_file, override=False)
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -35,7 +36,14 @@ from pydantic import BaseModel
 from backend.agent import decide_params
 from backend.generator import scan_input_directory, build_generated_code
 from backend.jobs.manager import jobs
-from backend.models import AssistantChatRequest, AssistantChatResponse, ChatRequest, ChatResponse
+from backend.models import (
+    AssistantChatRequest,
+    AssistantChatResponse,
+    CadConvertRequest,
+    CadConvertResponse,
+    ChatRequest,
+    ChatResponse,
+)
 from backend.qwen_client import QwenClient, assistant_chat_http_read_timeout_s
 from backend.qwen_runtime_config import get_qwen_config, set_qwen_config, set_qwen_model_only
 from backend.pydantic_compat import model_to_dict
@@ -85,8 +93,16 @@ def _ddg_snippet_for_query(query: str, *, timeout_s: float = 6.0) -> str:
 
 def _last_user_text_from_request(body: "AssistantChatRequest") -> str:
     for m in reversed(list(body.messages or [])):
-        if m.role == "user":
-            return str(m.content or "").strip()
+        if m.role != "user":
+            continue
+        c = m.content
+        if isinstance(c, list):
+            parts: list[str] = []
+            for p in c:
+                if isinstance(p, dict) and str(p.get("type") or "").strip() == "text":
+                    parts.append(str(p.get("text") or ""))
+            return "\n".join(parts).strip()
+        return str(c or "").strip()
     return ""
 
 
@@ -125,6 +141,65 @@ app.add_middleware(
 
 app.mount("/runs", StaticFiles(directory=str(RUNS_ROOT)), name="runs")
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_ROOT)), name="uploads")
+
+
+def _mount_workspace_cad_url_prefixes() -> None:
+    """
+    CAD Explorer 构建产物内资源 URL 为站点根路径 /{仓库相对路径}（如 /third_party/...），
+    与 /cad-explorer 静态挂载分离；此处仅挂载常见含 CAD 源文件的顶层目录，避免整盘挂载。
+    """
+    for name in ("third_party", "examples"):
+        d = (WORKSPACE_ROOT / name).resolve()
+        if not d.is_dir():
+            continue
+        try:
+            app.mount(f"/{name}", StaticFiles(directory=str(d)), name=f"workspace_cad_{name}")
+        except Exception as e:
+            logger.info("workspace CAD static mount /%s skipped: %s", name, e)
+
+
+_mount_workspace_cad_url_prefixes()
+
+_CAD_PRIMARY_EXPLORER_DIST = WORKSPACE_ROOT / "third_party" / "text-to-cad" / "cad_skill" / "explorer" / "dist"
+_CAD_EXPORT_CATALOG_SCRIPT = (
+    WORKSPACE_ROOT
+    / "third_party"
+    / "text-to-cad"
+    / "cad_skill"
+    / "explorer"
+    / "scripts"
+    / "export-catalog.mjs"
+)
+_CAD_EXPLORER_FALLBACK_STATIC = UI_ROOT / "cad_explorer_placeholder"
+
+
+def _resolve_cad_explorer_static_dir() -> Path:
+    """优先环境变量 CAD_EXPLORER_DIST，其次仓库内嵌 dist，否则使用占位页（避免 /cad-explorer 整段 404）。"""
+    env = (os.environ.get("CAD_EXPLORER_DIST") or "").strip()
+    if env:
+        p = Path(env).expanduser().resolve()
+        if p.is_dir():
+            return p
+    if _CAD_PRIMARY_EXPLORER_DIST.is_dir():
+        return _CAD_PRIMARY_EXPLORER_DIST.resolve()
+    _CAD_EXPLORER_FALLBACK_STATIC.mkdir(parents=True, exist_ok=True)
+    return _CAD_EXPLORER_FALLBACK_STATIC.resolve()
+
+
+_CAD_EXPLORER_STATIC = _resolve_cad_explorer_static_dir()
+
+
+@app.get("/cad-explorer", include_in_schema=False)
+def cad_explorer_redirect_trailing_slash():
+    """无尾斜杠时重定向，避免部分浏览器/iframe 落到错误路径。"""
+    return RedirectResponse(url="/cad-explorer/")
+
+
+app.mount(
+    "/cad-explorer",
+    StaticFiles(directory=str(_CAD_EXPLORER_STATIC), html=True),
+    name="cad_explorer",
+)
 if UI_ROOT.exists():
     app.mount("/ui", StaticFiles(directory=str(UI_ROOT), html=True), name="ui")
 
@@ -289,6 +364,67 @@ def health():
     return {"ok": True}
 
 
+@app.get("/api/cad-explorer/status")
+def api_cad_explorer_status():
+    """排查 CAD Explorer 挂载路径（若 primary_exists=false 则当前为占位页）。"""
+    primary = _CAD_PRIMARY_EXPLORER_DIST.resolve()
+    return {
+        "workspace_root": str(WORKSPACE_ROOT.resolve()),
+        "primary_dist": str(primary),
+        "primary_exists": primary.is_dir(),
+        "serving_static_from": str(_CAD_EXPLORER_STATIC),
+        "using_placeholder": not primary.is_dir(),
+        "env_CAD_EXPLORER_DIST": (os.environ.get("CAD_EXPLORER_DIST") or "").strip() or None,
+        "live_catalog_api": "/api/cad-explorer/catalog",
+        "export_catalog_script": str(_CAD_EXPORT_CATALOG_SCRIPT),
+        "export_catalog_script_exists": _CAD_EXPORT_CATALOG_SCRIPT.is_file(),
+        "node_on_path": bool(shutil.which("node")),
+    }
+
+
+@app.get("/api/cad-explorer/catalog")
+def api_cad_explorer_catalog():
+    """
+    运行时扫描 WORKSPACE_ROOT 下的 CAD 源文件，返回与 CAD Explorer 构建时相同 schema 的 catalog。
+    解决 STEP 在 npm build 之后才生成、烘焙清单不含该文件导致「File does not exist」的问题。
+    """
+    if not _CAD_EXPORT_CATALOG_SCRIPT.is_file():
+        raise HTTPException(
+            status_code=501,
+            detail="缺少 export-catalog.mjs，无法生成动态目录。",
+        )
+    node = shutil.which("node")
+    if not node:
+        raise HTTPException(status_code=503, detail="未找到 node 可执行文件，无法扫描 CAD 目录。")
+    env = {**os.environ, "EXPLORER_WORKSPACE_ROOT": str(WORKSPACE_ROOT.resolve())}
+    try:
+        proc = subprocess.run(
+            [node, str(_CAD_EXPORT_CATALOG_SCRIPT)],
+            cwd=str(_CAD_EXPORT_CATALOG_SCRIPT.parent),
+            capture_output=True,
+            text=True,
+            timeout=180,
+            env=env,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise HTTPException(status_code=504, detail="CAD 目录扫描超时") from e
+    except OSError as e:
+        raise HTTPException(status_code=503, detail=f"无法执行 node 扫描: {e}") from e
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout or "").strip()
+        if len(tail) > 4000:
+            tail = tail[:4000] + "…"
+        raise HTTPException(status_code=500, detail=f"catalog 扫描失败（exit {proc.returncode}）: {tail or 'no output'}")
+    raw = (proc.stdout or "").strip()
+    if not raw:
+        raise HTTPException(status_code=500, detail="catalog 扫描无输出")
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"catalog JSON 无效: {e}") from e
+
+
 def _sanitize_optimization_base(v: str | None) -> str:
     s = (v or "").strip().lower()
     if s in {"failure_index", "stiffness"}:
@@ -322,8 +458,35 @@ def assistant_chat(body: AssistantChatRequest):
             detail="未配置大模型密钥：请在项目根目录 .env 中设置 QWEN_API_KEY，或在设置页保存 API Key。",
         )
     msgs = _assistant_messages_for_qwen(body)
+    temp = _effective_assistant_temperature(body)
+    if body.tools_enabled:
+        from backend.assistant_tool_loop import run_assistant_tool_loop
+
+        try:
+            out = run_assistant_tool_loop(
+                qwen,
+                msgs,
+                temperature=temp,
+                workspace_root=WORKSPACE_ROOT,
+                runs_root=RUNS_ROOT,
+            )
+        except RuntimeError as e:
+            raise HTTPException(status_code=503, detail=str(e)) from e
+        except Exception as e:
+            logger.exception("assistant_chat tools loop failed")
+            raise HTTPException(
+                status_code=503,
+                detail=f"模型或工具执行异常: {e}。请查看本机后端控制台日志。",
+            ) from e
+        reply = str(out.reply or "").strip() or "（无回复）"
+        return AssistantChatResponse(
+            reply=reply,
+            model=out.model,
+            client_actions=out.client_actions or None,
+            tool_trace=out.tool_trace or None,
+        )
     try:
-        data = qwen.chat(msgs, temperature=_effective_assistant_temperature(body))
+        data = qwen.chat(msgs, temperature=temp)
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
@@ -341,8 +504,34 @@ def assistant_chat(body: AssistantChatRequest):
     return AssistantChatResponse(reply=str(content), model=qwen.model)
 
 
-def _assistant_messages_for_qwen(body: AssistantChatRequest) -> list[dict[str, str]]:
-    msgs: list[dict[str, str]] = [{"role": m.role, "content": m.content} for m in body.messages]
+@app.post("/api/tools/cad-convert", response_model=CadConvertResponse)
+def api_tools_cad_convert(body: CadConvertRequest):
+    """工作区内 CAD 格式转换（FreeCAD），与助手工具 cad_convert 共用逻辑。"""
+    from backend.tools.freecad_cad_convert import cad_convert_to_runs_subdir, resolve_workspace_path
+
+    try:
+        inp = resolve_workspace_path(body.input_rel_or_abs, WORKSPACE_ROOT)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    if not inp.is_file():
+        raise HTTPException(status_code=400, detail="输入路径不是有效文件")
+    try:
+        out_abs, url = cad_convert_to_runs_subdir(
+            inp,
+            body.target_format,
+            workspace_root=WORKSPACE_ROOT,
+            runs_root=RUNS_ROOT,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("cad-convert failed")
+        return CadConvertResponse(ok=False, detail=str(e)[:800])
+    return CadConvertResponse(ok=True, output_path=str(out_abs), runs_url=url)
+
+
+def _assistant_messages_for_qwen(body: AssistantChatRequest) -> list[dict[str, Any]]:
+    msgs: list[dict[str, Any]] = [{"role": m.role, "content": m.content} for m in body.messages]
     fn = str(body.attached_file_name or "").strip()
     fid = str(body.attached_file_id or "").strip()
     file_ctx = ""
@@ -361,9 +550,10 @@ def _assistant_messages_for_qwen(body: AssistantChatRequest) -> list[dict[str, s
         "你是「AI Engineer」的对话助手；角色为 AI 工程与结构仿真方向的专家，熟悉结构/拓扑优化（含 BESO、SIMP）、CalculiX、"
         "INP 网格与边界条件、以及本产品中设计域—拓扑优化编排—任务流程。"
         "用简洁中文回答；需要时分点说明，可使用 Markdown；不要编造不存在的文件路径。"
-        "若用户讨论 **OC4 半潜式浮式风机** 概念阶段拓扑优化，可对照 **Chen et al. (2026) Ocean Engineering**："
-        "三边柱围成设计域、BESO 柔度最小化与约 15% 体积分数、系泊区强约束与塔顶水平风推等效载荷；"
-        "拓扑之后的水动力外形重构需结合 OpenFAST/AQWA 等另建模型，本工具链侧重生成可算的 BESO 输入。"
+        "若用户讨论 **OC4 半潜式浮式风机** 概念阶段拓扑优化：回答须与后端定标一致——设计域几何、INP 荷载边界、"
+        "`design_space`/`nondesign_space` 划分、BESO 参数以 `backend/oc4_methodology_chen2026.py` 的 `LLM_CONTEXT_BLOCK_ZH` 为唯一基准"
+        "（含 `01_…`→`03_for_beso.inp` 会话链与 `examples/beso/Analysis-beso.inp` FCStd 基准）；勿混杂互相矛盾的「自创流程」。"
+        "拓扑之后水动力重构用 OpenFAST/AQWA 等另建模型，本工具链交付可算 INP + BESO。"
     )
     if not msgs or msgs[0]["role"] != "system":
         msgs = [{"role": "system", "content": file_ctx + base_system}, *msgs]
@@ -428,6 +618,58 @@ def assistant_chat_stream(body: AssistantChatRequest):
             yield "data: " + json.dumps({"error": str(e)}, ensure_ascii=False) + "\n\n"
         except Exception as e:
             yield "data: " + json.dumps({"error": f"模型请求失败: {e}"}, ensure_ascii=False) + "\n\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post("/api/assistant/chat/stream-tools")
+def assistant_chat_stream_tools(body: AssistantChatRequest):
+    """
+    工具模式下的 NDJSON/SSE：推送 thought、工具调用、产物路径，并对最终 ``final_reply`` 分块输出。
+    请求体与 ``POST /api/assistant/chat`` 相同，且 **必须** ``tools_enabled=true``。
+    """
+    from backend.assistant_tool_loop import iter_assistant_tool_loop_events
+
+    if not body.tools_enabled:
+        raise HTTPException(
+            status_code=400,
+            detail="stream-tools 仅支持 tools_enabled=true；关闭工具时请用 /api/assistant/chat/stream",
+        )
+
+    def gen():
+        qwen = QwenClient(timeout_s=assistant_chat_http_read_timeout_s())
+        if not qwen.api_key:
+            yield (
+                "data: "
+                + json.dumps(
+                    {"type": "error", "message": "未配置大模型密钥：请在 .env 设置 QWEN_API_KEY。"},
+                    ensure_ascii=False,
+                )
+                + "\n\n"
+            )
+            return
+        msgs = _assistant_messages_for_qwen(body)
+        temp = _effective_assistant_temperature(body)
+        try:
+            for ev in iter_assistant_tool_loop_events(
+                qwen,
+                msgs,
+                temperature=temp,
+                workspace_root=WORKSPACE_ROOT,
+                runs_root=RUNS_ROOT,
+            ):
+                yield "data: " + json.dumps(ev, ensure_ascii=False) + "\n\n"
+        except Exception as e:
+            logger.exception("assistant_chat_stream_tools failed")
+            yield "data: " + json.dumps({"type": "error", "message": str(e)[:1200]}, ensure_ascii=False) + "\n\n"
 
     return StreamingResponse(
         gen(),
@@ -796,6 +1038,45 @@ async def upload(file: UploadFile = File(...)):
         "url": f"/uploads/{sf.file_id}/{sf.name}",
         "suggested_scan_dir": suggested_scan_dir,
     }
+
+
+@app.post("/api/preview/inp-mesh-vtk")
+async def preview_inp_mesh_vtk(file: UploadFile = File(...)):
+    """将网格主 INP 转为 VTK Legacy ASCII（FreeCAD Fem），供前端三维预览。"""
+    fn = (file.filename or "mesh.inp").lower()
+    if not fn.endswith(".inp"):
+        raise HTTPException(status_code=400, detail="需要上传 .inp 网格文件")
+    content = await file.read()
+    max_b = 80 * 1024 * 1024
+    if len(content) > max_b:
+        raise HTTPException(status_code=413, detail="INP 超过 80MB 上限")
+
+    from backend.tools.freecad_inp_mesh_vtk import convert_inp_to_vtk_file
+
+    with tempfile.NamedTemporaryFile(suffix=".inp", delete=False) as tf_inp:
+        tf_inp.write(content)
+        inp_path = Path(tf_inp.name)
+    out_path = inp_path.with_suffix(".vtk")
+    try:
+        convert_inp_to_vtk_file(inp_path, out_path, timeout_s=240.0)
+        vtk_text = out_path.read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except subprocess.TimeoutExpired as e:
+        raise HTTPException(status_code=504, detail="FreeCAD 转换超时") from e
+    finally:
+        try:
+            inp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        try:
+            out_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    return PlainTextResponse(vtk_text, media_type="text/plain; charset=utf-8")
 
 
 def _safe_upload_file_id(file_id: str) -> str:

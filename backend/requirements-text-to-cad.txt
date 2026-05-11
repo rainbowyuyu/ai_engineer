@@ -1,0 +1,13 @@
+# 供侧栏工具 cad_skill_step（内嵌 text-to-cad / build123d）使用。
+# 主环境已有 cadquery-ocp（OCP）时，一般只需：
+#   .\.venv\Scripts\python -m pip install -r backend\requirements-text-to-cad.txt
+#
+# 解释器优先级（见 backend/tools/cad_skill_runner.py）：TEXT_TO_CAD_PYTHON（显式）>
+#   仓库根 .venv > 同级 text-to-cad/.venv > 运行后端的 sys.executable。
+# 若设置了 TEXT_TO_CAD_PYTHON 仍失败，请核对该路径与仓库 .venv 是否一致，或删除变量以使用仓库 .venv。
+#
+# 若与 cadquery-ocp 冲突，可改用独立虚拟环境，并在 .env 设置 TEXT_TO_CAD_PYTHON 指向该 python.exe。
+
+# PyPI 当前常见最高版本约 0.10.x（勿写过高下限以免 pip 无解）
+build123d>=0.10.0,<0.11
+ezdxf>=1.3.0

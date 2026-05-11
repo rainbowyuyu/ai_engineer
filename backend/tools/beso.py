@@ -43,14 +43,38 @@ def _choose_beso_source_dir(workspace_root: Path, manifest: dict[str, Any], inp_
     return default_dir
 
 def _scan_elsets(inp_path: Path) -> list[str]:
-    elsets: list[str] = []
-    pat = re.compile(r"^\*ELSET\s*,\s*ELSET\s*=\s*([^,\s]+)", re.IGNORECASE)
+    """
+    收集 INP 中出现的体单元集名：显式 ``*ELSET``，以及 ``*Element`` / ``*Solid section`` 行里的 ``Elset=``。
+
+    FCStd 流水线生成的 deck 往往不写 ``*ELSET``，仅用 ``*Element,..., Elset=design_space`` 分区；
+    若只扫 ``*ELSET`` 会得到空列表，导致双域 beso_conf 无法触发、BESO 丢弃 nondesign_space。
+    """
+    names: list[str] = []
+    seen: set[str] = set()
+    pat_elset_line = re.compile(r"^\*ELSET\s*,\s*ELSET\s*=\s*([^,\s]+)", re.IGNORECASE)
+    pat_elset_eq = re.compile(r"\bElset\s*=\s*([^,\s#]+)", re.IGNORECASE)
+
+    def add(nm: str) -> None:
+        t = (nm or "").strip().strip('"').strip("'")
+        if not t or t in seen:
+            return
+        seen.add(t)
+        names.append(t)
+
     with inp_path.open("r", encoding="utf-8", errors="ignore") as f:
-        for line in f:
-            m = pat.match(line.strip())
+        for raw in f:
+            s = raw.strip()
+            if not s or s.startswith("**"):
+                continue
+            m = pat_elset_line.match(s)
             if m:
-                elsets.append(m.group(1))
-    return elsets
+                add(m.group(1))
+                continue
+            u = s.upper()
+            if u.startswith("*ELEMENT") or ("SOLID" in u and "SECTION" in u):
+                for m in pat_elset_eq.finditer(s):
+                    add(m.group(1))
+    return names
 
 
 def _scan_includes(inp_path: Path) -> list[str]:
@@ -316,11 +340,11 @@ def run_beso_job(
     elsets = _scan_elsets(inp_dst)
     elset_name = pick_usable_elset_name(elsets)
     elsets_ci = {e.strip().lower() for e in elsets if e.strip()}
-    is_oc4_dual_inp = (
-        inp_dst.name.lower() == "03_for_beso.inp"
-        and "design_space" in elsets_ci
-        and "nondesign_space" in elsets_ci
-    )
+    # FCStd / 任意双域 INP：必须让 beso_conf 同时声明 design_space 与 nondesign_space，
+    # 否则 import_inp 会丢弃未在 domain_optimized 中出现的单元（柱体等非设计域会整段消失）。
+    is_dual_design_nondesign_inp = "design_space" in elsets_ci and "nondesign_space" in elsets_ci
+    is_oc4_dual_inp = inp_dst.name.lower() == "03_for_beso.inp" and is_dual_design_nondesign_inp
+    is_sector120_inp = all(f"design_s{i}" in elsets_ci for i in range(3)) and "nondesign_space" in elsets_ci
 
     # Locate ccx
     ccx_path = Path(os.environ.get("CCX_PATH", r"D:\freecad\bin\ccx.exe")).resolve()
@@ -355,11 +379,12 @@ def run_beso_job(
         fr_use = float(r_req)
 
     oc4_dual_applied = False
-    if is_oc4_dual_inp:
+    if is_sector120_inp or is_dual_design_nondesign_inp:
         try:
             from backend.tools.inp_oc4_design_nondesign import (
                 repair_oc4_beso_inp_lines,
                 write_beso_conf_example3_style,
+                write_beso_conf_sector120_style,
             )
 
             raw_inp = inp_dst.read_text(encoding="utf-8", errors="replace")
@@ -369,24 +394,49 @@ def run_beso_job(
                 inp_dst.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
                 elsets = _scan_elsets(inp_dst)
                 elset_name = pick_usable_elset_name(elsets)
-                on_log("[INFO] OC4：已修复 03_for_beso.inp（*STEP 前材料顺序 / 缺失 *MATERIAL）")
+                if is_oc4_dual_inp:
+                    on_log("[INFO] OC4：已修复 03_for_beso.inp（*STEP 前材料顺序 / 缺失 *MATERIAL）")
+                else:
+                    on_log("[INFO] 双域/扇区 INP：已整理 *STEP 前材料 / 固体截面顺序（如需要）")
             iter_env = (os.environ.get("BESO_ITERATIONS_LIMIT") or "").strip()
-            iter_lim: int | str = int(iter_env) if iter_env.isdigit() else 8
-            write_beso_conf_example3_style(
-                conf_path,
-                work_dir=run_dir,
-                ccx_path=ccx_path,
-                inp_name=inp_dst.name,
-                mass_goal_ratio=mass_goal_ratio,
-                filter_radius=fr_use,
-                optimization_base=optimization_base,
-                iterations_limit=iter_lim,
-                save_iteration_results=max(1, int(save_every)),
+            # 未设置环境变量时用 "auto"（beso_main 按 mass_goal 等估算），避免长期卡在默认 8 次。
+            iter_lim: int | str = (
+                int(iter_env) if iter_env.isdigit() and int(iter_env) > 0 else "auto"
             )
-            oc4_dual_applied = True
-            on_log("[INFO] OC4 双域：已写入 design_space/nondesign_space 的 beso_conf.py（覆盖单域模板）")
+            if is_sector120_inp:
+                write_beso_conf_sector120_style(
+                    conf_path,
+                    work_dir=run_dir,
+                    ccx_path=ccx_path,
+                    inp_name=inp_dst.name,
+                    mass_goal_ratio=mass_goal_ratio,
+                    filter_radius=fr_use,
+                    optimization_base=optimization_base,
+                    iterations_limit=iter_lim,
+                    save_iteration_results=max(1, int(save_every)),
+                )
+                oc4_dual_applied = True
+                on_log("[INFO] 扇区 BESO：已写入 design_s0/1/2 + nondesign_space 的 beso_conf.py")
+            else:
+                write_beso_conf_example3_style(
+                    conf_path,
+                    work_dir=run_dir,
+                    ccx_path=ccx_path,
+                    inp_name=inp_dst.name,
+                    mass_goal_ratio=mass_goal_ratio,
+                    filter_radius=fr_use,
+                    optimization_base=optimization_base,
+                    iterations_limit=iter_lim,
+                    save_iteration_results=max(1, int(save_every)),
+                )
+                oc4_dual_applied = True
+                on_log(
+                    "[INFO] 双域 BESO：已写入 design_space + nondesign_space 的 beso_conf.py（"
+                    + ("OC4 03_for_beso" if is_oc4_dual_inp else "FCStd Analysis-beso 等")
+                    + "）",
+                )
         except Exception as e:
-            on_log(f"[WARN] OC4 双域预处理失败，将退回通用 beso_conf 逻辑: {e}")
+            on_log(f"[WARN] 双域/扇区 beso_conf / INP 预处理失败，将退回单域逻辑: {e}")
 
     if not oc4_dual_applied:
         if not conf_path.exists():
@@ -409,6 +459,20 @@ def run_beso_job(
                     encoding="utf-8",
                 )
                 on_log(f"[INFO] 已回写 {conf_path.name}：simple 滤波半径 {rf0:g} -> {fr_use:g}")
+
+    iter_lim_env = (os.environ.get("BESO_ITERATIONS_LIMIT") or "").strip()
+    if iter_lim_env.isdigit() and int(iter_lim_env) > 0 and conf_path.is_file():
+        txt_lim = conf_path.read_text(encoding="utf-8", errors="replace")
+        new_lim, n_lim = re.subn(
+            r"^iterations_limit\s*=.*$",
+            f"iterations_limit = {int(iter_lim_env)}",
+            txt_lim,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        if n_lim:
+            conf_path.write_text(new_lim, encoding="utf-8")
+            on_log(f"[INFO] iterations_limit = {int(iter_lim_env)}（BESO_ITERATIONS_LIMIT）")
 
     # Run beso_main.py, ensuring it loads our config (same dir). Pick source set by task type.
     beso_src = _choose_beso_source_dir(workspace_root, manifest, inp_src)
@@ -543,53 +607,41 @@ def run_beso_job(
                         last_img_mtime[name] = m
                         on_artifact({"kind": "image", "path": name, "name": name})
 
-            # watcher: prefer state1 inp frames (true topology result), fallback to vtk
+            # watcher：仅用 VTK 做 meshio→OBJ（BESO 的 file*_state1.inp 非 meshio 可解析格式，会误报失败）。
             best_mesh_src: Path | None = None
             best_iter: int | None = None
             source_vtk_name: str | None = None
 
-            state1_inps = list(run_dir.glob("file*_state1.inp"))
-            for p in state1_inps:
-                m = re.match(r"^file(\d+)_state1\.inp$", p.name, re.IGNORECASE)
+            vtk_files = list(run_dir.glob("file*.vtk"))
+            best_vtk: Path | None = None
+            # 每迭代导出的 fileNNN.vtk 体积大；过小往往是未写完即被 meshio 读到导致 “Illegal VTK header”
+            min_iter_vtk = int((os.environ.get("BESO_MIN_VTK_BYTES_PER_ITER") or "400000").strip())
+            min_iter_vtk = max(4096, min_iter_vtk)
+            for p in vtk_files:
+                try:
+                    if p.stat().st_size < min_iter_vtk:
+                        continue
+                except OSError:
+                    continue
+                m = re.match(r"^file(\d+)\.vtk$", p.name, re.IGNORECASE)
                 if not m:
                     continue
                 it = int(m.group(1))
                 if best_iter is None or it > best_iter:
                     best_iter = it
-                    best_mesh_src = p
-                    source_vtk_name = f"file{it:03d}.vtk"
-
-            if best_mesh_src is None:
-                vtk_files = list(run_dir.glob("file*.vtk"))
-                best_vtk: Path | None = None
-                # 每迭代导出的 fileNNN.vtk 体积大；过小往往是未写完即被 meshio 读到导致 “Illegal VTK header”
-                min_iter_vtk = int((os.environ.get("BESO_MIN_VTK_BYTES_PER_ITER") or "400000").strip())
-                min_iter_vtk = max(4096, min_iter_vtk)
-                for p in vtk_files:
-                    try:
-                        if p.stat().st_size < min_iter_vtk:
-                            continue
-                    except OSError:
-                        continue
-                    m = re.match(r"^file(\d+)\.vtk$", p.name, re.IGNORECASE)
-                    if not m:
-                        continue
-                    it = int(m.group(1))
-                    if best_iter is None or it > best_iter:
-                        best_iter = it
-                        best_vtk = p
-                if best_vtk is None:
-                    rs = run_dir / "resulting_states.vtk"
-                    # 子进程可能已 create 但尚未 flush；过早 meshio.read 会得到空文件并打印误导性错误
-                    if rs.exists() and rs.stat().st_size >= 2048:
-                        rs_mtime = rs.stat().st_mtime
-                        if rs_mtime > last_resulting_states_mtime:
-                            last_resulting_states_mtime = rs_mtime
-                            best_vtk = rs
-                            best_iter = last_iter_seen + 1
-                if best_vtk is not None:
-                    best_mesh_src = best_vtk
-                    source_vtk_name = best_vtk.name if best_vtk.suffix.lower() == ".vtk" else None
+                    best_vtk = p
+            if best_vtk is None:
+                rs = run_dir / "resulting_states.vtk"
+                # 子进程可能已 create 但尚未 flush；过早 meshio.read 会得到空文件并打印误导性错误
+                if rs.exists() and rs.stat().st_size >= 2048:
+                    rs_mtime = rs.stat().st_mtime
+                    if rs_mtime > last_resulting_states_mtime:
+                        last_resulting_states_mtime = rs_mtime
+                        best_vtk = rs
+                        best_iter = last_iter_seen + 1
+            if best_vtk is not None:
+                best_mesh_src = best_vtk
+                source_vtk_name = best_vtk.name if best_vtk.suffix.lower() == ".vtk" else None
 
             if best_mesh_src is not None and best_iter is not None:
                 mesh_token = best_mesh_src.name
@@ -606,9 +658,18 @@ def run_beso_job(
                 frame_obj = run_dir / f"file{best_iter:03d}.obj"
                 latest_obj = run_dir / "latest.obj"
                 try:
-                    mesh = meshio.read(best_mesh_src)
                     if best_mesh_src.suffix.lower() == ".vtk":
-                        mesh = _filter_mesh_by_latest_state(mesh)
+                        mesh = _read_vtk_for_preview(best_mesh_src, on_log)
+                        # 默认不过滤：VTK→OBJ 若按 element_states 裁掉「void」，在双域或多 CELL 块时
+                        # 易误删整块（预览像只剩设计域）。单域拓扑演化预览可设 BESO_PREVIEW_FILTER_VOID=1。
+                        if (os.environ.get("BESO_PREVIEW_FILTER_VOID") or "").strip().lower() in (
+                            "1",
+                            "true",
+                            "yes",
+                        ):
+                            mesh = _filter_mesh_by_latest_state(mesh)
+                    else:
+                        mesh = meshio.read(best_mesh_src)
                     mesh = _strip_to_geometry(mesh)
                     meshio.write(frame_obj, mesh, file_format="obj")
                     # keep a stable pointer for "latest"
@@ -661,11 +722,36 @@ def run_beso_job(
         raise RuntimeError(f"beso_main exited with code {proc_exit_code}")
 
 
+def _read_vtk_for_preview(path: Path, on_log: Callable[[str], None], attempts: int = 12, delay: float = 0.12) -> meshio.Mesh:
+    """避免 BESO 子进程尚未写完 VTK 时 meshio 读到半截文件（缺 CELL_TYPES）。"""
+    last_err: Exception | None = None
+    for _ in range(attempts):
+        try:
+            if not path.is_file():
+                time.sleep(delay)
+                continue
+            if path.stat().st_size < 512:
+                time.sleep(delay)
+                continue
+            # BESO 会在末尾追加多列 SCALARS，CELL_TYPES 常在文件前部
+            head = path.read_bytes()[: min(path.stat().st_size, 600_000)]
+            if b"CELL_TYPES" not in head:
+                time.sleep(delay)
+                continue
+            return meshio.read(path)
+        except Exception as e:
+            last_err = e
+            time.sleep(delay)
+    if last_err:
+        raise last_err
+    raise RuntimeError(f"VTK not readable: {path}")
+
+
 def _filter_mesh_by_latest_state(mesh: meshio.Mesh) -> meshio.Mesh:
     """
-    BESO vtk files contain per-iteration cell_data like element_states000, element_states010, ...
-    We keep only elements with state > 0 in the latest available state field so the 3D preview
-    reflects topology evolution instead of showing the full original domain.
+    BESO vtk 带 element_states* 标量时，可选地只保留 state>0 的单元（单域挖孔拓扑预览）。
+    多 cell 块或双域模型上长度不对齐时，误删整块会使预览只剩「设计域」；故与长度不匹配的块整块保留。
+    默认不在 OBJ 路径调用本函数；见环境变量 BESO_PREVIEW_FILTER_VOID。
     """
     state_keys = [k for k in mesh.cell_data.keys() if k.startswith("element_states")]
     if not state_keys:
@@ -680,14 +766,22 @@ def _filter_mesh_by_latest_state(mesh: meshio.Mesh) -> meshio.Mesh:
     if not states_per_block or len(states_per_block) != len(mesh.cells):
         return mesh
 
-    filtered_cells = []
+    n_blocks = len(mesh.cells)
+    filtered_cells: list[tuple[str, np.ndarray]] = []
     for block, state_arr in zip(mesh.cells, states_per_block):
         arr = np.asarray(state_arr).ravel()
         if arr.size == 0:
+            filtered_cells.append((block.type, block.data))
+            continue
+        if arr.size != len(block.data):
+            filtered_cells.append((block.type, block.data))
             continue
         mask = arr > 0.5
         if np.any(mask):
             filtered_cells.append((block.type, block.data[mask]))
+        elif n_blocks > 1:
+            # 多类型单元块时「全 0」常为状态列与块错位，保留以免非设计域整块消失
+            filtered_cells.append((block.type, block.data))
 
     if not filtered_cells:
         return mesh

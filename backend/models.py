@@ -1,8 +1,55 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
+
+
+def _assistant_multimodal_parts_ok(parts: list) -> bool:
+    """OpenAI 兼容：user.content 可为 [{type:text,...},{type:image_url,...}]。"""
+    if not isinstance(parts, list) or not parts:
+        return False
+    has_payload = False
+    for p in parts:
+        if not isinstance(p, dict):
+            return False
+        t = str(p.get("type") or "").strip()
+        if t == "text":
+            tx = str(p.get("text") or "").strip()
+            if tx:
+                has_payload = True
+        elif t == "image_url":
+            iu = p.get("image_url")
+            if not isinstance(iu, dict):
+                return False
+            url = str(iu.get("url") or "").strip()
+            if url.startswith("data:image/") or url.startswith("http://") or url.startswith("https://"):
+                has_payload = True
+        else:
+            return False
+    return has_payload
+
+
+def _trim_multimodal_parts(parts: list, *, max_text: int = 32000, max_images: int = 6, max_data_url: int = 1_200_000) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    n_img = 0
+    for p in parts:
+        if not isinstance(p, dict):
+            continue
+        t = str(p.get("type") or "").strip()
+        if t == "text":
+            tx = str(p.get("text") or "").strip()[:max_text]
+            if tx:
+                out.append({"type": "text", "text": tx})
+        elif t == "image_url" and n_img < max_images:
+            iu = p.get("image_url") if isinstance(p.get("image_url"), dict) else {}
+            url = str(iu.get("url") or "").strip()
+            if len(url) > max_data_url:
+                url = url[:max_data_url]
+            if url:
+                out.append({"type": "image_url", "image_url": {"url": url}})
+                n_img += 1
+    return out
 
 
 class ChatRequest(BaseModel):
@@ -34,7 +81,7 @@ class ChatResponse(BaseModel):
 
 class AssistantChatMessage(BaseModel):
     role: Literal["system", "user", "assistant"]
-    content: str = Field(..., max_length=32000)
+    content: str | list[dict[str, Any]] = Field(..., description="纯文本或多模态 parts（仅 user 推荐）")
 
 
 class AssistantChatRequest(BaseModel):
@@ -57,6 +104,10 @@ class AssistantChatRequest(BaseModel):
         default=False,
         description="联网摘要：服务端用 DuckDuckGo Instant Answer 抓取与本轮用户问题相关的短摘要注入上下文",
     )
+    tools_enabled: bool = Field(
+        default=False,
+        description="开启后走服务端 JSON 工具循环（cad_convert / open_results_viewer / list_scan_dir / cad_skill_help / cad_skill_step / open_cad_explorer），响应含 client_actions 与 tool_trace",
+    )
 
     @field_validator("messages", mode="before")
     @classmethod
@@ -75,10 +126,20 @@ class AssistantChatRequest(BaseModel):
             raw = item.get("content")
             if raw is None and item.get("text") is not None:
                 raw = item.get("text")
-            text = str(raw or "").strip()
-            if not text:
-                continue
-            out.append({"role": role, "content": text[:32000]})
+            if isinstance(raw, list):
+                if role != "user":
+                    continue
+                if not _assistant_multimodal_parts_ok(raw):
+                    continue
+                trimmed = _trim_multimodal_parts(raw)
+                if not trimmed:
+                    continue
+                out.append({"role": role, "content": trimmed})
+            else:
+                text = str(raw or "").strip()
+                if not text:
+                    continue
+                out.append({"role": role, "content": text[:32000]})
         if not out:
             raise ValueError("messages 需至少包含一条有效对话（role 为 system/user/assistant 且 content 非空）")
         return out[:64]
@@ -87,4 +148,26 @@ class AssistantChatRequest(BaseModel):
 class AssistantChatResponse(BaseModel):
     reply: str
     model: str | None = None
+    client_actions: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="前端可执行动作，如 open_results_viewer",
+    )
+    tool_trace: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="本轮工具调用摘要（已脱敏），供 UI 折叠展示",
+    )
+
+
+class CadConvertRequest(BaseModel):
+    """POST /api/tools/cad-convert：将工作区内 CAD 转为 STEP/IGES/STL/BREP 并写入 runs/_cad_convert/format/<id>/。"""
+
+    input_rel_or_abs: str = Field(..., max_length=4096, description="工作区内绝对路径或相对 WORKSPACE_ROOT 的路径")
+    target_format: Literal["step", "iges", "stl", "brep"] = Field(..., description="目标格式")
+
+
+class CadConvertResponse(BaseModel):
+    ok: bool
+    output_path: str | None = None
+    runs_url: str | None = Field(default=None, description="相对站点根的 /runs/... URL")
+    detail: str | None = None
 

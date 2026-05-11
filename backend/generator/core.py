@@ -22,7 +22,9 @@ _SCAN_SKIP_DIR_NAMES = frozenset(
     {".git", "__pycache__", ".venv", ".venv_web", "node_modules", "runs", "frontend_static"}
 )
 _SCAN_MAX_DIR_DEPTH = 6
-_SCAN_INPUT_EXTENSIONS = frozenset({".inp", ".py", ".vtk", ".log", ".obj", ".step", ".stp", ".igs", ".iges"})
+_SCAN_INPUT_EXTENSIONS = frozenset(
+    {".inp", ".py", ".vtk", ".log", ".obj", ".step", ".stp", ".igs", ".iges", ".stl", ".brep"}
+)
 
 
 @dataclass
@@ -97,7 +99,7 @@ def _classify_file(path: Path) -> str:
         return "set_definition"
     if "femmeshgmsh" in name:
         return "primary_candidate"
-    if "for_beso" in name:
+    if "for_beso" in name or "analysis-beso" in name:
         return "primary_candidate"
     if "analysis-1" in name or "plan" in name:
         return "primary_candidate"
@@ -109,6 +111,7 @@ def _pick_primary_inp(items: list[InputFileItem]) -> str | None:
         return None
     preferred = [
         "03_for_beso.inp",
+        "analysis-beso.inp",
         "beso2-femmeshgmsh.inp",
         "femmeshgmsh.inp",
         "from_cad_gmsh.inp",
@@ -266,8 +269,8 @@ def _scan_dir_session_beso_conf_path(bundle: InputBundle) -> Path:
 
 
 def _primary_inp_suggests_oc4_dual_domain(primary_name: str, primary_elsets: list[str]) -> bool:
-    """主文件为 ``03_for_beso.inp`` 且 ELSET 含 design_space + nondesign_space 时视为 OC4 双域任务。"""
-    if primary_name.lower() != "03_for_beso.inp":
+    """主 INP 为会话收尾或 FCStd 基准名，且 ELSET 含 design_space + nondesign_space 时视为 OC4 双域任务。"""
+    if primary_name.lower() not in ("03_for_beso.inp", "analysis-beso.inp"):
         return False
     lc = {e.strip().lower() for e in primary_elsets if e.strip()}
     return "design_space" in lc and "nondesign_space" in lc
@@ -275,9 +278,14 @@ def _primary_inp_suggests_oc4_dual_domain(primary_name: str, primary_elsets: lis
 
 def _should_use_oc4_session_beso_conf(bundle: InputBundle, primary_name: str) -> bool:
     scan_norm = bundle.scan_dir.replace("\\", "/").lower()
+    pn = primary_name.lower()
     if "_design_domain" in scan_norm:
         return True
-    if primary_name.lower() == "03_for_beso.inp":
+    if pn == "03_for_beso.inp":
+        return True
+    if pn == "analysis-beso.inp":
+        return True
+    if scan_norm.rstrip("/").endswith("/examples/beso"):
         return True
     return False
 
@@ -422,7 +430,7 @@ def build_generated_code(
         )
         conf_header = (
             "# Auto-generated: OC4 dual-domain beso_conf from wiki example_3 template "
-            "(03_for_beso.inp + design_space/nondesign_space ELSETs; scan_dir 无会话 beso_conf 时).\n"
+            "(03_for_beso.inp 或 Analysis-beso.inp + design_space/nondesign_space ELSETs; scan_dir 无会话 beso_conf 时).\n"
             f"# Detected auxiliary inp files: {extra_comment}\n\n"
         )
         conf_text = conf_header + patched
