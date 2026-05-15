@@ -1,6 +1,6 @@
 {
   "fcstd": "D:\\python_project\\beso_ai\\examples\\beso2\\BESO3.FCStd",
-  "out_inp": "D:\\python_project\\beso_ai\\examples\\beso2\\Analysis-beso.inp",
+  "out_inp": "D:\\python_project\\beso_ai\\examples\\beso2\\_fc_work\\Analysis-beso-full.inp",
   "work_dir": "D:\\python_project\\beso_ai\\examples\\beso2\\_fc_work",
   "design_solid_name": "Pad001",
   "nondesign_solid_names": [],
@@ -13,17 +13,20 @@
   "connection_cload_fz": 0.0,
   "connection_cload_z_band_mm": 200.0,
   "connection_cload_count": 3,
-  "connection_fix_count": 3,
+  "connection_fix_count": 0,
   "connection_fix_z_band_mm": 250.0,
-  "connection_fix_nodes": [
-    1307,
-    79,
-    11
-  ],
-  "connection_protect_z_mm": 220.0,
+  "connection_fix_nodes": [],
+  "connection_protect_z_mm": 0.0,
   "connection_protect_promoted": 0,
+  "fem_bc_reference_inp": null,
+  "fem_bc_remap_max_dist_mm": null,
+  "fem_bc_bottom_fix_fallback": null,
+  "fem_bc_bottom_fix_only_if_no_fem_boundary": null,
+  "fem_bc_cload_fallback_if_empty": null,
+  "fem_bc_remap_stats": null,
+  "entire_mesh_design_space": true,
   "nodes": 1372,
   "elements_total": 4472,
-  "design_space": 1732,
-  "nondesign_space": 2740
+  "design_space": 4472,
+  "nondesign_space": 0
 }

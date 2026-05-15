@@ -8,7 +8,7 @@ beso2 完整流程（仓库根目录执行）：
    装配 ``Part::Compound``（与文档 ``Compound`` 一致）→ STEP → Gmsh 体网格 →
    按 ``Pad001`` 划分 **design_space** 与 **nondesign_space** → 写出 ``Analysis-beso.inp``。
 2. 校验流水线 ``work_dir`` 下 ``beso_dual_domain_manifest.json`` 中单元数之和。
-3. 若未设 ``SKIP_BESO=1``，再运行 ``run_beso2_example_fcstd.py``（BESO 需双域 ``beso_conf``，由 ``backend/tools/beso.py`` 根据 INP 自动生成）。
+3. 若未设 ``SKIP_BESO=1``，再运行 ``run_beso2_example_fcstd.py``（``beso.py`` 按 INP 中 ``design_space`` / ``nondesign_space`` 或单域自动生成 ``beso_conf``）。
 
 FreeCAD FEM 参考（CalculiX 写出 INP）：``Mod/Fem/femtools/ccxtools.py`` 中 ``FemToolsCcx.write_inp_file`` →
 ``femsolver.calculix.writer.FemInputWriterCcx``；本流程体网格优先走 **Gmsh + 全装配 STEP**，
@@ -105,10 +105,11 @@ def main() -> int:
         tot = int(man.get("elements_total", 0))
         print("[OK] manifest:", man_path)
         print(f"    design_space={d} nondesign_space={nd} total={tot}")
+        entire = bool(man.get("entire_mesh_design_space", False))
         if tot and d + nd != tot:
             print("[WARN] design + nondesign 与 total 不一致，请检查划分。", file=sys.stderr)
-        if nd < 1:
-            print("[FAIL] nondesign_space 为空。", file=sys.stderr)
+        if nd < 1 and not entire:
+            print("[FAIL] nondesign_space 为空（全设计域单域任务请设 entire_mesh_design_space=true）。", file=sys.stderr)
             return 3
     else:
         print("[WARN] 未生成 manifest，跳过计数校验", file=sys.stderr)
@@ -118,7 +119,14 @@ def main() -> int:
         return 0
 
     beso_script = REPO / "scripts" / "run_beso2_example_fcstd.py"
-    r2 = subprocess.run([sys.executable, str(beso_script)], cwd=str(REPO), env=os.environ.copy())
+    child_env = os.environ.copy()
+    out_raw = cfg_json.get("out_inp")
+    if isinstance(out_raw, str) and out_raw.strip():
+        p = Path(out_raw.strip())
+        out_abs = p.resolve() if p.is_absolute() else (cfg_dir / p).resolve()
+        child_env["BESO_EXAMPLE_INP"] = str(out_abs)
+        child_env["BESO_EXAMPLE_OUT"] = str((out_abs.parent / "beso_output").resolve())
+    r2 = subprocess.run([sys.executable, str(beso_script)], cwd=str(REPO), env=child_env)
     return int(r2.returncode or 0)
 
 

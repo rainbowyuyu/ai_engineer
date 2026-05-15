@@ -1,21 +1,17 @@
 {
   "fcstd_path": "BESO3.FCStd",
-  "out_inp": "Analysis-beso.inp",
+  "out_inp": "_fc_work/Analysis-beso.inp",
   "work_dir": "_fc_work",
   "repo_root": "../..",
+  "fuse_all_solids": true,
   "mesh_preset": "xlarge",
   "design_solid_name": "Pad001",
-  "fuse_all_solids": true,
-  "fuse_all_compound_volume_ratio": 0.97,
-  "fuse_exclude_names": [],
+  "nondesign_solid_names": ["Pad"],
   "E_mpa": 200000.0,
   "nu": 0.27,
   "density_t_per_mm3": 7.833e-9,
-  "cload_fx": 0,
-  "cload_fy": 0,
+  "cload_fx": 0.0,
+  "cload_fy": 0.0,
   "cload_fz": -281000.0,
-  "fix_z_band_mm": 800.0,
-  "connection_fix_count": 3,
-  "connection_fix_z_band_mm": 250.0,
-  "connection_protect_z_mm": 220.0
+  "fix_z_band_mm": 800.0
 }

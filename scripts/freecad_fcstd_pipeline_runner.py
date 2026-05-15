@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 """
 在 FreeCAD 的 Python 中执行：FCStd →（``fuse_all_solids=false`` 时优先 FEM 写出 INP；``fuse_all_solids=true`` 时跳过 FEM，直接全实体 Compound + Gmsh，避免 FEM 仅剖分分析子集而缺外围非设计域）
-→ 按 Pad001（或配置）划分 design_space / nondesign_space → 写出完整 CalculiX 静力 INP。
+→ 按 Pad001（或配置）划分 design_space / nondesign_space → 写出完整 CalculiX 静力 INP；可选 ``entire_mesh_design_space`` 全模型单域优化。
 
 配置由环境变量 ``FC_FCSTD_PIPELINE_CONFIG`` 指向 UTF-8 JSON（建议扩展名 ``.fcpipeline``），字段：
 
@@ -13,6 +13,7 @@
 - ``design_solid_name``：可选，默认 ``Pad001``（中间三角结构）
 - ``design_partition_tolerance_mm``：可选。划分设计/非设计域时 ``Shape.isInside`` 容差（mm）；**不设时**用 ``max(对角线·1e-8, 1e-4)``。旧版曾用 ``max(·, 1.0)``（至少 1 mm），会把柱体等误判进设计域，导致 INP 里看似没有非设计部分。
 - ``nondesign_solid_names``：可选字符串数组。填写柱/脚等实体名（如 ``Pad``）后，划分规则为：重心在 ``design_solid_name`` 内且**不在**任一非设计实体内 → ``design_space``；在任一非设计实体内（或与设计域重叠时）→ ``nondesign_space``，避免三角域被 ``Pad`` 包进全非设计或柱体被宽松 ``Pad001`` 判进设计域。
+- ``entire_mesh_design_space``：可选，默认 ``false``。为 ``true`` 时**不**按实体划分：全部体单元写入 ``design_space``，不写 ``nondesign_space``（单域 BESO；``beso.py`` 按单 ``design_space`` 生成 ``beso_conf``）。此时 ``design_solid_name`` / ``nondesign_solid_names`` 不参与划分。
 - ``fuse_solid_names``：可选，默认 ``[\"Pad\",\"Pad001\"]``；仅当 **未** 启用 ``fuse_all_solids`` 时用于回退剖分。
 - ``fuse_all_solids``：可选，默认 ``false``。为 ``true`` 时 **不再使用 FEM 导出**；优先导出文档中 **Part::Compound 装配体**（如名为 ``Compound`` 的对象，已含柱体与 PartDesign 体），避免把 ``Body``、``Pad`` 与仅含面的 ``Part::Feature`` 再拼成 OCCT Compound 导致剖分丢件；若无装配体再回退为收集闭合实体。
 - ``fuse_exclude_names``：可选，在 ``fuse_all_solids`` 下要跳过的对象名列表（如辅助体）。
@@ -26,6 +27,11 @@
 - ``connection_fix_count``：可选，默认 0。为正整数时，在 **设计域/非设计域交界** 且靠近 **设计域底面** 的节点中选取若干点，写入 ``*Nset, Nset=bottom_tri_connection_fix`` 并对 **1～3 自由度全固定**，用于底边三向与柱体连接处不被 BESO 挖断传力路径（与顶区主载荷配合使用）。与 ``connection_cload_*`` 作用于同一批节点时，**固定点不再写 Cload**。
 - ``connection_fix_z_band_mm``：可选，筛选「底部交界」固定点的竖向厚度（mm），默认 250。
 - ``connection_protect_z_mm``：可选，默认 0。为正时，将 **与 nondesign 共节点** 且 **四面体任一顶点 z** 不高于「设计域最低顶点 z + 该值（mm）」的 **design_space** 单元改划入 **nondesign_space**（比用重心 z 更易包住底角与柱体相接的薄层），使连接带不参与 BESO 挖空。
+- ``fem_bc_reference_inp``：可选。指向 **同一 FCStd** 经 FreeCAD FEM ``write_inp_file`` 得到的完整 CalculiX INP（含 *Step 内 *BOUNDARY / *CLOAD）。启用后从该文件 **还原** 固定与力，按坐标 **最近邻** 映射到当前体网格（如 Gmsh）；**不再**使用 ``fix_z_band_mm``、``cload_*``、``connection_*`` 的启发式约束与载荷。
+- ``fem_bc_remap_max_dist_mm``：可选，默认 ``300``。参考节点与目标网格最近节点距离超过该值（mm）时跳过对应约束/载荷行（粗网格与细 FEM 表面节点可能相距数十至数百 mm）。
+- ``fem_bc_bottom_fix_fallback``：可选，默认 ``true``。在启用 ``fem_bc_reference_inp`` 时预计算底带节点；若 FEM 映射后 **无任何固定约束**，则追加与启发式流水线相同的 ``bottom_fix``。
+- ``fem_bc_bottom_fix_only_if_no_fem_boundary``：可选，默认 ``true``。为 ``false`` 时在 FEM 固定之外 **再** 加 ``bottom_fix``（易过约束，一般勿改）。
+- ``fem_bc_cload_fallback_if_empty``：可选，默认 ``true``。若映射后 **无任何 Cload**，则按 ``cload_fx``/``cload_fy``/``cload_fz`` 在顶区节点施加单点力（与未启用 FEM 参考时一致）。
 
 勿将 JSON 路径放在 FreeCADCmd 的 argv 中（会误打开）。
 
@@ -510,7 +516,16 @@ def _split_design(
     *,
     nondesign_solid_names: list[str] | None = None,
     partition_tolerance_mm: float | None = None,
+    entire_mesh_design_space: bool = False,
 ) -> tuple[list[int], list[int]]:
+    if entire_mesh_design_space:
+        design = sorted(elements.keys())
+        print(
+            "[INFO] entire_mesh_design_space=true：全部 C3D4 划入 design_space（单域 BESO）。",
+            file=sys.stderr,
+        )
+        return design, []
+
     import FreeCAD  # noqa: PLC0415
 
     doc = FreeCAD.openDocument(str(fcstd))
@@ -554,7 +569,7 @@ def _split_design(
         if not design:
             _die("design_space 为空；检查 design_solid_name、nondesign_solid_names 与网格是否对齐。", 6)
         if not nondesign:
-            _die("nondesign_space 为空。", 7)
+            _die("nondesign_space 为空（若需全模型可优化，请在配置中设 entire_mesh_design_space=true）。", 7)
         return design, nondesign
     finally:
         FreeCAD.closeDocument(doc.Name)
@@ -681,32 +696,12 @@ def _assemble_out_inp(
     connection_cload_count: int = 3,
     connection_fix_count: int = 0,
     connection_fix_z_band_mm: float = 250.0,
+    single_design_domain: bool = False,
 ) -> list[int]:
-    z_coords = [p[2] for p in nodes.values()]
-    z_min = min(z_coords)
-    z_max = max(z_coords)
-    nondesign_nodes: set[int] = set()
-    for eid in nondesign:
-        a, b, c, d = elements[eid]
-        nondesign_nodes.update((a, b, c, d))
-    # 非设计域最低点常高于全局 z_min（设计域 Pad 占满底层）；用 nondesign 自身 z_min 取底带，才能约束到外围件。
-    bottom_nd: list[int] = []
-    if nondesign_nodes:
-        z_min_nd = min(nodes[n][2] for n in nondesign_nodes)
-        bottom_nd = [nid for nid in nondesign_nodes if nodes[nid][2] <= z_min_nd + fix_band]
-    if len(bottom_nd) >= 3:
-        bottom = bottom_nd
-    else:
-        bottom = [nid for nid, p in nodes.items() if p[2] <= z_min + fix_band]
-        if nondesign and len(bottom_nd) < 3:
-            print(
-                f"[WARN] bottom_fix：非设计域底带 (Δz={fix_band}) 内节点仅 {len(bottom_nd)} 个，"
-                "已退回全模型 z_min 底带，避免欠约束。",
-                file=sys.stderr,
-            )
-    load_cand = [(nid, p) for nid, p in nodes.items() if p[2] >= z_max - fix_band * 2]
-    load_cand.sort(key=lambda t: (-t[1][2], abs(t[1][0]) + abs(t[1][1])))
-    load_node = load_cand[0][0]
+    from beso_inp_bc_remap import bottom_fix_nodes_for_volume_mesh, top_load_node_for_volume_mesh  # noqa: PLC0415
+
+    bottom = bottom_fix_nodes_for_volume_mesh(nodes, elements, design, nondesign, float(fix_band))
+    load_node = top_load_node_for_volume_mesh(nodes, top_band_mm=max(float(fix_band) * 2.0, 1.0))
 
     conn_fix_nodes: list[int] = []
     fix_n = max(0, int(connection_fix_count))
@@ -745,29 +740,40 @@ def _assemble_out_inp(
         for eid in sorted(design):
             a, b, c, d = elements[eid]
             fo.write(f"{eid}, {a}, {b}, {c}, {d}\n")
-        fo.write("*Element, TYPE=C3D4, Elset=nondesign_space\n")
-        for eid in sorted(nondesign):
-            a, b, c, d = elements[eid]
-            fo.write(f"{eid}, {a}, {b}, {c}, {d}\n")
+        if not single_design_domain:
+            fo.write("*Element, TYPE=C3D4, Elset=nondesign_space\n")
+            for eid in sorted(nondesign):
+                a, b, c, d = elements[eid]
+                fo.write(f"{eid}, {a}, {b}, {c}, {d}\n")
         fo.write("**\n*Nset, Nset=bottom_fix\n")
         _write_nset(fo, bottom)
         if conn_fix_nodes:
             fo.write("**\n*Nset, Nset=bottom_tri_connection_fix\n")
             _write_nset(fo, conn_fix_nodes)
-        fo.write("**\n** Materials (MPa, t/mm^3) — 两域同名弹性常数、不同材料名，便于 PrePoMax 等区分显示\n")
-        fo.write("*Material, Name=Material-design\n")
-        fo.write("*Elastic\n")
-        fo.write(f"{E_mpa}, {nu}\n")
-        fo.write("*Density\n")
-        fo.write(f"{density}\n")
-        fo.write("*Material, Name=Material-nondesign\n")
-        fo.write("*Elastic\n")
-        fo.write(f"{E_mpa}, {nu}\n")
-        fo.write("*Density\n")
-        fo.write(f"{density}\n")
-        fo.write("**\n")
-        fo.write("*Solid section, Elset=design_space, Material=Material-design\n")
-        fo.write("*Solid section, Elset=nondesign_space, Material=Material-nondesign\n")
+        if single_design_domain:
+            fo.write("**\n** Materials (MPa, t/mm^3) — 全设计域单材料\n")
+            fo.write("*Material, Name=Material-design\n")
+            fo.write("*Elastic\n")
+            fo.write(f"{E_mpa}, {nu}\n")
+            fo.write("*Density\n")
+            fo.write(f"{density}\n")
+            fo.write("**\n")
+            fo.write("*Solid section, Elset=design_space, Material=Material-design\n")
+        else:
+            fo.write("**\n** Materials (MPa, t/mm^3) — 两域同名弹性常数、不同材料名，便于 PrePoMax 等区分显示\n")
+            fo.write("*Material, Name=Material-design\n")
+            fo.write("*Elastic\n")
+            fo.write(f"{E_mpa}, {nu}\n")
+            fo.write("*Density\n")
+            fo.write(f"{density}\n")
+            fo.write("*Material, Name=Material-nondesign\n")
+            fo.write("*Elastic\n")
+            fo.write(f"{E_mpa}, {nu}\n")
+            fo.write("*Density\n")
+            fo.write(f"{density}\n")
+            fo.write("**\n")
+            fo.write("*Solid section, Elset=design_space, Material=Material-design\n")
+            fo.write("*Solid section, Elset=nondesign_space, Material=Material-nondesign\n")
         fo.write("**\n*Step\n*Static\n")
         fo.write("**\n*Boundary, op=NEW\n")
         fo.write("*Boundary\n")
@@ -890,6 +896,28 @@ def main() -> int:
         conn_fix_n = 0
     conn_fix_z = float(cfg.get("connection_fix_z_band_mm", 250.0))
     conn_protect_z = float(cfg.get("connection_protect_z_mm", 0.0))
+    fem_bc_raw = cfg.get("fem_bc_reference_inp")
+    fem_bc_inp: Path | None = None
+    if fem_bc_raw is not None and str(fem_bc_raw).strip():
+        fem_bc_inp = _resolve_cfg_path(cfg_dir, fem_bc_raw)
+        if not fem_bc_inp.is_file():
+            _die(f"fem_bc_reference_inp 不是有效文件: {fem_bc_inp}", 8)
+    try:
+        fem_bc_max_d = float(cfg.get("fem_bc_remap_max_dist_mm", 300.0))
+    except (TypeError, ValueError):
+        fem_bc_max_d = 300.0
+    try:
+        fem_bc_bottom_fb = bool(cfg.get("fem_bc_bottom_fix_fallback", True))
+    except (TypeError, ValueError):
+        fem_bc_bottom_fb = True
+    try:
+        fem_bc_bottom_only = bool(cfg.get("fem_bc_bottom_fix_only_if_no_fem_boundary", True))
+    except (TypeError, ValueError):
+        fem_bc_bottom_only = True
+    try:
+        fem_bc_cload_fb = bool(cfg.get("fem_bc_cload_fallback_if_empty", True))
+    except (TypeError, ValueError):
+        fem_bc_cload_fb = True
     nd_names_cfg = cfg.get("nondesign_solid_names")
     nondesign_solid_names: list[str] | None = (
         [str(x).strip() for x in nd_names_cfg if str(x).strip()] if isinstance(nd_names_cfg, list) else None
@@ -901,6 +929,11 @@ def main() -> int:
             partition_tol = float(pt_raw)
         except (TypeError, ValueError):
             partition_tol = None
+
+    try:
+        entire_mesh_ds = bool(cfg.get("entire_mesh_design_space", False))
+    except (TypeError, ValueError):
+        entire_mesh_ds = False
 
     mesh_inp = work_dir / "_mesh_volume.inp"
     step_path = work_dir / "_fuse_export.step"
@@ -942,6 +975,7 @@ def main() -> int:
         elements,
         nondesign_solid_names=nondesign_solid_names,
         partition_tolerance_mm=partition_tol,
+        entire_mesh_design_space=entire_mesh_ds,
     )
     npromoted = 0
     if conn_protect_z > 0.0:
@@ -965,27 +999,69 @@ def main() -> int:
                 file=sys.stderr,
             )
     print(f"[OK] design_space={len(design)} nondesign_space={len(nondesign)}")
-    conn_fix_nodes_written = _assemble_out_inp(
-        out_inp,
-        design,
-        nondesign,
-        nodes,
-        elements,
-        E_mpa,
-        nu,
-        density,
-        cload_fx,
-        cload_fy,
-        cload_fz,
-        fix_band,
-        connection_cload_fx=conn_fx,
-        connection_cload_fy=conn_fy,
-        connection_cload_fz=conn_fz,
-        connection_cload_z_band_mm=conn_z_band,
-        connection_cload_count=conn_n,
-        connection_fix_count=conn_fix_n,
-        connection_fix_z_band_mm=conn_fix_z,
-    )
+    conn_fix_nodes_written: list[int] = []
+    fem_bc_stats: dict[str, object] | None = None
+    if fem_bc_inp is not None:
+        _scripts_dir = Path(__file__).resolve().parent
+        if str(_scripts_dir) not in sys.path:
+            sys.path.insert(0, str(_scripts_dir))
+        from beso_inp_bc_remap import write_beso_inp_with_remapped_bc  # noqa: PLC0415
+
+        print(
+            f"[INFO] fem_bc_reference_inp：从 {fem_bc_inp.name} 映射边界与 Cload（max_dist={fem_bc_max_d} mm）",
+            file=sys.stderr,
+        )
+        fem_bc_stats = write_beso_inp_with_remapped_bc(
+            out_inp=out_inp,
+            design=design,
+            nondesign=nondesign,
+            nodes=nodes,
+            elements=elements,
+            E_mpa=E_mpa,
+            nu=nu,
+            density=density,
+            fem_reference_inp=fem_bc_inp,
+            max_dist_mm=fem_bc_max_d,
+            fix_z_band_mm=fix_band,
+            bottom_fix_fallback=fem_bc_bottom_fb,
+            bottom_fix_only_if_no_fem_boundary=fem_bc_bottom_only,
+            cload_fallback_if_empty=fem_bc_cload_fb,
+            cload_fx=cload_fx,
+            cload_fy=cload_fy,
+            cload_fz=cload_fz,
+            single_design_domain=entire_mesh_ds,
+        )
+        _mr = float(fem_bc_stats.get("max_remap_distance_mm") or 0.0)
+        print(
+            f"[INFO] FEM BC remap: skipped_boundary={fem_bc_stats.get('skipped_boundary_specs')} "
+            f"skipped_cload={fem_bc_stats.get('skipped_cload_rows')} "
+            f"cload_pairs={fem_bc_stats.get('cload_pairs')} "
+            f"max_remap_dist_mm={_mr:.4g}",
+            file=sys.stderr,
+        )
+    else:
+        conn_fix_nodes_written = _assemble_out_inp(
+            out_inp,
+            design,
+            nondesign,
+            nodes,
+            elements,
+            E_mpa,
+            nu,
+            density,
+            cload_fx,
+            cload_fy,
+            cload_fz,
+            fix_band,
+            connection_cload_fx=conn_fx,
+            connection_cload_fy=conn_fy,
+            connection_cload_fz=conn_fz,
+            connection_cload_z_band_mm=conn_z_band,
+            connection_cload_count=conn_n,
+            connection_fix_count=conn_fix_n,
+            connection_fix_z_band_mm=conn_fix_z,
+            single_design_domain=entire_mesh_ds,
+        )
     manifest = {
         "fcstd": str(fcstd),
         "out_inp": str(out_inp),
@@ -1006,6 +1082,13 @@ def main() -> int:
         "connection_fix_nodes": conn_fix_nodes_written,
         "connection_protect_z_mm": conn_protect_z,
         "connection_protect_promoted": npromoted,
+        "fem_bc_reference_inp": str(fem_bc_inp) if fem_bc_inp else None,
+        "fem_bc_remap_max_dist_mm": fem_bc_max_d if fem_bc_inp else None,
+        "fem_bc_bottom_fix_fallback": fem_bc_bottom_fb if fem_bc_inp else None,
+        "fem_bc_bottom_fix_only_if_no_fem_boundary": fem_bc_bottom_only if fem_bc_inp else None,
+        "fem_bc_cload_fallback_if_empty": fem_bc_cload_fb if fem_bc_inp else None,
+        "fem_bc_remap_stats": fem_bc_stats,
+        "entire_mesh_design_space": entire_mesh_ds,
         "nodes": len(nodes),
         "elements_total": len(elements),
         "design_space": len(design),

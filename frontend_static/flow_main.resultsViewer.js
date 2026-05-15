@@ -102,7 +102,7 @@ function discoverMeshTracks(files) {
   /** @type {MeshTrack[]} */
   const tracks = [];
   if (vtkByN.size) {
-    tracks.push({ id: "vtk", label: "VTK · fileNNN.vtk", frames: _mapIterFilesToFrames(vtkByN, "vtk") });
+    tracks.push({ id: "vtk", label: "VTK", frames: _mapIterFilesToFrames(vtkByN, "vtk") });
   }
   const stateKeys = [...stateInpByKey.keys()].sort((a, b) => {
     const na = parseInt(a.replace(/[^\d]/g, "") || "0", 10);
@@ -114,12 +114,12 @@ function discoverMeshTracks(files) {
     if (!mp?.size) continue;
     tracks.push({
       id: `inp_${key}`,
-      label: `INP · fileNNN_${key}.inp`,
+      label: key,
       frames: _mapIterFilesToFrames(mp, "inp"),
     });
   }
   if (plainInpByN.size) {
-    tracks.push({ id: "inp_plain", label: "INP · fileNNN.inp", frames: _mapIterFilesToFrames(plainInpByN, "inp") });
+    tracks.push({ id: "inp_plain", label: "INP", frames: _mapIterFilesToFrames(plainInpByN, "inp") });
   }
   return tracks.filter((t) => t.frames.length);
 }
@@ -186,15 +186,28 @@ export function mountResultsViewer(opts = {}) {
     <div class="resultsViewerShell" role="dialog" aria-modal="true" aria-labelledby="resultsViewerTitle">
       <header class="resultsViewerHd">
         <div class="resultsViewerHdLeft">
-          <span class="resultsViewerBadge"></span>
-          <div>
-            <div class="resultsViewerTitle" id="resultsViewerTitle">拓扑优化结果查看器</div>
-            <div class="resultsViewerSub">导入 <span class="mono">runs/&lt;job&gt;/</span> 或 <span class="mono">examples/beso/</span> · 筛选后预览 <span class="mono">.vtk / .step / .obj / .inp</span>；<span class="mono">file*.vtk</span>、<span class="mono">file*_state0.inp</span>、<span class="mono">file*_state1.inp</span> 等为<strong>不同序列</strong>，可在工具条切换播放</div>
+          <span class="resultsViewerBadge" aria-hidden="true"></span>
+          <div class="resultsViewerHdMain">
+            <div class="resultsViewerHdTitleRow">
+              <h2 class="resultsViewerTitle" id="resultsViewerTitle">拓扑优化结果查看器</h2>
+              <div class="resultsViewerHdHelpWrap">
+                <button type="button" class="resultsViewerHelpBtn" id="rvHelpBtn" aria-expanded="false" aria-controls="rvHelpPopover" title="使用说明">
+                  <span class="resultsViewerHelpBtnIc" aria-hidden="true">?</span>
+                </button>
+                <div id="rvHelpPopover" class="resultsViewerHelpPopover" role="region" aria-label="使用说明" aria-hidden="true">
+                  <div class="resultsViewerHelpPopoverHd">使用说明</div>
+                  <div class="resultsViewerHelpPopoverBd">
+                    <p class="resultsViewerHelpPopoverP">导入 <span class="mono">runs/&lt;job&gt;/</span> 或 <span class="mono">examples/beso/</span> · 筛选后预览 <span class="mono">.vtk / .step / .obj / .inp</span>；<span class="mono">file*.vtk</span>、<span class="mono">file*_state0.inp</span>、<span class="mono">file*_state1.inp</span> 等为<strong>不同序列</strong>，可在工具条切换播放。</p>
+                    <p class="resultsViewerHelpPopoverP"><span class="mono">STEP</span> 使用 <span class="mono">occt-import-js</span>（OpenCascade WASM）三角化；<span class="mono">VTK</span> / <span class="mono">INP(C3D4)</span> 为四面体展开三角面；<span class="mono">INP</span> 三维优先走服务端 <span class="mono">FreeCAD</span> 转换（需本机后端与 FreeCAD）；<span class="mono">VTK</span> 与 <span class="mono">state0</span>/<span class="mono">state1</span> 等为<strong>独立序列</strong>。单帧大文件解析可能需数秒。</p>
+                    <p class="resultsViewerHelpPopoverP"><strong>播放快捷键</strong>（焦点不在输入框时）：<span class="mono">Space</span> 播放/暂停；<span class="mono">←</span> <span class="mono">→</span> 上一帧/下一帧；<span class="mono">Home</span> / <span class="mono">End</span> 首帧/末帧。拖动进度条时右侧帧号会随刻度预览；刻度确认后再加载对应帧。</p>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
         <div class="resultsViewerHdRight">
-          <button type="button" class="resultsViewerSpin rvSpinOn" id="rvSpinBtn" title="自动旋转（网格预览）">旋转</button>
-          <button type="button" class="resultsViewerClose" id="rvCloseBtn" title="关闭">✕</button>
+          <button type="button" class="resultsViewerClose" id="rvCloseBtn" title="关闭"><span aria-hidden="true">✕</span></button>
         </div>
       </header>
       <div class="resultsViewerToolbar">
@@ -204,26 +217,48 @@ export function mountResultsViewer(opts = {}) {
       </div>
       <div class="resultsViewerVtkSeq hidden" id="rvVtkSeqBar" aria-label="迭代网格序列">
         <div class="resultsViewerVtkSeqHd">
-          <span class="chip">迭代网格</span>
+          <span class="chip resultsViewerVtkSeqChip">迭代网格</span>
           <label class="resultsViewerMeshTrackLab hidden" id="rvMeshTrackLab">播放序列
             <select id="rvMeshTrackSelect" class="resultsViewerMeshTrackSelect" aria-label="选择迭代序列"></select>
           </label>
-          <span class="resultsViewerVtkSeqHint" id="rvVtkSeqHint">各序列独立按 file 编号排序</span>
+          <div class="resultsViewerSeqHintWrap">
+            <button type="button" class="resultsViewerSeqHintBtn" id="rvSeqHintBtn" aria-expanded="false" aria-controls="rvSeqHintPop" title="序列排序说明">?</button>
+            <div id="rvSeqHintPop" class="resultsViewerSeqHintPop" role="tooltip" aria-hidden="true">各序列独立按 <span class="mono">file</span> 编号排序</div>
+          </div>
         </div>
         <div class="resultsViewerVtkSeqControls">
-          <button type="button" class="btn" id="rvVtkFirst" title="第一帧">|◀</button>
-          <button type="button" class="btn" id="rvVtkPrev" title="上一帧">◀</button>
-          <button type="button" class="btn btnPrimary" id="rvVtkPlay" title="播放/暂停">▶</button>
-          <button type="button" class="btn" id="rvVtkNext" title="下一帧">▶</button>
-          <button type="button" class="btn" id="rvVtkLast" title="最后一帧">▶|</button>
-          <input type="range" class="resultsViewerVtkSlider" id="rvVtkSlider" min="0" max="0" value="0" />
+          <div class="resultsViewerVtkTransport" role="group" aria-label="播放控制">
+            <button type="button" class="btn resultsViewerVtkTbBtn" id="rvVtkFirst" aria-label="第一帧" title="第一帧 (Home)">
+              <svg class="resultsViewerVtkTbSvg" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M5 5h2v14H5V5zm4 0h2v14H9V5zm5 2l8 5-8 5V7z"/></svg>
+            </button>
+            <button type="button" class="btn resultsViewerVtkTbBtn" id="rvVtkPrev" aria-label="上一帧" title="上一帧 (←)">
+              <svg class="resultsViewerVtkTbSvg" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5l10 7-10 7V5z"/></svg>
+            </button>
+            <button type="button" class="btn btnPrimary resultsViewerVtkPlayBtn" id="rvVtkPlay" aria-label="播放" title="播放/暂停 (Space)">
+              <svg class="resultsViewerVtkTbSvg resultsViewerVtkIc--play" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5v14l11-7L8 5z"/></svg>
+              <svg class="resultsViewerVtkTbSvg resultsViewerVtkIc--pause hidden" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M6 5h4v14H6V5zm8 0h4v14h-4V5z"/></svg>
+            </button>
+            <button type="button" class="btn resultsViewerVtkTbBtn" id="rvVtkNext" aria-label="下一帧" title="下一帧 (→)">
+              <svg class="resultsViewerVtkTbSvg" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M16 18h2V6h-2v12zM6 5l8.5 7L6 19V5z"/></svg>
+            </button>
+            <button type="button" class="btn resultsViewerVtkTbBtn" id="rvVtkLast" aria-label="最后一帧" title="最后一帧 (End)">
+              <svg class="resultsViewerVtkTbSvg" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M16 6h2v12h-2V6zM6 5l8.5 7L6 19V5z"/></svg>
+            </button>
+          </div>
+          <div class="resultsViewerVtkSliderCol">
+            <input type="range" class="resultsViewerVtkSlider" id="rvVtkSlider" min="0" max="0" value="0" aria-valuetext="" />
+          </div>
+          <label class="resultsViewerVtkJumpLab">跳转
+            <input type="number" id="rvVtkJump" class="resultsViewerVtkJump" min="1" max="1" step="1" inputmode="numeric" title="输入帧号后按回车或失焦跳转" aria-label="跳转到帧号" />
+          </label>
           <label class="resultsViewerVtkSpeedLab">间隔 (ms)
-            <span class="resultsViewerIntervalSpin" title="播放每帧停留时间">
+            <span class="resultsViewerIntervalSpin" title="播放每帧停留时间（将自动记住）">
               <button type="button" class="btn resultsViewerIntervalBtn" id="rvIntervalDown" aria-label="减少间隔">−</button>
               <input type="number" id="rvIntervalMs" class="resultsViewerIntervalMs" min="50" max="120000" step="1" value="800" inputmode="numeric" />
               <button type="button" class="btn resultsViewerIntervalBtn" id="rvIntervalUp" aria-label="增加间隔">+</button>
             </span>
           </label>
+          <button type="button" class="btn resultsViewerVtkLoopBtn" id="rvVtkLoop" aria-pressed="true" title="开启：播放到末尾后回到首帧；关闭：在末尾自动停止">循环</button>
           <span class="resultsViewerVtkSeqLabel mono" id="rvVtkSeqLabel">—</span>
         </div>
       </div>
@@ -239,11 +274,65 @@ export function mountResultsViewer(opts = {}) {
           <input type="search" class="resultsViewerSearch" id="rvSearch" placeholder="筛选文件名…" autocomplete="off" />
           <div class="resultsViewerFileList" id="rvFileList"></div>
         </aside>
-        <section class="resultsViewerPreviewCol">
+        <section class="resultsViewerPreviewCol" id="rvPreviewCol">
           <div class="resultsViewerPaneHd">预览 <span class="chip" id="rvObjLabel">—</span></div>
           <div class="resultsViewerCanvasWrap" id="rvCanvasWrap">
             <pre class="resultsViewerTextPreview hidden" id="rvTextPreview" spellcheck="false"></pre>
-            <div class="resultsViewerCanvasHint" id="rvCanvasHint">导入文件夹后，在左侧选择 .vtk / .step / .obj / .inp；含 file000.vtk、file000_state0.inp 等时可在上方选择序列并播放</div>
+            <div class="resultsViewerCanvasEmpty" id="rvCanvasEmpty" aria-hidden="false">
+              <div class="resultsViewerCanvasEmptyGlow" aria-hidden="true"></div>
+              <div class="resultsViewerCanvasEmptyCard">
+                <div class="resultsViewerCanvasEmptyIcon" aria-hidden="true">
+                  <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M24 6L8 14v20l16 8 16-8V14L24 6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" opacity=".35"/><path d="M24 14l10 5v12l-10 5-10-5V19l10-5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+                </div>
+                <h3 class="resultsViewerCanvasEmptyTitle">等待三维预览</h3>
+                <p class="resultsViewerCanvasEmptyLead">导入优化输出目录，或将文件 / 文件夹拖入下方深色区域即可切换数据源。</p>
+                <ul class="resultsViewerCanvasEmptyList">
+                  <li>网格：<span class="mono">.vtk</span>、<span class="mono">.inp</span>（C3D4）</li>
+                  <li>几何：<span class="mono">.step</span> / <span class="mono">.obj</span></li>
+                  <li>多序列 <span class="mono">fileNNN.vtk</span> 可在上方轨道播放</li>
+                </ul>
+              </div>
+            </div>
+            <div class="resultsViewerCanvasHint hidden" id="rvCanvasHint"></div>
+            <div class="resultsViewerCanvasHud" id="rvCanvasHud" aria-label="三维视图控制">
+              <div class="resultsViewerViewToolbar" role="toolbar">
+                <button type="button" class="resultsViewerViewBtn" id="rvBtnSpin" title="自动旋转" aria-pressed="false">
+                  <svg class="resultsViewerViewSvg" viewBox="0 0 24 24" aria-hidden="true" preserveAspectRatio="xMidYMid meet"><path fill="currentColor" d="M12 5.2V2.5L7.8 6.7 12 11V8.3c2.5 0 4.5 2 4.5 4.5 0 .9-.3 1.8-.8 2.5l1.6 1.6c.8-1.1 1.2-2.4 1.2-4.1 0-3.6-2.9-6.5-6.5-6.5zm-1.2 9.1-1.6-1.6c-.8 1.1-1.2 2.4-1.2 4.1 0 3.6 2.9 6.5 6.5 6.5V21l4.2-4.2L16 12.3V15c-2.5 0-4.5-2-4.5-4.5 0-.9.3-1.8.8-2.5z"/></svg>
+                </button>
+                <button type="button" class="resultsViewerViewBtn" id="rvBtnResetCam" title="复原视图（上次适配后的相机）">
+                  <svg class="resultsViewerViewSvg resultsViewerViewSvg--reset" viewBox="0 0 24 24" aria-hidden="true" preserveAspectRatio="xMidYMid meet" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2.35"/><path d="M12 4.25V2.75M12 21.25v-1.5M4.25 12H2.75M21.25 12H19.75M6.9 6.9 5.75 5.75M18.25 18.25 17.1 17.1M6.9 17.1 5.75 18.25M18.25 5.75 17.1 6.9"/></svg>
+                </button>
+                <button type="button" class="resultsViewerViewBtn" id="rvBtnZoomIn" title="放大">
+                  <svg class="resultsViewerViewSvg" viewBox="0 0 24 24" aria-hidden="true" preserveAspectRatio="xMidYMid meet"><circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="1.85"/><path fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" d="M12 8.2v7.6M8.2 12h7.6M20.2 20.2l-4.1-4.1"/></svg>
+                </button>
+                <button type="button" class="resultsViewerViewBtn" id="rvBtnZoomOut" title="缩小">
+                  <svg class="resultsViewerViewSvg" viewBox="0 0 24 24" aria-hidden="true" preserveAspectRatio="xMidYMid meet"><circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="1.85"/><path fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" d="M8.2 12h7.6M20.2 20.2l-4.1-4.1"/></svg>
+                </button>
+                <button type="button" class="resultsViewerViewBtn" id="rvBtnFit" title="适配模型（重置相机与包围盒）">
+                  <svg class="resultsViewerViewSvg" viewBox="0 0 24 24" aria-hidden="true" preserveAspectRatio="xMidYMid meet" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5H5v3M16 5h3v3M8 19H5v-3M16 19h3v-3"/></svg>
+                </button>
+                <button type="button" class="resultsViewerViewBtn resultsViewerViewBtn--fs" id="rvBtnFs" title="全屏预览区" aria-pressed="false">
+                  <svg class="resultsViewerViewSvg rvFs-i-expand" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H3v6M15 3h6v6M9 21H3v-6M15 21h6v-6"/></svg>
+                  <svg class="resultsViewerViewSvg rvFs-i-collapse hidden" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4H4v6M14 4h6v6M10 20H4v-6M14 20h6v-6"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="resultsViewerCtxMenu hidden" id="rvCtxMenu" role="menu" aria-label="画布菜单">
+              <div class="resultsViewerCtxHd">视图</div>
+              <button type="button" class="resultsViewerCtxItem" role="menuitem" data-rv-ctx="fit"><span class="resultsViewerCtxIc" aria-hidden="true">◇</span>适配模型</button>
+              <button type="button" class="resultsViewerCtxItem" role="menuitem" data-rv-ctx="reset"><span class="resultsViewerCtxIc" aria-hidden="true">◎</span>复原视图</button>
+              <button type="button" class="resultsViewerCtxItem" role="menuitem" data-rv-ctx="spin"><span class="resultsViewerCtxIc" aria-hidden="true">↻</span>切换自动旋转</button>
+              <button type="button" class="resultsViewerCtxItem" role="menuitem" data-rv-ctx="wire"><span class="resultsViewerCtxIc" aria-hidden="true">▦</span>线框模式</button>
+              <button type="button" class="resultsViewerCtxItem" role="menuitem" data-rv-ctx="grid"><span class="resultsViewerCtxIc" aria-hidden="true">▤</span>显示 / 隐藏网格</button>
+              <div class="resultsViewerCtxSep" role="separator"></div>
+              <button type="button" class="resultsViewerCtxItem" role="menuitem" data-rv-ctx="zoomin"><span class="resultsViewerCtxIc" aria-hidden="true">＋</span>放大</button>
+              <button type="button" class="resultsViewerCtxItem" role="menuitem" data-rv-ctx="zoomout"><span class="resultsViewerCtxIc" aria-hidden="true">－</span>缩小</button>
+              <div class="resultsViewerCtxSep" role="separator"></div>
+              <div class="resultsViewerCtxHd">窗口</div>
+              <button type="button" class="resultsViewerCtxItem" role="menuitem" data-rv-ctx="fullscreen"><span class="resultsViewerCtxIc" aria-hidden="true">⤢</span>全屏 / 退出全屏</button>
+              <div class="resultsViewerCtxSep" role="separator"></div>
+              <button type="button" class="resultsViewerCtxItem" role="menuitem" data-rv-ctx="copyname">复制当前文件名</button>
+            </div>
           </div>
         </section>
         <section class="resultsViewerPane resultsViewerPaneCharts">
@@ -251,7 +340,6 @@ export function mountResultsViewer(opts = {}) {
           <div class="resultsViewerChartGrid" id="rvChartGrid"></div>
         </section>
       </div>
-      <footer class="resultsViewerFt">STEP 使用 occt-import-js（OpenCascade WASM）三角化；VTK / INP(C3D4) 为四面体展开三角面；INP 三维优先走服务端 FreeCAD 转换（需本机后端与 FreeCAD）；VTK 与 state0/state1 等为独立序列。单帧大文件解析可能需数秒。</footer>
     </div>
   `;
   document.body.appendChild(root);
@@ -263,10 +351,69 @@ export function mountResultsViewer(opts = {}) {
   const inpDir = root.querySelector("#rvDirInput");
   const meta = root.querySelector("#rvMeta");
   const hint = root.querySelector("#rvCanvasHint");
+  const emptyState = root.querySelector("#rvCanvasEmpty");
   const objLabel = root.querySelector("#rvObjLabel");
+  const rvHelpBtn = root.querySelector("#rvHelpBtn");
+  const rvHelpPopover = root.querySelector("#rvHelpPopover");
+
+  function closeHelpPopover() {
+    if (!rvHelpPopover || !rvHelpBtn) return;
+    rvHelpPopover.classList.remove("resultsViewerHelpPopover--open");
+    rvHelpPopover.setAttribute("aria-hidden", "true");
+    rvHelpBtn.setAttribute("aria-expanded", "false");
+  }
+
+  function openHelpPopover() {
+    if (!rvHelpPopover || !rvHelpBtn) return;
+    closeSeqHintPop();
+    rvHelpPopover.setAttribute("aria-hidden", "false");
+    requestAnimationFrame(() => {
+      rvHelpPopover.classList.add("resultsViewerHelpPopover--open");
+    });
+    rvHelpBtn.setAttribute("aria-expanded", "true");
+  }
+
+  function toggleHelpPopover() {
+    if (rvHelpPopover?.classList.contains("resultsViewerHelpPopover--open")) closeHelpPopover();
+    else openHelpPopover();
+  }
+
+  function hideRichCanvasEmpty() {
+    emptyState?.classList.add("hidden");
+  }
+
+  function showRichCanvasEmpty() {
+    if (!emptyState) return;
+    emptyState.classList.remove("hidden");
+    hint?.classList.add("hidden");
+    hint?.classList.remove("resultsViewerCanvasHint--banner");
+  }
+
+  function showTransientCanvasHint(msg) {
+    hideRichCanvasEmpty();
+    if (!hint) return;
+    hint.textContent = msg;
+    hint.classList.remove("hidden");
+    hint.classList.add("resultsViewerCanvasHint--banner");
+  }
+
+  function hideTransientCanvasHint() {
+    if (!hint) return;
+    hint.classList.add("hidden");
+    hint.classList.remove("resultsViewerCanvasHint--banner");
+  }
+
   const chartGrid = root.querySelector("#rvChartGrid");
   const wrap = root.querySelector("#rvCanvasWrap");
-  const spinBtn = root.querySelector("#rvSpinBtn");
+  const canvasHud = root.querySelector("#rvCanvasHud");
+  const btnSpin = root.querySelector("#rvBtnSpin");
+  const btnResetCam = root.querySelector("#rvBtnResetCam");
+  const btnZoomIn = root.querySelector("#rvBtnZoomIn");
+  const btnZoomOut = root.querySelector("#rvBtnZoomOut");
+  const btnFit = root.querySelector("#rvBtnFit");
+  const btnFs = root.querySelector("#rvBtnFs");
+  const previewCol = root.querySelector("#rvPreviewCol");
+  const ctxMenu = root.querySelector("#rvCtxMenu");
   const fileListEl = root.querySelector("#rvFileList");
   const searchEl = root.querySelector("#rvSearch");
   const filtersEl = root.querySelector("#rvFilters");
@@ -284,6 +431,105 @@ export function mountResultsViewer(opts = {}) {
   const rvIntervalUp = root.querySelector("#rvIntervalUp");
   const rvMeshTrackLab = root.querySelector("#rvMeshTrackLab");
   const rvMeshTrackSelect = root.querySelector("#rvMeshTrackSelect");
+  const rvSeqHintBtn = root.querySelector("#rvSeqHintBtn");
+  const rvSeqHintPop = root.querySelector("#rvSeqHintPop");
+  const rvVtkJump = root.querySelector("#rvVtkJump");
+  const rvVtkLoop = root.querySelector("#rvVtkLoop");
+
+  const LS_PLAYBACK_MS = "beso_rv_playback_interval_ms";
+  const LS_PLAYBACK_LOOP = "beso_rv_playback_loop";
+  let meshPlaybackLoop = true;
+
+  function closeSeqHintPop() {
+    if (!rvSeqHintPop || !rvSeqHintBtn) return;
+    rvSeqHintPop.classList.remove("resultsViewerSeqHintPop--open");
+    rvSeqHintPop.setAttribute("aria-hidden", "true");
+    rvSeqHintBtn.setAttribute("aria-expanded", "false");
+  }
+
+  function openSeqHintPop() {
+    if (!rvSeqHintPop || !rvSeqHintBtn) return;
+    closeHelpPopover();
+    rvSeqHintPop.setAttribute("aria-hidden", "false");
+    requestAnimationFrame(() => {
+      rvSeqHintPop.classList.add("resultsViewerSeqHintPop--open");
+    });
+    rvSeqHintBtn.setAttribute("aria-expanded", "true");
+  }
+
+  function toggleSeqHintPop() {
+    if (rvSeqHintPop?.classList.contains("resultsViewerSeqHintPop--open")) closeSeqHintPop();
+    else openSeqHintPop();
+  }
+
+  function loadSavedPlaybackPrefs() {
+    try {
+      const rawMs = localStorage.getItem(LS_PLAYBACK_MS);
+      if (rawMs != null && rvIntervalMs) rvIntervalMs.value = String(clampPlaybackIntervalMs(rawMs));
+      const rawLoop = localStorage.getItem(LS_PLAYBACK_LOOP);
+      if (rawLoop === "0") meshPlaybackLoop = false;
+      else if (rawLoop === "1") meshPlaybackLoop = true;
+    } catch {
+      /* ignore */
+    }
+    syncLoopBtnUi();
+  }
+
+  function savePlaybackIntervalMs() {
+    try {
+      localStorage.setItem(LS_PLAYBACK_MS, String(readPlaybackIntervalMs()));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function savePlaybackLoopPref() {
+    try {
+      localStorage.setItem(LS_PLAYBACK_LOOP, meshPlaybackLoop ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function syncPlayBtnUi() {
+    if (!rvVtkPlay) return;
+    rvVtkPlay.classList.toggle("resultsViewerVtkPlayBtn--playing", vtkPlaying);
+    rvVtkPlay.setAttribute("aria-label", vtkPlaying ? "暂停" : "播放");
+    const playIc = rvVtkPlay.querySelector(".resultsViewerVtkIc--play");
+    const pauseIc = rvVtkPlay.querySelector(".resultsViewerVtkIc--pause");
+    if (playIc) playIc.classList.toggle("hidden", vtkPlaying);
+    if (pauseIc) pauseIc.classList.toggle("hidden", !vtkPlaying);
+  }
+
+  function syncLoopBtnUi() {
+    if (!rvVtkLoop) return;
+    rvVtkLoop.setAttribute("aria-pressed", meshPlaybackLoop ? "true" : "false");
+    rvVtkLoop.classList.toggle("resultsViewerVtkLoopBtn--off", !meshPlaybackLoop);
+  }
+
+  function seqLabelTextAtFrameIndex(idx) {
+    const n = meshSeqFrames.length;
+    if (n < 1) return "—";
+    const clamped = Math.max(0, Math.min(n - 1, idx));
+    const fr = meshSeqFrames[clamped];
+    const fn = fr ? `${fr.kind.toUpperCase()} · ${fr.file.name}` : "—";
+    return `${clamped + 1} / ${n} · ${fn}`;
+  }
+
+  function applyVtkSeqLabel(scrubIdx = null) {
+    if (!rvVtkSeqLabel) return;
+    const n = meshSeqFrames.length;
+    if (n < 1) {
+      rvVtkSeqLabel.textContent = "—";
+      rvVtkSeqLabel.classList.remove("resultsViewerVtkSeqLabel--scrub");
+      return;
+    }
+    const raw = scrubIdx == null ? meshSeqIndex : parseInt(String(scrubIdx), 10);
+    const idx = Number.isFinite(raw) ? Math.max(0, Math.min(n - 1, raw)) : meshSeqIndex;
+    const t = seqLabelTextAtFrameIndex(idx);
+    rvVtkSeqLabel.textContent = t;
+    rvVtkSeqLabel.classList.toggle("resultsViewerVtkSeqLabel--scrub", scrubIdx != null && idx !== meshSeqIndex);
+  }
 
   function clampPlaybackIntervalMs(v) {
     const n = Math.round(Number(v));
@@ -302,7 +548,7 @@ export function mountResultsViewer(opts = {}) {
 
   let blobUrls = [];
   let threeDispose = null;
-  let spinEnabled = true;
+  let spinEnabled = false;
   let allFiles = [];
   let activeExtFilter = "all";
   let searchDebounce = null;
@@ -318,6 +564,8 @@ export function mountResultsViewer(opts = {}) {
   let vtkPlayTimer = null;
   let vtkLoadBusy = false;
 
+  loadSavedPlaybackPrefs();
+
   const objLoader = new OBJLoader();
 
   METRIC_NAMES.forEach((name) => {
@@ -328,7 +576,11 @@ export function mountResultsViewer(opts = {}) {
       <div class="resultsViewerImgHd"><span>${name.replace(".png", "")}</span></div>
       <div class="resultsViewerImgBody">
         <img alt="" />
-        <div class="resultsViewerImgPlaceholder">未找到 ${name}</div>
+        <div class="resultsViewerImgPlaceholder">
+          <span class="resultsViewerImgPhMark" aria-hidden="true"></span>
+          <span class="resultsViewerImgPhTitle">暂无图表</span>
+          <span class="resultsViewerImgPhSub mono">${name}</span>
+        </div>
       </div>`;
     chartGrid.appendChild(card);
   });
@@ -350,19 +602,23 @@ export function mountResultsViewer(opts = {}) {
       threeDispose = null;
     }
     threeApi = null;
+    wrap?.classList.remove("rvHas3d");
     wrap.querySelectorAll("canvas").forEach((c) => c.remove());
   }
 
   function hideTextPreview() {
     textPreview.classList.add("hidden");
     textPreview.textContent = "";
+    wrap?.classList.remove("rvTextMode");
   }
 
   function showTextPreview(text, title) {
     destroyThree();
+    hideRichCanvasEmpty();
+    hideTransientCanvasHint();
     textPreview.textContent = text;
     textPreview.classList.remove("hidden");
-    hint.classList.add("hidden");
+    wrap?.classList.add("rvTextMode");
     objLabel.textContent = title || "INP";
   }
 
@@ -371,14 +627,20 @@ export function mountResultsViewer(opts = {}) {
   function initThree() {
     destroyThree();
     hideTextPreview();
-    hint.classList.add("hidden");
+    hideRichCanvasEmpty();
+    hideTransientCanvasHint();
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x061426);
     const camera = new THREE.PerspectiveCamera(42, 1, 0.02, 5000);
     camera.position.set(2.2, 1.6, 2.8);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    wrap.appendChild(renderer.domElement);
+    if (canvasHud && wrap.contains(canvasHud)) {
+      wrap.insertBefore(renderer.domElement, canvasHud);
+    } else {
+      wrap.appendChild(renderer.domElement);
+    }
+    renderer.domElement.classList.add("resultsViewerWebglCanvas");
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.06;
@@ -386,7 +648,7 @@ export function mountResultsViewer(opts = {}) {
     const dl = new THREE.DirectionalLight(0xffffff, 0.95);
     dl.position.set(4, 6, 3);
     scene.add(dl);
-    const grid = new THREE.GridHelper(3.5, 18, 0x334155, 0x1e293b);
+    let grid = new THREE.GridHelper(3.5, 18, 0x334155, 0x1e293b);
     grid.position.y = -0.85;
     scene.add(grid);
     let meshRoot = null;
@@ -395,6 +657,10 @@ export function mountResultsViewer(opts = {}) {
     let raf = 0;
     let w = 1;
     let h = 1;
+    /** @type {null | { pos: THREE.Vector3; target: THREE.Vector3; near: number; far: number; minD: number; maxD: number }} */
+    let savedCameraView = null;
+    let wireframeMode = false;
+    const domCleanup = [];
 
     function fit() {
       const r = wrap.getBoundingClientRect();
@@ -416,7 +682,86 @@ export function mountResultsViewer(opts = {}) {
     }
     tick();
 
+    function captureCameraView() {
+      savedCameraView = {
+        pos: camera.position.clone(),
+        target: controls.target.clone(),
+        near: camera.near,
+        far: camera.far,
+        minD: controls.minDistance,
+        maxD: controls.maxDistance,
+      };
+    }
+
+    function restoreCameraView() {
+      if (!savedCameraView) return;
+      camera.position.copy(savedCameraView.pos);
+      controls.target.copy(savedCameraView.target);
+      camera.near = savedCameraView.near;
+      camera.far = savedCameraView.far;
+      camera.updateProjectionMatrix();
+      controls.minDistance = savedCameraView.minD;
+      controls.maxDistance = savedCameraView.maxD;
+      controls.update();
+    }
+
+    function dollyBy(factor) {
+      const off = camera.position.clone().sub(controls.target);
+      const dist = off.length() * factor;
+      const lo = Math.max(controls.minDistance * 1.02, dist);
+      const hi = Math.min(controls.maxDistance * 0.98, lo);
+      off.normalize().multiplyScalar(hi);
+      camera.position.copy(controls.target).add(off);
+      controls.update();
+    }
+
+    function applyWireframeToMeshes() {
+      if (!meshRoot) return;
+      meshRoot.traverse((c) => {
+        if (c.isMesh && c.material) {
+          const mats = Array.isArray(c.material) ? c.material : [c.material];
+          for (const m of mats) {
+            if (m && "wireframe" in m) m.wireframe = wireframeMode;
+          }
+        }
+      });
+    }
+
+    function toggleWireframe() {
+      wireframeMode = !wireframeMode;
+      applyWireframeToMeshes();
+    }
+
+    function blockHistoryMouse(ev) {
+      if (ev.button === 1 || ev.button === 3 || ev.button === 4) {
+        ev.preventDefault();
+      }
+    }
+
+    function onWheelNav(ev) {
+      if (Math.abs(ev.deltaX) > Math.abs(ev.deltaY) * 1.2) {
+        ev.preventDefault();
+      }
+    }
+
+    renderer.domElement.addEventListener("mousedown", blockHistoryMouse, { capture: true, passive: false });
+    renderer.domElement.addEventListener("auxclick", blockHistoryMouse, { capture: true, passive: false });
+    renderer.domElement.addEventListener("wheel", onWheelNav, { passive: false });
+    domCleanup.push(() => {
+      renderer.domElement.removeEventListener("mousedown", blockHistoryMouse, { capture: true });
+      renderer.domElement.removeEventListener("auxclick", blockHistoryMouse, { capture: true });
+      renderer.domElement.removeEventListener("wheel", onWheelNav);
+    });
+
     threeDispose = () => {
+      domCleanup.forEach((fn) => {
+        try {
+          fn();
+        } catch {
+          /* ignore */
+        }
+      });
+      domCleanup.length = 0;
       cancelAnimationFrame(raf);
       ro.disconnect();
       controls.dispose();
@@ -462,6 +807,7 @@ export function mountResultsViewer(opts = {}) {
       controls.maxDistance = Math.max(6, dist * 12);
       controls.update();
       fit();
+      captureCameraView();
     }
 
     /**
@@ -491,9 +837,39 @@ export function mountResultsViewer(opts = {}) {
       if (preserveView && prevQuat) {
         meshRoot.quaternion.copy(prevQuat);
       }
+      applyWireframeToMeshes();
     }
 
-    return { setRoot, scene, camera, controls, renderer };
+    function fitViewNow() {
+      if (!meshRoot) return;
+      frameObject(meshRoot, { preserveView: false });
+      applyWireframeToMeshes();
+    }
+
+    function toggleSceneGrid() {
+      grid.visible = !grid.visible;
+    }
+
+    function resizeView() {
+      fit();
+      controls.update();
+    }
+
+    wrap.classList.add("rvHas3d");
+
+    return {
+      setRoot,
+      scene,
+      camera,
+      controls,
+      renderer,
+      restoreCameraView,
+      fitViewNow,
+      dollyBy,
+      toggleWireframe,
+      resizeView,
+      toggleSceneGrid,
+    };
   }
 
   async function previewObj(file) {
@@ -504,7 +880,7 @@ export function mountResultsViewer(opts = {}) {
     applyMaterialToTree(obj);
     threeApi.setRoot(obj);
     objLabel.textContent = file.name;
-    hint.classList.add("hidden");
+    hideTransientCanvasHint();
   }
 
   function applyMaterialToTree(rootObj) {
@@ -522,8 +898,7 @@ export function mountResultsViewer(opts = {}) {
 
   async function previewStep(file) {
     hideTextPreview();
-    hint.textContent = "正在加载 STEP（OpenCascade WASM）…";
-    hint.classList.remove("hidden");
+    showTransientCanvasHint("正在加载 STEP（OpenCascade WASM）…");
     await new Promise((r) => requestAnimationFrame(r));
 
     const occt = await loadOcctImportJs();
@@ -586,7 +961,7 @@ export function mountResultsViewer(opts = {}) {
     }
     threeApi.setRoot(group);
     objLabel.textContent = file.name;
-    hint.classList.add("hidden");
+    hideTransientCanvasHint();
   }
 
   async function previewInpTextOnly(file) {
@@ -601,10 +976,9 @@ export function mountResultsViewer(opts = {}) {
   async function previewInpAsMesh3d(file, opts = {}) {
     hideTextPreview();
     const quietLoad = Boolean(opts.suppressLoadingUi);
-    if (quietLoad) hint.classList.add("hidden");
+    if (quietLoad) hideTransientCanvasHint();
     if (!quietLoad) {
-      hint.textContent = "正在加载 INP 网格（FreeCAD 或本地解析）…";
-      hint.classList.remove("hidden");
+      showTransientCanvasHint("正在加载 INP 网格（FreeCAD 或本地解析）…");
       await new Promise((r) => requestAnimationFrame(r));
     }
 
@@ -629,7 +1003,7 @@ export function mountResultsViewer(opts = {}) {
           });
           threeApi.setRoot(new THREE.Mesh(geometry, mat), { preserveView: Boolean(opts.preserveView) });
           objLabel.textContent = `${file.name}（服务端 VTK）`;
-          if (!quietLoad) hint.classList.add("hidden");
+          if (!quietLoad) hideTransientCanvasHint();
           return;
         }
       } catch {
@@ -649,10 +1023,9 @@ export function mountResultsViewer(opts = {}) {
       });
       threeApi.setRoot(new THREE.Mesh(geometry, mat), { preserveView: Boolean(opts.preserveView) });
       objLabel.textContent = `${file.name}（本地 C3D4）`;
-      if (!quietLoad) hint.classList.add("hidden");
+      if (!quietLoad) hideTransientCanvasHint();
     } catch (e) {
-      hint.textContent = `INP 三维预览不可用：${e?.message || e}。可查看文本片段。`;
-      hint.classList.remove("hidden");
+      showTransientCanvasHint(`INP 三维预览不可用：${e?.message || e}。可查看文本片段。`);
       await previewInpTextOnly(file);
     }
   }
@@ -663,7 +1036,7 @@ export function mountResultsViewer(opts = {}) {
       clearTimeout(vtkPlayTimer);
       vtkPlayTimer = null;
     }
-    if (rvVtkPlay) rvVtkPlay.textContent = "▶";
+    syncPlayBtnUi();
   }
 
   function syncMeshSeqIndexFromFile(file) {
@@ -708,6 +1081,7 @@ export function mountResultsViewer(opts = {}) {
     const hasMeshTracks = allMeshTracks.some((t) => t.frames.length > 0);
     if (!hasMeshTracks || n < 1) {
       rvVtkSeqBar.classList.add("hidden");
+      closeSeqHintPop();
       return;
     }
     rvVtkSeqBar.classList.remove("hidden");
@@ -721,24 +1095,33 @@ export function mountResultsViewer(opts = {}) {
       rvMeshTrackSelect.disabled = allMeshTracks.length <= 1;
     }
     const maxI = Math.max(0, n - 1);
+    /** 播放中自动切帧加载时不锁 UI，避免进度条与按钮频繁禁用、且可随时暂停 */
+    const uiLocked = vtkLoadBusy && !vtkPlaying;
     if (rvVtkSlider) {
       rvVtkSlider.min = "0";
       rvVtkSlider.max = String(maxI);
       rvVtkSlider.value = String(Math.min(meshSeqIndex, maxI));
+      const si = Math.min(meshSeqIndex, maxI);
+      const fr0 = meshSeqFrames[si];
+      const nm = fr0 ? `${fr0.kind.toUpperCase()} · ${fr0.file.name}` : "—";
+      rvVtkSlider.setAttribute("aria-valuetext", `第 ${si + 1} 帧，共 ${n} 帧，${nm}`);
     }
-    if (rvVtkSeqLabel) {
-      const fr = meshSeqFrames[meshSeqIndex];
-      const fn = fr ? `${fr.kind.toUpperCase()} · ${fr.file.name}` : "—";
-      rvVtkSeqLabel.textContent = `${meshSeqIndex + 1} / ${n} · ${fn}`;
+    applyVtkSeqLabel();
+    if (rvVtkJump) {
+      rvVtkJump.min = "1";
+      rvVtkJump.max = String(Math.max(1, n));
+      rvVtkJump.disabled = n < 1 || uiLocked;
+      if (document.activeElement !== rvVtkJump) rvVtkJump.value = String(meshSeqIndex + 1);
     }
-    if (rvVtkFirst) rvVtkFirst.disabled = n < 1 || vtkLoadBusy;
-    if (rvVtkPrev) rvVtkPrev.disabled = n < 1 || vtkLoadBusy;
-    if (rvVtkNext) rvVtkNext.disabled = n < 1 || vtkLoadBusy;
-    if (rvVtkLast) rvVtkLast.disabled = n < 1 || vtkLoadBusy;
-    if (rvVtkSlider) rvVtkSlider.disabled = n < 1 || vtkLoadBusy;
+    if (rvVtkFirst) rvVtkFirst.disabled = n < 1 || uiLocked;
+    if (rvVtkPrev) rvVtkPrev.disabled = n < 1 || uiLocked;
+    if (rvVtkNext) rvVtkNext.disabled = n < 1 || uiLocked;
+    if (rvVtkLast) rvVtkLast.disabled = n < 1 || uiLocked;
+    if (rvVtkSlider) rvVtkSlider.disabled = n < 1 || uiLocked;
+    if (rvVtkLoop) rvVtkLoop.disabled = n < 2 || uiLocked;
     if (rvVtkPlay) {
-      rvVtkPlay.disabled = n < 2;
-      rvVtkPlay.textContent = vtkPlaying ? "❚❚" : "▶";
+      rvVtkPlay.disabled = n < 2 || uiLocked;
+      syncPlayBtnUi();
     }
   }
 
@@ -748,7 +1131,17 @@ export function mountResultsViewer(opts = {}) {
     vtkPlayTimer = setTimeout(async () => {
       vtkPlayTimer = null;
       if (!vtkPlaying || meshSeqFrames.length < 2) return;
-      const next = (meshSeqIndex + 1) % meshSeqFrames.length;
+      const n = meshSeqFrames.length;
+      let next = meshSeqIndex + 1;
+      if (next >= n) {
+        if (!meshPlaybackLoop) {
+          vtkPlaying = false;
+          syncPlayBtnUi();
+          updateVtkSeqBarUi();
+          return;
+        }
+        next = 0;
+      }
       await showMeshFrameAtIndex(next, { silent: true });
       if (vtkPlaying) scheduleVtkAdvance();
     }, delay);
@@ -758,10 +1151,9 @@ export function mountResultsViewer(opts = {}) {
   async function previewVtk(file, opts = {}) {
     hideTextPreview();
     const quietLoad = Boolean(opts.suppressLoadingUi);
-    if (quietLoad) hint.classList.add("hidden");
+    if (quietLoad) hideTransientCanvasHint();
     if (!quietLoad) {
-      hint.textContent = "正在解析 VTK（四面体网格）…";
-      hint.classList.remove("hidden");
+      showTransientCanvasHint("正在解析 VTK（四面体网格）…");
       await new Promise((r) => requestAnimationFrame(r));
     }
     const text = await file.text();
@@ -776,7 +1168,7 @@ export function mountResultsViewer(opts = {}) {
     const mesh = new THREE.Mesh(geometry, mat);
     threeApi.setRoot(mesh, { preserveView: Boolean(opts.preserveView) });
     objLabel.textContent = file.name;
-    if (!quietLoad) hint.classList.add("hidden");
+    if (!quietLoad) hideTransientCanvasHint();
   }
 
   /** @param {{ kind: 'vtk' | 'inp', file: File, n: number }} frame @param {{ preserveView?: boolean, suppressLoadingUi?: boolean }} [opts] */
@@ -808,8 +1200,7 @@ export function mountResultsViewer(opts = {}) {
       const f = meshSeqFrames[i].file;
       selectedRelPath = f.webkitRelativePath || f.name;
     } catch (e) {
-      hint.textContent = `网格加载失败：${e?.message || e}`;
-      hint.classList.remove("hidden");
+      showTransientCanvasHint(`网格加载失败：${e?.message || e}`);
     } finally {
       vtkLoadBusy = false;
       updateVtkSeqBarUi();
@@ -839,12 +1230,10 @@ export function mountResultsViewer(opts = {}) {
         updateVtkSeqBarUi();
         await previewInpAsMesh3d(file);
       } else {
-        hint.textContent = "不支持该扩展名预览";
-        hint.classList.remove("hidden");
+        showTransientCanvasHint("不支持该扩展名预览");
       }
     } catch (e) {
-      hint.textContent = `加载失败：${e?.message || e}`;
-      hint.classList.remove("hidden");
+      showTransientCanvasHint(`加载失败：${e?.message || e}`);
     }
     refreshFileList();
   }
@@ -939,6 +1328,97 @@ export function mountResultsViewer(opts = {}) {
 
   const RV_SCAN_MAX_FILES = 48;
   const RV_SCAN_MAX_BYTES = 42 * 1024 * 1024;
+  const RV_DROP_MAX_FILES = 400;
+
+  /**
+   * @param {FileSystemDirectoryReader} dirReader
+   * @returns {Promise<FileSystemEntry[]>}
+   */
+  async function readEntriesAll(dirReader) {
+    /** @type {FileSystemEntry[]} */
+    const acc = [];
+    let batch;
+    do {
+      batch = await new Promise((res) => {
+        try {
+          dirReader.readEntries(res);
+        } catch {
+          res([]);
+        }
+      });
+      acc.push(...batch);
+    } while (batch.length > 0);
+    return acc;
+  }
+
+  /**
+   * @param {FileSystemEntry} entry
+   * @param {string} relBase
+   * @param {File[]} out
+   */
+  async function walkFsEntry(entry, relBase, out) {
+    if (!entry || out.length >= RV_DROP_MAX_FILES) return;
+    if (entry.isFile) {
+      await new Promise((res) => {
+        entry.file(
+          /** @param {File} file */
+          (file) => {
+            const rel = relBase || file.name;
+            try {
+              Object.defineProperty(file, "webkitRelativePath", { value: rel, configurable: true });
+            } catch {
+              /* ignore */
+            }
+            out.push(file);
+            res();
+          },
+          () => res(),
+        );
+      });
+      return;
+    }
+    if (!entry.isDirectory) return;
+    const reader = entry.createReader();
+    const kids = await readEntriesAll(reader);
+    for (const ch of kids) {
+      if (out.length >= RV_DROP_MAX_FILES) break;
+      const nextBase = relBase ? `${relBase}/${ch.name}` : ch.name;
+      await walkFsEntry(ch, nextBase, out);
+    }
+  }
+
+  /**
+   * @param {DataTransfer} dt
+   * @returns {Promise<File[]>}
+   */
+  async function collectFilesFromDataTransfer(dt) {
+    const out = [];
+    const items = dt.items?.length ? [...dt.items] : [];
+    if (items.length) {
+      for (const item of items) {
+        if (out.length >= RV_DROP_MAX_FILES) break;
+        const ent = item.webkitGetAsEntry?.();
+        if (ent) {
+          await walkFsEntry(ent, ent.isDirectory ? ent.name : "", out);
+          continue;
+        }
+        if (item.kind === "file") {
+          const f = item.getAsFile();
+          if (f) {
+            try {
+              Object.defineProperty(f, "webkitRelativePath", { value: f.name, configurable: true });
+            } catch {
+              /* ignore */
+            }
+            out.push(f);
+          }
+        }
+      }
+    }
+    if (out.length) return out;
+    if (dt.files?.length) return Array.from(dt.files);
+    return [];
+  }
 
   /**
    * 与「导入文件夹」一致：用已有 File 列表刷新列表、序列轨与默认预览。
@@ -946,6 +1426,7 @@ export function mountResultsViewer(opts = {}) {
    */
   function applyImportedFiles(fileList) {
     const fl = Array.isArray(fileList) ? fileList : [];
+    if (fl.length > 0) hideRichCanvasEmpty();
     stopVtkPlayback();
     revokeBlobs();
     destroyThree();
@@ -972,8 +1453,12 @@ export function mountResultsViewer(opts = {}) {
     const def = pickDefaultMeshFile(fl);
     if (def) void loadPreviewForFile(def);
     else {
-      hint.textContent = "未找到可预览的 .vtk / .step / .obj / .inp，可调整左侧筛选";
-      hint.classList.remove("hidden");
+      if (fl.length === 0) {
+        hideTransientCanvasHint();
+        showRichCanvasEmpty();
+      } else {
+        showTransientCanvasHint("未找到可预览的 .vtk / .step / .obj / .inp，可调整左侧筛选");
+      }
       objLabel.textContent = "—";
     }
   }
@@ -1044,6 +1529,175 @@ export function mountResultsViewer(opts = {}) {
     if (meta) meta.textContent = `${tail} · 自服务器拉取 ${out.length} 个文件`;
   }
 
+  function closeCtxMenu() {
+    ctxMenu?.classList.add("hidden");
+  }
+
+  function openCtxMenu(clientX, clientY) {
+    if (!ctxMenu || !wrap) return;
+    ctxMenu.classList.remove("hidden");
+    /** Shell 含 transform 时 fixed 相对 shell，故菜单相对画布区绝对定位 */
+    const place = () => {
+      const rect = wrap.getBoundingClientRect();
+      const pad = 6;
+      const w = ctxMenu.offsetWidth || 176;
+      const h = ctxMenu.offsetHeight || 320;
+      const relX = clientX - rect.left;
+      const relY = clientY - rect.top;
+      let lx = relX;
+      let ly = relY;
+      const maxX = Math.max(pad, rect.width - w - pad);
+      const maxY = Math.max(pad, rect.height - h - pad);
+      if (lx + w + pad > rect.width) lx = maxX;
+      if (ly + h + pad > rect.height) ly = maxY;
+      lx = Math.min(Math.max(pad, lx), maxX);
+      ly = Math.min(Math.max(pad, ly), maxY);
+      ctxMenu.style.left = `${lx}px`;
+      ctxMenu.style.top = `${ly}px`;
+    };
+    requestAnimationFrame(() => requestAnimationFrame(place));
+  }
+
+  function isPreviewColFullscreen() {
+    const el = document.fullscreenElement || /** @type {any} */ (document).webkitFullscreenElement;
+    return Boolean(previewCol && el === previewCol);
+  }
+
+  function exitPreviewFullscreenIfNeeded() {
+    try {
+      if (!isPreviewColFullscreen()) return;
+      if (document.exitFullscreen) void document.exitFullscreen();
+      else if (/** @type {any} */ (document).webkitExitFullscreen) /** @type {any} */ (document).webkitExitFullscreen();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function togglePreviewColumnFullscreen() {
+    if (!previewCol) return;
+    try {
+      if (!isPreviewColFullscreen()) {
+        if (previewCol.requestFullscreen) await previewCol.requestFullscreen();
+        else if (/** @type {any} */ (previewCol).webkitRequestFullscreen)
+          /** @type {any} */ (previewCol).webkitRequestFullscreen();
+        else {
+          showTransientCanvasHint("当前浏览器不支持全屏 API");
+          return;
+        }
+      } else {
+        exitPreviewFullscreenIfNeeded();
+      }
+    } catch (err) {
+      showTransientCanvasHint(`全屏操作失败：${err?.message || err}`);
+    }
+  }
+
+  function syncFsUi() {
+    const on = isPreviewColFullscreen();
+    previewCol?.classList.toggle("rvColFs", on);
+    if (btnFs) {
+      btnFs.classList.toggle("rvFsActive", on);
+      btnFs.setAttribute("aria-pressed", on ? "true" : "false");
+      btnFs.setAttribute("title", on ? "退出全屏 (Esc)" : "全屏预览区");
+      btnFs.querySelector(".rvFs-i-expand")?.classList.toggle("hidden", on);
+      btnFs.querySelector(".rvFs-i-collapse")?.classList.toggle("hidden", !on);
+    }
+    threeApi?.resizeView?.();
+  }
+
+  function onPreviewFsChange() {
+    syncFsUi();
+  }
+
+  document.addEventListener("fullscreenchange", onPreviewFsChange);
+  document.addEventListener("webkitfullscreenchange", onPreviewFsChange);
+
+  function syncSpinUi() {
+    if (!btnSpin) return;
+    btnSpin.classList.toggle("rvViewActive", spinEnabled);
+    btnSpin.setAttribute("aria-pressed", spinEnabled ? "true" : "false");
+  }
+
+  function runRvCameraAction(/** @type {string} */ act) {
+    if (act === "spin") {
+      spinEnabled = !spinEnabled;
+      syncSpinUi();
+      return;
+    }
+    if (act === "fullscreen") {
+      void togglePreviewColumnFullscreen();
+      return;
+    }
+    if (act === "copyname") {
+      const t = (objLabel?.textContent || "").trim();
+      if (t && t !== "—") {
+        void navigator.clipboard?.writeText(t).catch(() => {});
+      }
+      return;
+    }
+    if (!threeApi) return;
+    if (act === "fit") threeApi.fitViewNow();
+    else if (act === "reset") threeApi.restoreCameraView();
+    else if (act === "zoomin") threeApi.dollyBy(0.86);
+    else if (act === "zoomout") threeApi.dollyBy(1.18);
+    else if (act === "wire") threeApi.toggleWireframe();
+    else if (act === "grid") threeApi.toggleSceneGrid();
+  }
+
+  wrap?.addEventListener("contextmenu", (e) => {
+    const cv = e.target?.closest?.(".resultsViewerWebglCanvas");
+    if (!cv || !wrap.contains(cv)) return;
+    e.preventDefault();
+    openCtxMenu(e.clientX, e.clientY);
+  });
+
+  let rvDragDepth = 0;
+  wrap?.addEventListener("dragenter", (e) => {
+    if (!e.dataTransfer) return;
+    e.preventDefault();
+    rvDragDepth += 1;
+    wrap.classList.add("rvDropActive");
+  });
+  wrap?.addEventListener("dragleave", (e) => {
+    e.preventDefault();
+    rvDragDepth = Math.max(0, rvDragDepth - 1);
+    if (rvDragDepth === 0) wrap.classList.remove("rvDropActive");
+  });
+  wrap?.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+  });
+  wrap?.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    rvDragDepth = 0;
+    wrap.classList.remove("rvDropActive");
+    try {
+      const files = await collectFilesFromDataTransfer(e.dataTransfer);
+      if (files.length) applyImportedFiles(files);
+    } catch (err) {
+      showTransientCanvasHint(`拖入解析失败：${err?.message || err}`);
+    }
+  });
+
+  ctxMenu?.addEventListener("mousedown", (e) => e.stopPropagation());
+  ctxMenu?.addEventListener("click", (e) => {
+    const b = e.target.closest?.("[data-rv-ctx]");
+    if (!b) return;
+    const act = b.getAttribute("data-rv-ctx") || "";
+    closeCtxMenu();
+    runRvCameraAction(act);
+  });
+
+  root.addEventListener(
+    "mousedown",
+    (e) => {
+      if (ctxMenu?.classList.contains("hidden")) return;
+      if (e.target.closest?.("#rvCtxMenu")) return;
+      closeCtxMenu();
+    },
+    true,
+  );
+
   filtersEl?.addEventListener("click", (e) => {
     const btn = e.target.closest?.(".rvFilter");
     if (!btn) return;
@@ -1071,6 +1725,10 @@ export function mountResultsViewer(opts = {}) {
 
   function close() {
     stopVtkPlayback();
+    closeCtxMenu();
+    closeHelpPopover();
+    closeSeqHintPop();
+    exitPreviewFullscreenIfNeeded();
     root.classList.remove("isOpen");
     shell?.classList.remove("isOpen");
     document.body.style.overflow = "";
@@ -1082,32 +1740,63 @@ export function mountResultsViewer(opts = {}) {
   }
 
   btnClose?.addEventListener("click", close);
+  rvHelpBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleHelpPopover();
+  });
+  shell?.addEventListener("click", (e) => {
+    if (rvHelpPopover?.classList.contains("resultsViewerHelpPopover--open") && !e.target.closest(".resultsViewerHdHelpWrap")) {
+      closeHelpPopover();
+    }
+    if (rvSeqHintPop?.classList.contains("resultsViewerSeqHintPop--open") && !e.target.closest(".resultsViewerSeqHintWrap")) {
+      closeSeqHintPop();
+    }
+  });
   backdrop?.addEventListener("click", (e) => {
     if (e.target?.dataset?.rvClose) close();
   });
   btnPick?.addEventListener("click", () => inpDir?.click());
   inpDir?.addEventListener("change", onDirChange);
-  spinBtn?.addEventListener("click", () => {
+  syncSpinUi();
+  syncFsUi();
+  btnSpin?.addEventListener("click", () => {
     spinEnabled = !spinEnabled;
-    spinBtn.classList.toggle("rvSpinOn", spinEnabled);
-    spinBtn.classList.toggle("rvSpinOff", !spinEnabled);
+    syncSpinUi();
+  });
+  btnResetCam?.addEventListener("click", () => {
+    if (threeApi) threeApi.restoreCameraView();
+  });
+  btnZoomIn?.addEventListener("click", () => {
+    if (threeApi) threeApi.dollyBy(0.86);
+  });
+  btnZoomOut?.addEventListener("click", () => {
+    if (threeApi) threeApi.dollyBy(1.18);
+  });
+  btnFit?.addEventListener("click", () => {
+    if (threeApi) threeApi.fitViewNow();
+  });
+  btnFs?.addEventListener("click", () => void togglePreviewColumnFullscreen());
+
+  rvSeqHintBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleSeqHintPop();
   });
 
   rvVtkPlay?.addEventListener("click", () => {
     if (meshSeqFrames.length < 2) return;
     if (vtkPlaying) {
       vtkPlaying = false;
-      if (rvVtkPlay) rvVtkPlay.textContent = "▶";
       if (vtkPlayTimer) {
         clearTimeout(vtkPlayTimer);
         vtkPlayTimer = null;
       }
+      syncPlayBtnUi();
       updateVtkSeqBarUi();
       return;
     }
-    if (vtkLoadBusy) return;
+    if (vtkLoadBusy && !vtkPlaying) return;
     vtkPlaying = true;
-    if (rvVtkPlay) rvVtkPlay.textContent = "❚❚";
+    syncPlayBtnUi();
     scheduleVtkAdvance();
   });
   rvVtkFirst?.addEventListener("click", () => {
@@ -1126,6 +1815,11 @@ export function mountResultsViewer(opts = {}) {
     stopVtkPlayback();
     void showMeshFrameAtIndex(meshSeqFrames.length - 1);
   });
+  rvVtkSlider?.addEventListener("input", () => {
+    if (!rvVtkSlider) return;
+    const v = parseInt(rvVtkSlider.value, 10);
+    if (Number.isFinite(v)) applyVtkSeqLabel(v);
+  });
   rvVtkSlider?.addEventListener("change", () => {
     stopVtkPlayback();
     const v = parseInt(rvVtkSlider.value, 10);
@@ -1141,16 +1835,26 @@ export function mountResultsViewer(opts = {}) {
     }
   }
 
-  rvIntervalDown?.addEventListener("click", () => bumpIntervalMs(-50));
-  rvIntervalUp?.addEventListener("click", () => bumpIntervalMs(50));
+  rvIntervalDown?.addEventListener("click", () => {
+    bumpIntervalMs(-50);
+    savePlaybackIntervalMs();
+  });
+  rvIntervalUp?.addEventListener("click", () => {
+    bumpIntervalMs(50);
+    savePlaybackIntervalMs();
+  });
   rvIntervalMs?.addEventListener("change", () => {
     syncIntervalInputDisplay();
+    savePlaybackIntervalMs();
     if (vtkPlaying) {
       if (vtkPlayTimer) clearTimeout(vtkPlayTimer);
       scheduleVtkAdvance();
     }
   });
-  rvIntervalMs?.addEventListener("blur", () => syncIntervalInputDisplay());
+  rvIntervalMs?.addEventListener("blur", () => {
+    syncIntervalInputDisplay();
+    savePlaybackIntervalMs();
+  });
 
   rvMeshTrackSelect?.addEventListener("change", () => {
     stopVtkPlayback();
@@ -1162,8 +1866,91 @@ export function mountResultsViewer(opts = {}) {
     void showMeshFrameAtIndex(0);
   });
 
+  rvVtkJump?.addEventListener("change", () => {
+    stopVtkPlayback();
+    const n = meshSeqFrames.length;
+    let v = parseInt(String(rvVtkJump?.value), 10);
+    if (!Number.isFinite(v) || n < 1) {
+      updateVtkSeqBarUi();
+      return;
+    }
+    v = Math.max(1, Math.min(n, v));
+    void showMeshFrameAtIndex(v - 1);
+  });
+
+  rvVtkLoop?.addEventListener("click", () => {
+    meshPlaybackLoop = !meshPlaybackLoop;
+    syncLoopBtnUi();
+    savePlaybackLoopPref();
+  });
+
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && root.classList.contains("isOpen")) close();
+    if (!root.classList.contains("isOpen")) return;
+    const t = e.target instanceof Element ? e.target : null;
+    const typing = Boolean(t && (t.closest("input, textarea, select") || t.closest('[contenteditable="true"]')));
+
+    if (e.key === "Escape") {
+      if (isPreviewColFullscreen()) {
+        exitPreviewFullscreenIfNeeded();
+        e.preventDefault();
+        return;
+      }
+      if (rvHelpPopover?.classList.contains("resultsViewerHelpPopover--open")) {
+        closeHelpPopover();
+        e.preventDefault();
+        return;
+      }
+      if (rvSeqHintPop?.classList.contains("resultsViewerSeqHintPop--open")) {
+        closeSeqHintPop();
+        e.preventDefault();
+        return;
+      }
+      if (ctxMenu && !ctxMenu.classList.contains("hidden")) {
+        closeCtxMenu();
+        return;
+      }
+      close();
+      return;
+    }
+
+    const seqBarOn = rvVtkSeqBar && !rvVtkSeqBar.classList.contains("hidden") && meshSeqFrames.length >= 1;
+    if (!typing && seqBarOn && !(vtkLoadBusy && !vtkPlaying)) {
+      const spaceBlocked = Boolean(
+        t?.closest?.("button:not(#rvVtkPlay), a, .rvFilter, [role=menuitem], input, textarea, select"),
+      );
+      if (e.code === "Space" && meshSeqFrames.length >= 2) {
+        if (spaceBlocked) return;
+        e.preventDefault();
+        rvVtkPlay?.click();
+        return;
+      }
+      const arrowBlocked = t === rvVtkSlider || Boolean(t?.closest?.(".resultsViewerFileList"));
+      if (e.key === "ArrowLeft" && !arrowBlocked) {
+        e.preventDefault();
+        stopVtkPlayback();
+        void showMeshFrameAtIndex(meshSeqIndex - 1);
+        return;
+      }
+      if (e.key === "ArrowRight" && !arrowBlocked) {
+        e.preventDefault();
+        stopVtkPlayback();
+        void showMeshFrameAtIndex(meshSeqIndex + 1);
+        return;
+      }
+      const homeEndBlocked = Boolean(t?.closest?.(".resultsViewerFileList"));
+      if (e.key === "Home" && !homeEndBlocked) {
+        e.preventDefault();
+        stopVtkPlayback();
+        void showMeshFrameAtIndex(0);
+        return;
+      }
+      if (e.key === "End" && !homeEndBlocked) {
+        e.preventDefault();
+        stopVtkPlayback();
+        void showMeshFrameAtIndex(meshSeqFrames.length - 1);
+        return;
+      }
+    }
   });
 
   return {
@@ -1173,6 +1960,11 @@ export function mountResultsViewer(opts = {}) {
     applyImportedFiles,
     destroy: () => {
       stopVtkPlayback();
+      closeHelpPopover();
+      closeSeqHintPop();
+      exitPreviewFullscreenIfNeeded();
+      document.removeEventListener("fullscreenchange", onPreviewFsChange);
+      document.removeEventListener("webkitfullscreenchange", onPreviewFsChange);
       revokeBlobs();
       destroyThree();
       root.remove();

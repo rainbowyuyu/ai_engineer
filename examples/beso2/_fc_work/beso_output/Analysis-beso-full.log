@@ -1,0 +1,348 @@
+
+---------------------------------------------------
+file_name = D:\python_project\beso_ai\examples\beso2\_fc_work\beso_output\Analysis-beso-full.inp
+Start at    Thu May 14 03:28:29 2026
+
+elset_name              = design_space
+domain_optimized        = True
+domain_density          = [1e-06, 1]
+domain_thickness        = [1.0, 1.0]
+domain_offset           = 0.0
+domain_orientation      = []
+domain_FI               = [[('stress_von_Mises', 450000000.0)], [('stress_von_Mises', 450.0)]]
+domain_material         = ['*ELASTIC \n210000e-6,  0.3', '*ELASTIC \n210000,  0.3']
+domain_same_state       = False
+
+mass_goal_ratio         = 0.15
+continue_from           = 
+filter_list             = [['simple', 1149.1592536047383]]
+optimization_base       = stiffness
+cpu_cores               = 24
+FI_violated_tolerance   = 1
+decay_coefficient       = -0.2
+shells_as_composite     = False
+reference_points        = integration points
+reference_value         = max
+mass_addition_ratio     = 0.01
+mass_removal_ratio      = 0.03
+ratio_type              = relative
+compensate_state_filter = False
+sensitivity_averaging   = False
+steps_superposition     = []
+iterations_limit        = auto
+tolerance               = 0.001
+displacement_graph      = []
+save_iteration_results  = 1
+save_solver_files       = 
+save_resulting_format   = inp vtk
+
+domains: 1
+nodes  : 1372
+TRIA3  : 0
+TRIA6  : 0
+QUAD4  : 0
+QUAD8  : 0
+TETRA4 : 4472
+TETRA10: 0
+HEXA8  : 0
+HEXA20 : 0
+PENTA6 : 0
+PENTA15: 0
+
+iterations_limit        = 119
+
+domain order: 
+0) design_space
+
+   i              mass    ener_dens_mean FI_violated_0)          FI_mean    _without_state0         FI_max_0)
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+   0 29158643686472.637  1.844107329849349e-11            0 2.352365724237965e-06 2.352365724237965e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+   1 28281591794732.77  1.9013046319682884e-11            0 2.4236317006058558e-06 2.423631775766156e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+   2 27709931814943.57  1.940541676211545e-11            0 2.4721260784510937e-06 2.4721262076972473e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+   3 27156213674754.156  1.9801316053831466e-11            0 2.5208593841892343e-06 2.5208595700711816e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+   4 26624136846711.496  2.0197344466751747e-11            0 2.568956085227495e-06 2.5689563297816723e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+   5 26092173697918.81  2.060954137529107e-11            0 2.618842765829805e-06 2.6188430736083697e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+   6 25564149262305.07  2.10359585868821e-11            0 2.669772107582197e-06 2.6697724829708613e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+   7 25058717198352.703  2.1461085233473187e-11            0 2.7203139008853456e-06 2.720314345963994e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+   8 24553850170352.074  2.1903439010978488e-11            0 2.7725447799684696e-06 2.7725452999281213e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+   9 24058569174732.57  2.2355905000518664e-11            0 2.8254964388992706e-06 2.8254970378650587e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  10 23589612239938.637  2.2801714122841674e-11            0 2.8783382306814037e-06 2.8783389101998154e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  11 23122100202288.637  2.326421928425788e-11            0 2.932752532714449e-06 2.9327532983763205e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  12 22695156633739.266  2.370371296907624e-11            0 2.984132438792828e-06 2.984133288662533e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  13 22258707194375.45  2.4170716246424057e-11            0 3.0395211864013893e-06 3.039522128618308e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  14 21806235442785.52  2.4674955462438082e-11            0 3.099114800820675e-06 3.099115845750582e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  15 21370037500824.285  2.518112085079887e-11            0 3.158222434993989e-06 3.1582235860534697e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  16 20933513460340.336  2.570965135798575e-11            0 3.219754392590254e-06 3.2197556576877772e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  17 20530750654425.36  2.6217035981400468e-11            0 3.2788467440691615e-06 3.278848121981711e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  18 20122690499923.535  2.675278800458668e-11            0 3.341519288462899e-06 3.3415207889508992e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  19 19735354718821.625  2.728256834223557e-11            0 3.4031711654982813e-06 3.4031727904557787e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  20 19354002268420.566  2.7823438674284404e-11            0 3.467259902061329e-06 3.4672616585606162e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  21 18965354581121.246  2.839804271084976e-11            0 3.534287522435913e-06 3.5342894220086145e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  22 18580202359545.977  2.899095040243255e-11            0 3.6030901201581915e-06 3.603092171542591e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  23 18220654463300.87  2.9568263935647145e-11            0 3.6697486227388577e-06 3.6697508257187327e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  24 17854537356861.05  3.0179938949388744e-11            0 3.740546015053325e-06 3.740548383280407e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  25 17496192328269.824  3.080408173453072e-11            0 3.8128527410990325e-06 3.8128552826396625e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  26 17148809705555.64  3.1435111855506416e-11            0 3.886578048756051e-06 3.886580770649713e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  27 16776886393705.016  3.213803268528814e-11            0 3.970044713543609e-06 3.970047643539935e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  28 16439496594150.29  3.280603735684581e-11            0 4.047967495432449e-06 4.047970627327943e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  29 16119707924133.305  3.346400125137734e-11            0 4.124259362852437e-06 4.124262698896143e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  30 15808841802165.357  3.4128892502563193e-11            0 4.199624489360481e-06 4.199628035746673e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  31 15490186964887.549  3.4839130472245226e-11            0 4.2819643578600265e-06 4.281968136249199e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  32 15178483528267.502  3.55627474949446e-11            0 4.365993435932527e-06 4.365997457243653e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  33 14876258405259.764  3.629484533766059e-11            0 4.450082458036161e-06 4.450086730475846e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  34 14576035698408.61  3.7053878879352115e-11            0 4.538038650772655e-06 4.538043190866573e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  35 14269786827629.916  3.7859724567327834e-11            0 4.631583207674917e-06 4.6315880402012276e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  36 13971216784077.748  3.868689619152669e-11            0 4.7267623479064245e-06 4.726767486149464e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  37 13683383234450.777  3.951063893054817e-11            0 4.82107905421946e-06 4.821084506643884e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  38 13433602184182.064  4.025908592443235e-11            0 4.909147386235884e-06 4.909153132774517e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  39 13170578950519.182  4.107751432881595e-11            0 5.006846623315359e-06 5.006852701253573e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  40 12890680665434.697  4.1983873941275424e-11            0 5.109841944536568e-06 5.109848393141566e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  41 12645857211400.611  4.28146887758286e-11            0 5.208106747988554e-06 5.208113548678419e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  42 12356912685648.475  4.383524058482827e-11            0 5.324789501390575e-06 5.324796741539811e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  43 12098929208255.15  4.4787655462872737e-11            0 5.432288081794411e-06 5.432295741439774e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  44 11830409901475.13  4.582308757362293e-11            0 5.551228515598077e-06 5.551236646611566e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  45  11608176992034.5  4.672390621801302e-11            0 5.652531114339088e-06 5.652539660453456e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  46 11374027093572.543  4.7705179295514595e-11            0 5.763761195846311e-06 5.763770208181598e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  47 11148849903759.672  4.8692101369863116e-11            0 5.879429873816548e-06 5.8794393714416216e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  48 10904336238051.322  4.9807160653501334e-11            0 6.0009941300234055e-06 6.001004175961305e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  49 10704298092296.969  5.0760710465430533e-11            0 6.105752272889773e-06 6.105762799312747e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  50 10465994400817.418  5.194928850825133e-11            0 6.2404522261831725e-06 6.240463371890423e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  51 10243930431629.084  5.310443237181969e-11            0 6.368540813832931e-06 6.368552572939151e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  52 10045397462863.342  5.418805628826263e-11            0 6.495339410881592e-06 6.495351769514712e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  53   9870312570038.5  5.5189735096979263e-11            0 6.611390953659426e-06 6.6114038735212496e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  54 9688881028145.623  5.6250576765467164e-11            0 6.731801673565728e-06 6.731815201131478e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  55 9498471750458.854  5.741184821019874e-11            0 6.861273097666332e-06 6.861287299342812e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  56 9287369594607.105  5.877207726577164e-11            0 7.020883764960949e-06 7.0208987869046986e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  57   9077663036838.8  6.020488535275076e-11            0 7.182571883596362e-06 7.182587772437982e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  58 8908674038174.299  6.137494660734247e-11            0 7.31152858782501e-06 7.311545207438202e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  59  8751187525116.42  6.251172137586391e-11            0 7.43530976668277e-06 7.435327105616857e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  60 8582532545321.554  6.378605382160062e-11            0 7.574756949957122e-06 7.5747751100479205e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  61 8375972255874.104  6.541623530161935e-11            0 7.749577973574645e-06 7.749597202087873e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  62 8197475354462.344  6.68977042450245e-11            0 7.912610938831324e-06 7.912631171665524e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  63 8002088905311.8955  6.86185602036922e-11            0 8.097162318531221e-06 8.0971837265266e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  64 7852416263614.896  6.996896230230135e-11            0 8.24303733403406e-06 8.243059700229925e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  65 7693885289963.299  7.147728474848583e-11            0 8.401152231695606e-06 8.401175669708972e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  66 7543403177699.627  7.296140198331474e-11            0 8.55936983977933e-06 8.559394366315744e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  67 7386330269765.729  7.458036097592072e-11            0 8.732019267087704e-06 8.732045006122339e-06 0.0001314513870729959
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  68 7231033146114.506  7.627795600685533e-11            0 8.912411252122341e-06 8.91243827850528e-06 0.00013146499854652148
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  69 7087683343995.4795  7.789898293311098e-11            0 9.080961631179277e-06 9.080989909300455e-06 0.0001314669109784779
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  70 6934563698534.325  7.972044485315709e-11            0 9.268689534732841e-06 9.268719239408232e-06 0.0001314669109784779
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  71 6787884172743.029  8.154841180543414e-11            0 9.459126146588344e-06 9.459157321066241e-06 0.00013147028613187946
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  72 6623939747341.798  8.375907208993617e-11            0 9.710546796600979e-06 9.710579832115885e-06 0.00013147028613187946
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  73 6484877341039.469  8.565707599169384e-11            0 9.911062476847066e-06 9.911097130104675e-06 0.00013147028613187946
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  74 6347635217834.953  8.764105252966054e-11            0 1.0123889821468766e-05 1.0123926203080062e-05 0.00013147028613187946
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  75 6208646298145.623  8.975956557515987e-11            0 1.0341798637915091e-05 1.0341836866114097e-05 0.00013146853281506947
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  76 6074112977619.498  9.189189333980004e-11            0 1.0558825801365088e-05 1.0558865930139325e-05 0.00013146853281506947
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  77 5947759002272.854  9.40101297799661e-11            0 1.0778926813716198e-05 1.07789688782406e-05 0.00013146853281506947
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  78 5832832326066.133  9.614005283022675e-11            0 1.0986315373674436e-05 1.0986359308762322e-05 0.00013148427390950596
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  79 5722975844373.907  9.812835969420562e-11            0 1.1185788018497478e-05 1.1185833824692571e-05 0.00013148427390950596
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  80 5610940121587.348  1.003513927355457e-10            0 1.1413999341626667e-05 1.14140472435582e-05 0.00013148427390950596
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  81 5483866017827.479  1.0293232698224923e-10            0 1.1665227447463627e-05 1.1665277808492442e-05 0.00013148427390950596
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  82 5358736730708.242  1.0569218025984495e-10            0 1.1934428444090725e-05 1.1934481449089156e-05 0.00013147741118605638
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  83 5241676811723.968  1.0843069330116497e-10            0 1.2209301773766321e-05 1.2209357483246492e-05 0.00013147741118605638
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  84 5118578055831.098  1.112933342874385e-10            0 1.2485128176886388e-05 1.2485186815243998e-05 0.00013147741118605638
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  85 4996053129502.771  1.1437655641349692e-10            0 1.2808020490240882e-05 1.2808082434490276e-05 0.00013147741118605638
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  86 4900465972102.309  1.1689773893495499e-10            0 1.3047950264742271e-05 1.3048014854799914e-05 0.00013147741118605638
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  87 4805313932414.276  1.195513871735975e-10            0 1.3290905651572431e-05 1.329097301028752e-05 0.00013152348649443914
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  88 4714804283872.558  1.222373576653341e-10            0 1.353197308800458e-05 1.3532043244770939e-05 0.00013152348649443914
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  89 4619244612380.255  1.257726811115161e-10            0 1.3859828409504106e-05 1.385990203929336e-05 0.0001315141988867335
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  90 4520234280697.198  1.2928206758662357e-10            0 1.4182367811916004e-05 1.4182445116147788e-05 0.0001315141988867335
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  91 4429075824619.842  1.32312825604941e-10            0 1.4457155533083705e-05 1.4457236254565267e-05 0.0001315141988867335
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  92 4359608549113.7793  1.3478091130364814e-10            0 1.4672245473741216e-05 1.4672328935354924e-05 0.00013163333853987038
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  93 4364889395660.9355  1.3459980091308678e-10            0 1.4657369320597147e-05 1.4657452578982024e-05 0.00013163333853987038
+
+ERROR: simple filter failed due to division by 0.Some element has not a near element in distance <= r_min.
+  94 4364889395660.9346  1.3459980091308683e-10            0 1.465736932059715e-05 1.4657452578982024e-05 0.00013163333853987038
+
+OSCILLATION: model turns back to 93th iteration.
+
+Finished at  Thu May 14 03:29:44 2026
+Total time   0 h 1 min 15 s
+

@@ -10,6 +10,8 @@
 
 可选环境变量：
   CCX_PATH                CalculiX 可执行文件路径
+  BESO_EXAMPLE_INP        主 INP 路径（默认 ``examples/beso2/Analysis-beso.inp``；流水线产物常为 ``_fc_work/Analysis-beso.inp``）
+  BESO_EXAMPLE_OUT        BESO 工作目录（默认 ``<inp 父目录>/beso_output`` 或 ``examples/beso2/beso_output``）
 """
 from __future__ import annotations
 
@@ -25,8 +27,6 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 EX_DIR = REPO / "examples" / "beso2"
-INP = EX_DIR / "Analysis-beso.inp"
-OUT = EX_DIR / "beso_output"
 
 
 def main() -> int:
@@ -47,14 +47,28 @@ def main() -> int:
         os.environ.pop("BESO_ITERATIONS_LIMIT", None)
         print("[INFO] 已取消 BESO_ITERATIONS_LIMIT（按 BESO 自动 iterations_limit 跑满）。")
 
-    if not INP.is_file():
-        print(f"[FAIL] 找不到 {INP}；请先用 FreeCADCmd 运行 freecad_fcstd_pipeline_runner（见 examples/beso2/README.txt）")
+    env_inp = (os.environ.get("BESO_EXAMPLE_INP") or "").strip()
+    inp_path = Path(env_inp).resolve() if env_inp else (EX_DIR / "Analysis-beso.inp").resolve()
+    env_out = (os.environ.get("BESO_EXAMPLE_OUT") or "").strip()
+    if env_out:
+        out_dir = Path(env_out).resolve()
+    elif inp_path.parent.name in ("_fc_work", "_beso_work"):
+        out_dir = (inp_path.parent / "beso_output").resolve()
+    else:
+        out_dir = (EX_DIR / "beso_output").resolve()
+
+    if not inp_path.is_file():
+        print(
+            f"[FAIL] 找不到 {inp_path}；请先用 FreeCAD 跑 freecad_fcstd_pipeline_runner，"
+            "或设置 BESO_EXAMPLE_INP 指向生成的 Analysis-beso*.inp",
+            file=sys.stderr,
+        )
         return 2
-    OUT.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
     tpl = EX_DIR / "beso_conf.py"
     if tpl.is_file():
-        shutil.copy2(tpl, OUT / "beso_conf.py")
-    elif (OUT / "beso_conf.py").is_file():
+        shutil.copy2(tpl, out_dir / "beso_conf.py")
+    elif (out_dir / "beso_conf.py").is_file():
         pass
 
     from backend.tools.beso import run_beso_job
@@ -70,8 +84,8 @@ def main() -> int:
     try:
         run_beso_job(
             workspace_root=REPO,
-            run_dir=OUT.resolve(),
-            inp_path=str(INP.resolve()),
+            run_dir=out_dir,
+            inp_path=str(inp_path),
             mass_goal_ratio=0.15,
             filter_radius=2.0,
             optimization_base="stiffness",
