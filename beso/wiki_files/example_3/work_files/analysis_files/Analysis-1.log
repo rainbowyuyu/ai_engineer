@@ -146,3 +146,99 @@ OSCILLATION: model turns back to 72th iteration.
 Finished at  Thu Oct 25 09:51:28 2018
 Total time   0 h 15 min 50 s
 
+
+---------------------------------------------------
+file_name = Analysis-1.inp
+Start at    Sun May 17 00:20:53 2026
+
+elset_name              = design_space
+domain_optimized        = True
+domain_density          = [7.833e-12, 7.833e-06]
+domain_thickness        = [1.0, 1.0]
+domain_offset           = 0.0
+domain_orientation      = []
+domain_FI               = [[('stress_von_Mises', 1000000000.0)], [('stress_von_Mises', 1000.0)]]
+domain_material         = ['*ELASTIC \n200000e-6,  0.27', '*ELASTIC \n200000,  0.27']
+domain_same_state       = False
+
+elset_name              = nondesign_space
+domain_optimized        = False
+domain_density          = [7.833e-12, 7.833e-06]
+domain_thickness        = [1.0, 1.0]
+domain_offset           = 0.0
+domain_orientation      = []
+domain_FI               = [[('stress_von_Mises', 1000000000.0)], [('stress_von_Mises', 1000.0)]]
+domain_material         = ['*ELASTIC \n200000e-6,  0.27', '*ELASTIC \n200000,  0.27']
+domain_same_state       = False
+
+mass_goal_ratio         = 0.1
+continue_from           = 
+filter_list             = [['simple', 10]]
+optimization_base       = stiffness
+cpu_cores               = 24
+FI_violated_tolerance   = 1
+decay_coefficient       = -0.2
+shells_as_composite     = False
+reference_points        = integration points
+reference_value         = max
+mass_addition_ratio     = 0.04
+mass_removal_ratio      = 0.08
+ratio_type              = relative
+compensate_state_filter = True
+sensitivity_averaging   = False
+steps_superposition     = []
+iterations_limit        = auto
+tolerance               = 0.001
+displacement_graph      = []
+save_iteration_results  = 1
+save_solver_files       = 
+save_resulting_format   = inp vtk
+
+
+---------------------------------------------------
+file_name = Analysis-1.inp
+Start at    Sun May 17 00:21:20 2026
+
+elset_name              = design_space
+domain_optimized        = True
+domain_density          = [7.833e-12, 7.833e-06]
+domain_thickness        = [1.0, 1.0]
+domain_offset           = 0.0
+domain_orientation      = []
+domain_FI               = [[('stress_von_Mises', 1000000000.0)], [('stress_von_Mises', 1000.0)]]
+domain_material         = ['*ELASTIC \n200000e-6,  0.27', '*ELASTIC \n200000,  0.27']
+domain_same_state       = False
+
+elset_name              = nondesign_space
+domain_optimized        = False
+domain_density          = [7.833e-12, 7.833e-06]
+domain_thickness        = [1.0, 1.0]
+domain_offset           = 0.0
+domain_orientation      = []
+domain_FI               = [[('stress_von_Mises', 1000000000.0)], [('stress_von_Mises', 1000.0)]]
+domain_material         = ['*ELASTIC \n200000e-6,  0.27', '*ELASTIC \n200000,  0.27']
+domain_same_state       = False
+
+mass_goal_ratio         = 0.1
+continue_from           = 
+filter_list             = [['simple', 10]]
+optimization_base       = stiffness
+cpu_cores               = 24
+FI_violated_tolerance   = 1
+decay_coefficient       = -0.2
+shells_as_composite     = False
+reference_points        = integration points
+reference_value         = max
+mass_addition_ratio     = 0.04
+mass_removal_ratio      = 0.08
+ratio_type              = relative
+compensate_state_filter = True
+sensitivity_averaging   = False
+steps_superposition     = []
+iterations_limit        = auto
+tolerance               = 0.001
+displacement_graph      = []
+save_iteration_results  = 1
+save_solver_files       = 
+save_resulting_format   = inp vtk
+

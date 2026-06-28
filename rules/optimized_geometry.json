@@ -1,0 +1,375 @@
+{
+  "title": "BESO7 方法一参数化重建 + BESO3 参考边立柱 — 几何参数汇总",
+  "units": "mm",
+  "source_files": {
+    "beso7_reconstructed_fcstd": "rebuilt.FCStd",
+    "beso7_reconstructed_step": "rebuilt.step",
+    "beso7_measurements": "measurements.json",
+    "beso7_inp": "D:\\python_project\\beso_ai\\examples\\beso\\beso7\\beso_output\\file051_state1.inp",
+    "beso3_reference_fcstd": "D:\\python_project\\beso_ai\\examples\\beso\\beso1\\BESO3.FCStd"
+  },
+  "beso7_method1_topology_reconstructed": {
+    "description": "由 BESO7 拓扑优化末步 INP 边界网格 PCA 拟合得到的三柱 + 顶盘（中间可设计域优化结果的外形）",
+    "method": "PCA 圆柱拟合 + 顶盘圆盘拟合，Part.makeLoft / makeCylinder 布尔合并",
+    "legs": [
+      {
+        "id": 1,
+        "name": "优化结果柱 1",
+        "radius_mm": 4804.463976,
+        "diameter_mm": 9608.928108,
+        "length_mm": 51507.180036000005,
+        "station_fracs": [
+          0.0,
+          0.333,
+          0.667,
+          1.0
+        ],
+        "station_radii_mm": [
+          4009.17,
+          3080.83,
+          3094.72,
+          2806.49
+        ],
+        "axis_unit": [
+          -0.0461,
+          0.6707,
+          -0.7403
+        ],
+        "base_xyz_mm": [
+          1524.9468,
+          2592.8292,
+          10390.0
+        ],
+        "top_xyz_mm": [
+          -849.4356,
+          37138.0152,
+          -14053.02
+        ],
+        "center_xyz_mm": [
+          164.65,
+          13488.77,
+          -2664.36
+        ],
+        "element_count": 5152
+      },
+      {
+        "id": 2,
+        "name": "优化结果柱 2",
+        "radius_mm": 4894.910124,
+        "diameter_mm": 9789.820248,
+        "length_mm": 51477.977616000004,
+        "station_fracs": [
+          0.0,
+          0.333,
+          0.667,
+          1.0
+        ],
+        "station_radii_mm": [
+          4093.65,
+          3184.91,
+          3144.14,
+          2909.63
+        ],
+        "axis_unit": [
+          -0.5556,
+          -0.3766,
+          -0.7412
+        ],
+        "base_xyz_mm": [
+          -3031.0332000000003,
+          166.53,
+          10390.28
+        ],
+        "top_xyz_mm": [
+          -31634.132400000002,
+          -19222.226400000003,
+          -14069.04
+        ],
+        "center_xyz_mm": [
+          -11733.71,
+          -6529.95,
+          -2670.57
+        ],
+        "element_count": 5304
+      },
+      {
+        "id": 3,
+        "name": "优化结果柱 3",
+        "radius_mm": 4875.405132,
+        "diameter_mm": 9750.810264,
+        "length_mm": 51812.249579999996,
+        "station_fracs": [
+          0.0,
+          0.333,
+          0.667,
+          1.0
+        ],
+        "station_radii_mm": [
+          2828.3,
+          3174.07,
+          3102.16,
+          3812.76
+        ],
+        "axis_unit": [
+          -0.6026,
+          0.2986,
+          0.74
+        ],
+        "base_xyz_mm": [
+          32400.326399999998,
+          -17968.6728,
+          -14035.61
+        ],
+        "top_xyz_mm": [
+          1175.9904000000001,
+          -2498.262,
+          10543.5
+        ],
+        "center_xyz_mm": [
+          11522.11,
+          -6936.7,
+          -2679.91
+        ],
+        "element_count": 5188
+      }
+    ],
+    "legs_statistics": {
+      "radius_mm": {
+        "min": 3079.7846,
+        "max": 3137.7629,
+        "mean": 3114.2691
+      },
+      "diameter_mm": {
+        "min": 6159.5693,
+        "max": 6275.5258,
+        "mean": 6228.5382
+      },
+      "length_mm": {
+        "min": 32998.7036,
+        "max": 33212.9805,
+        "mean": 33076.3691
+      }
+    },
+    "hub_top_plate": {
+      "name": "顶部圆盘（连接三柱）",
+      "center_xy_mm": [
+        -35.646,
+        -43.9608
+      ],
+      "radius_mm": 12076.155624,
+      "diameter_mm": 24152.311248,
+      "thickness_mm": 4433.062,
+      "z_bottom_mm": 7566.938,
+      "z_top_mm": 12000.0,
+      "element_count": 2552
+    },
+    "assembly_from_fcstd": {
+      "volume_mm3": 3506993200098.65,
+      "volume_m3": 3506.9932,
+      "bounding_box_mm": {
+        "x_length": 46150.53,
+        "y_length": 41319.45,
+        "z_length": 28820.72,
+        "x_min": -22887.1,
+        "x_max": 23263.43,
+        "y_min": -15228.63,
+        "y_max": 26090.82,
+        "z_min": -16175.3,
+        "z_max": 12645.42
+      }
+    }
+  },
+  "beso3_reference_from_fcstd": {
+    "description": "原始 Chen2026 / BESO3 装配：Pad001 为可拓扑优化的中间设计域；Pad 含三根边立柱（nondesign_space）、桩靴及顶面以上中央延伸柱",
+    "model_role": {
+      "design_domain_solid": "Pad001",
+      "nondesign_solids": "Pad（边柱、桩靴、中央延伸柱等，BESO 中 domain_optimized=False）"
+    },
+    "z_levels_mm": {
+      "footing_bottom": -20000.0,
+      "hub_and_column_bottom": -14000.0,
+      "hub_and_design_top": 12000.0,
+      "assembly_top": 88000.0
+    },
+    "design_domain_pad001": {
+      "name": "中间设计域（Pad001，可拓扑优化）",
+      "bounding_box_mm": {
+        "x_length": 43940.42,
+        "y_length": 38132.34,
+        "z_length": 26000.0,
+        "x_min": -21970.21,
+        "x_max": 21970.21,
+        "y_min": -14435.2,
+        "y_max": 23697.14,
+        "z_min": -14000.0,
+        "z_max": 12000.0
+      },
+      "volume_mm3": 26664093890927.27,
+      "volume_m3": 26664.09,
+      "top_triangle_corners_xy_mm": [
+        [
+          -2986.55,
+          23697.14
+        ],
+        [
+          -18937.9,
+          -14435.2
+        ],
+        [
+          21970.21,
+          -9183.1
+        ]
+      ]
+    },
+    "edge_columns_nondesign": [
+      {
+        "id": 1,
+        "name": "边立柱 1（+Y 侧）",
+        "role": "nondesign_space 边柱",
+        "center_xy_mm": [
+          0.0,
+          45037.200000000004
+        ],
+        "radius_mm": 9318.036,
+        "diameter_mm": 18636.0876,
+        "height_mm": 26000.0,
+        "z_bottom_mm": -14000.0,
+        "z_top_mm": 12000.0,
+        "axis": "竖直 +Z",
+        "angular_position_deg": 90.0,
+        "footing": {
+          "center_xy_mm": [
+            0.0,
+            34870.0
+          ],
+          "height_mm": 6000.0,
+          "z_bottom_mm": -20000.0,
+          "z_top_mm": -14000.0,
+          "footprint_bbox_mm": {
+            "x": 24000.0,
+            "y": 12000.0
+          },
+          "equivalent_radius_mm": 10810.800000000001,
+          "equivalent_diameter_mm": 13860.0
+        }
+      },
+      {
+        "id": 2,
+        "name": "边立柱 2（左下）",
+        "role": "nondesign_space 边柱",
+        "center_xy_mm": [
+          -39003.35400000001,
+          -22518.600000000002
+        ],
+        "radius_mm": 9460.2456,
+        "diameter_mm": 18920.4756,
+        "height_mm": 26000.0,
+        "z_bottom_mm": -14000.0,
+        "z_top_mm": 12000.0,
+        "axis": "竖直 +Z",
+        "angular_position_deg": 210.0,
+        "footing": {
+          "center_xy_mm": [
+            -27998.94,
+            -15235.64
+          ],
+          "height_mm": 6000.0,
+          "z_bottom_mm": -20000.0,
+          "z_top_mm": -14000.0,
+          "footprint_bbox_mm": {
+            "x": 17993.58,
+            "y": 22385.88
+          },
+          "equivalent_radius_mm": 10810.800000000001,
+          "equivalent_diameter_mm": 13860.0
+        }
+      },
+      {
+        "id": 3,
+        "name": "边立柱 3（右下）",
+        "role": "nondesign_space 边柱",
+        "center_xy_mm": [
+          39003.35400000001,
+          -22518.600000000002
+        ],
+        "radius_mm": 9460.2456,
+        "diameter_mm": 18920.4756,
+        "height_mm": 26000.0,
+        "z_bottom_mm": -14000.0,
+        "z_top_mm": 12000.0,
+        "axis": "竖直 +Z",
+        "angular_position_deg": 330.0,
+        "footing": {
+          "center_xy_mm": [
+            27998.94,
+            -15235.64
+          ],
+          "height_mm": 6000.0,
+          "z_bottom_mm": -20000.0,
+          "z_top_mm": -14000.0,
+          "footprint_bbox_mm": {
+            "x": 17993.58,
+            "y": 22385.88
+          },
+          "equivalent_radius_mm": 10810.800000000001,
+          "equivalent_diameter_mm": 13860.0
+        }
+      }
+    ],
+    "edge_columns_statistics": {
+      "shaft_radius_mm": {
+        "min": 5973.1,
+        "max": 6064.26,
+        "mean": 6033.87
+      },
+      "shaft_diameter_mm": {
+        "min": 11946.21,
+        "max": 12128.51,
+        "mean": 12067.74
+      },
+      "shaft_height_mm": 26000.0,
+      "layout": "三根边立柱约 120° 均布，轴线竖直"
+    },
+    "central_extension_column_nondesign": {
+      "name": "中央延伸柱（Pad 在 Pad001 顶面以上，非设计域）",
+      "center_xy_mm": [
+        0.0,
+        0.0
+      ],
+      "radius_mm": 3250.0,
+      "diameter_mm": 6500.0,
+      "height_mm": 76000.0,
+      "z_bottom_mm": 12000.0,
+      "z_top_mm": 88000.0,
+      "volume_mm3": 2521913502669.21
+    },
+    "full_assembly_pad": {
+      "bounding_box_mm": {
+        "x_length": 43940.42,
+        "y_length": 38132.34,
+        "z_length": 102000.0,
+        "z_min": -14000.0,
+        "z_max": 88000.0
+      },
+      "volume_mm3": 29186007393596.48,
+      "volume_m3": 29186.01
+    }
+  },
+  "comparison_notes": [
+    "BESO7 method1 三柱参数来自拓扑优化末步 INP 外形拟合（≈3100 mm 柱径），反映优化后中间设计域连顶盘的整体形态。",
+    "BESO3 边立柱为 CAD 原始非设计域（nondesign_space），柱径约 5973–6064 mm（直径约 11.9–12.1 m），高于优化结果拟合值，且为竖直圆柱。",
+    "BESO3 每根边柱下方有桩靴（z -20000 ~ -14000，高约 6000 mm， footprint 更大）。",
+    "BESO3 Pad001 中间设计域包围盒约 43940 × 38132 × 26000 mm；顶面为三角形区域，三顶点坐标见 design_domain_pad001.top_triangle_corners_xy_mm。",
+    "BESO3 在 hub 顶面（z=12000）以上还有中央延伸柱（R=3250 mm，高 76000 mm），属于非设计域。",
+    "直径 = 2 × 半径；桩靴等效半径由 Solid 体积 / (π×高度) 估算。"
+  ],
+  "optimization_info": {
+    "target_power_MW": 20.0,
+    "scale_factor": 1.56,
+    "wall_thickness_m": 0.06,
+    "steel_density_kgpm3": 7850.0,
+    "draft_m": 20.0,
+    "top_plate_hollow": true,
+    "top_plate_wall_m": 0.06
+  }
+}

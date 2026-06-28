@@ -56,6 +56,7 @@ from backend.tools.cad_iges_to_inp import (
 )
 from backend.oc4_design_domain_service import session_dir as oc4_design_domain_session_dir
 from backend.routes.oc4_design_domain_api import router as oc4_design_domain_router
+from backend.routes.validation_api import router as validation_router
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,7 @@ _cad_convert_registry_lock = threading.Lock()
 
 app = FastAPI(title="AI Engineer Web")
 app.include_router(oc4_design_domain_router, prefix="/api/oc4/design-domain")
+app.include_router(validation_router, prefix="/api/validation")
 
 app.add_middleware(
     CORSMiddleware,
@@ -835,7 +837,9 @@ def scan_directory(scan_dir: str):
         bundle = scan_input_directory(scan_dir)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-    return bundle.as_dict()
+    payload = bundle.as_dict()
+    payload["workspace_root"] = str(WORKSPACE_ROOT.resolve())
+    return payload
 
 
 @app.get("/api/scan_directory")
@@ -1077,6 +1081,58 @@ async def preview_inp_mesh_vtk(file: UploadFile = File(...)):
             pass
 
     return PlainTextResponse(vtk_text, media_type="text/plain; charset=utf-8")
+
+
+class Beso7ParametricRebuildRequest(BaseModel):
+    measurements_path: str
+    out_dir: str | None = None
+    params: dict[str, Any] | None = None
+    preview_only: bool = True
+
+
+@app.post("/api/beso7/parametric-rebuild")
+def api_beso7_parametric_rebuild(body: Beso7ParametricRebuildRequest):
+    """BESO7 方法一：按 measurements.json + 半径缩放参数重建变径柱 preview.stl。"""
+    from backend.tools.beso7_parametric_rebuild import run_beso7_parametric_rebuild
+
+    meas = Path(body.measurements_path).resolve()
+    if not meas.is_file():
+        raise HTTPException(status_code=400, detail=f"measurements.json 不存在: {meas}")
+    if not _path_under_workspace(meas):
+        raise HTTPException(status_code=400, detail="路径必须位于工作区 WORKSPACE_ROOT 内")
+
+    out_dir = Path(body.out_dir).resolve() if body.out_dir else meas.parent.resolve()
+    if not _path_under_workspace(out_dir):
+        raise HTTPException(status_code=400, detail="out_dir 必须位于工作区 WORKSPACE_ROOT 内")
+
+    try:
+        stl_path = run_beso7_parametric_rebuild(
+            measurements_path=meas,
+            out_dir=out_dir,
+            params=body.params,
+            preview_only=bool(body.preview_only),
+            timeout_s=240.0,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except subprocess.TimeoutExpired as e:
+        raise HTTPException(status_code=504, detail="FreeCAD 重建超时") from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    rel = stl_path.resolve().relative_to(WORKSPACE_ROOT.resolve())
+    if rel.parts and rel.parts[0] in {"runs", "examples", "third_party", "uploads"}:
+        url = "/" + "/".join(quote_plus(p) for p in rel.parts)
+    else:
+        url = None
+
+    return {
+        "ok": True,
+        "preview_path": str(stl_path),
+        "preview_url": url,
+        "measurements_path": str(meas),
+        "out_dir": str(out_dir),
+    }
 
 
 def _safe_upload_file_id(file_id: str) -> str:

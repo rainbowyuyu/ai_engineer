@@ -1,0 +1,5 @@
+# Optional validation module deps (install alongside backend/requirements.txt):
+#   pip install -r backend/requirements-validation.txt
+matplotlib>=3.8
+pypdf>=4.0
+PyYAML>=6.0

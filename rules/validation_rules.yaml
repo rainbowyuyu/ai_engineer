@@ -1,0 +1,494 @@
+# 验证打分规则库 v2 — 对齐 DNV ST-0437 / DNVGL-OS-C301 / DNVGL-RP-0286 与行业基准
+# 每条规则含：法规溯源(regulation_ref)、条款索引(clause_ref)、单位(unit)、可量化阈值
+
+category_weights:
+  benchmark: 0.35
+  stability_watertight: 0.25
+  structural_layout: 0.28
+  detailing_fatigue_proxy: 0.12
+
+# 综合分校准：未提供审图/称重总钢量时限制满分概率
+scoring_config:
+  max_overall_shell_estimate: 92.0
+  max_overall_volume_proxy: 96.0
+  shell_estimate_note_zh: 钢重来自壳体侧面积估算，基准对标分已降权并设综合分上限；请提供 validation_overrides.steel_mass_t 或称重数据以解除校准
+
+rules:
+  # ── 基准对标（35%）── 风电项目钢耗强度统计表 + 20 MW 示范目标
+  - id: bench_intensity_fleet_rank
+    category: benchmark
+    weight: 0.10
+    source: 风电项目钢耗强度统计表.xlsx
+    regulation_ref: 行业对标 / 20 MW 同容量样本
+    metric: steel_intensity_t_per_MW
+    operator: percentile_rank
+    unit: t/MW
+    reference:
+      capacity_MW: 20
+      peer_set: same_capacity_20mw
+    scoring:
+      excellent: 88
+      good: 72
+      pass: 58
+    description_zh: 钢耗强度在 20 MW 同容量项目中的分位排名（越低越优，满分表示优于多数已建成项目）
+    clause_ref: fleet_benchmark
+
+  - id: bench_intensity_cap_300
+    category: benchmark
+    weight: 0.08
+    source: 图强示范 / 国家重大专项指标
+    regulation_ref: 国内 20 MW 漂浮式示范设计目标
+    metric: steel_intensity_t_per_MW
+    operator: margin_below
+    unit: t/MW
+    limits:
+      cap: 300
+      margin_excellent: 80
+      margin_good: 30
+      margin_pass: 0
+    scoring:
+      excellent: 92
+      good: 78
+      pass: 62
+    description_zh: 相对 300 t/MW 上限的安全裕度（含优于图强 278 t/MW 的加分区间）
+    clause_ref: tuqiang_target
+
+  - id: bench_intensity_vs_tuqiang
+    category: benchmark
+    weight: 0.06
+    source: 风电项目钢耗强度统计表.xlsx
+    regulation_ref: 图强 (2026) 已建成基准
+    metric: steel_intensity_t_per_MW
+    operator: delta_vs_reference
+    unit: t/MW
+    reference:
+      name: Tuqiang
+    limits:
+      reference_value: 278
+      max_delta_pct: 10
+    scoring:
+      excellent: 90
+      good: 75
+      pass: 60
+    description_zh: 相对图强示范（278 t/MW）增幅不超过 10%（优于则满分）
+    clause_ref: fleet_benchmark
+
+  - id: bench_intensity_vs_ai
+    category: benchmark
+    weight: 0.04
+    source: 风电项目钢耗强度统计表.xlsx
+    regulation_ref: AI 方案 (2026) 智能优化基准
+    metric: steel_intensity_t_per_MW
+    operator: delta_vs_reference
+    unit: t/MW
+    reference:
+      name: AI
+    limits:
+      reference_value: 255.5
+      max_delta_pct: 12
+    scoring:
+      excellent: 90
+      good: 75
+      pass: 60
+    description_zh: 相对 AI 优化方案（255.5 t/MW）的竞争力（允许一定工程保守余量）
+    clause_ref: fleet_benchmark
+
+  - id: bench_total_steel_rank
+    category: benchmark
+    weight: 0.06
+    source: 风电项目钢耗强度统计表.xlsx
+    regulation_ref: 20 MW 级总用钢量横向对比
+    metric: total_steel_t
+    operator: percentile_rank
+    unit: t
+    reference:
+      capacity_MW: 20
+      peer_set: same_capacity_20mw
+    scoring:
+      excellent: 85
+      good: 70
+      pass: 55
+    description_zh: 估算总用钢量在 20 MW 项目样本中的分位表现
+    clause_ref: fleet_benchmark
+
+  - id: bench_total_steel_band
+    category: benchmark
+    weight: 0.04
+    source: 风电项目钢耗强度统计表.xlsx
+    regulation_ref: 20 MW 漂浮式总钢量工程合理区间
+    metric: total_steel_t
+    operator: design_stage_mass_band
+    unit: t
+    limits:
+      min: 3800
+      max: 9000
+    scoring:
+      excellent: 90
+      good: 75
+      pass: 60
+    description_zh: 总用钢量处于 20 MW 已建成项目常见区间；壳体估算偏低时给予设计阶段基础分（待称重校核）
+    clause_ref: fleet_benchmark
+
+  - id: bench_intensity_fleet_plausibility
+    category: benchmark
+    weight: 0.08
+    source: 风电项目钢耗强度统计表.xlsx
+    regulation_ref: 钢耗强度 — 设计阶段对标图强
+    metric: intensity_ratio_vs_tuqiang
+    operator: design_stage_ratio
+    unit: ratio
+    limits:
+      reference_ratio: 1.0
+      max: 1.12
+      floor_optimistic: 82
+      cap_unverified: 92
+    scoring:
+      excellent: 88
+      good: 72
+      pass: 58
+    description_zh: 钢耗强度相对图强（278 t/MW）的比值；设计阶段领先给予较高分但上限 92，待审图/称重后可达满分
+    clause_ref: fleet_plausibility
+
+  - id: bench_total_steel_fleet_alignment
+    category: benchmark
+    weight: 0.07
+    source: 风电项目钢耗强度统计表.xlsx
+    regulation_ref: 总钢量 — 20 MW 机队中位对齐
+    metric: total_steel_ratio_vs_fleet_median
+    operator: design_stage_ratio
+    unit: ratio
+    limits:
+      reference_ratio: 1.0
+      max: 1.18
+      floor_optimistic: 76
+      cap_unverified: 85
+    scoring:
+      excellent: 88
+      good: 72
+      pass: 58
+    description_zh: 总钢量相对 20 MW 同容量样本中位之比；估算偏低时保留设计阶段基础分
+    clause_ref: fleet_plausibility
+
+  - id: meta_steel_estimate_confidence
+    category: benchmark
+    weight: 0.05
+    source: AI Engineer 验证模块
+    regulation_ref: 数据可信度 — 钢重来源
+    metric: estimation_confidence_score
+    operator: range
+    unit: score
+    limits:
+      min: 0.55
+      max: 1.0
+    scoring:
+      excellent: 90
+      good: 75
+      pass: 60
+    description_zh: 钢重来源置信度（1.0=审图 override；0.62=壳体估算；0.72=体积代理）；在合理区间内不额外压低基准分
+    clause_ref: data_quality
+
+  - id: bench_intensity_international
+    category: benchmark
+    weight: 0.04
+    source: 风电项目钢耗强度统计表.xlsx
+    regulation_ref: 国际漂浮式项目（WindFloat/Kincardine 等）
+    metric: steel_intensity_t_per_MW
+    operator: max
+    unit: t/MW
+    limits:
+      max: 390
+    scoring:
+      excellent: 90
+      good: 75
+      pass: 60
+    description_zh: 不劣于 WindFloat Atlantic 等国际项目公开钢耗强度（390 t/MW）
+    clause_ref: fleet_international
+
+  # ── 稳性 / 水密（25%）── DNVGL-OS-C301
+  - id: c301_operating_draft
+    category: stability_watertight
+    weight: 0.10
+    source: DNVGL-OS-C301 §2 Stability principles
+    regulation_ref: DNVGL-OS-C301 — Operating draft window
+    metric: draft_m
+    operator: range
+    unit: m
+    limits:
+      min: 15
+      max: 28
+    scoring:
+      excellent: 92
+      good: 78
+      pass: 62
+    description_zh: 运营吃水处于 20 MW 半潜式常见窗口（15–28 m），兼顾稳性与拖航/压载
+    clause_ref: c301_draft_general
+
+  - id: c301_draft_scale_consistency
+    category: stability_watertight
+    weight: 0.06
+    source: DNVGL-OS-C301 — Column stabilised units
+    regulation_ref: DNVGL-OS-C301 — Draft vs column height
+    metric: draft_m
+    operator: target_band
+    unit: m
+    limits:
+      target: 20
+      tolerance: 4
+    scoring:
+      excellent: 90
+      good: 75
+      pass: 60
+    description_zh: 设计吃水与 20 MW 标准尺度（约 20 m）一致，偏差 ±4 m 内
+    clause_ref: c301_draft_general
+
+  - id: c301_vertical_envelope
+    category: stability_watertight
+    weight: 0.08
+    source: DNVGL-OS-C301 — Watertight envelope
+    regulation_ref: DNVGL-OS-C301 — Watertight boundary height
+    metric: bbox_z_m
+    operator: range
+    unit: m
+    limits:
+      min: 22
+      max: 110
+    scoring:
+      excellent: 90
+      good: 75
+      pass: 60
+    description_zh: 水密包络竖向尺度满足半潜式从吃水线至 hub 区的结构连续性
+    clause_ref: c301_watertight_envelope
+
+  - id: c301_hub_freeboard
+    category: stability_watertight
+    weight: 0.06
+    source: DNVGL-OS-C301 — Freeboard / load line
+    regulation_ref: DNVGL-OS-C301 — Deck clearance above draft
+    metric: freeboard_proxy_m
+    operator: min
+    unit: m
+    limits:
+      min: -8
+    scoring:
+      excellent: 90
+      good: 75
+      pass: 60
+    description_zh: Hub 顶面相对设计吃水的干舷代理（允许负值表示 hub 低于名义吃水面但需在审图计算中复核）
+    clause_ref: c301_freeboard
+
+  - id: c301_closure_thickness
+    category: stability_watertight
+    weight: 0.05
+    source: DNVGL-OS-C301 — Closure arrangements
+    regulation_ref: DNVGL-OS-C301 — Watertight deck/plate scantlings
+    metric: top_plate_thickness_m
+    operator: range
+    unit: m
+    limits:
+      min: 0.04
+      max: 6.0
+    scoring:
+      excellent: 90
+      good: 75
+      pass: 60
+    description_zh: 顶盘/封舱板厚度在可水密、可检验的合理范围（壳体尺度，非整体几何高度）
+    clause_ref: c301_watertight_closure
+
+  # ── 结构布局（28%）── DNV-ST-0437
+  - id: st0437_column_spacing
+    category: structural_layout
+    weight: 0.10
+    source: DNV-ST-0437 — Layout and stability
+    regulation_ref: DNV-ST-0437 — Column spacing at design waterline
+    metric: column_spacing_m
+    operator: range
+    unit: m
+    limits:
+      min: 55
+      max: 85
+    scoring:
+      excellent: 92
+      good: 78
+      pass: 62
+    description_zh: 三柱中心间距（优先 BESO3 边柱布局，否则设计域三角尺度）满足稳性与系泊布置
+    clause_ref: st0437_layout_spacing
+
+  - id: st0437_triangular_layout
+    category: structural_layout
+    weight: 0.06
+    source: DNV-ST-0437 — Geometry requirements
+    regulation_ref: DNV-ST-0437 — 120° column layout
+    metric: leg_layout_angle_deg_std
+    operator: max
+    unit: deg
+    limits:
+      max: 8
+    scoring:
+      excellent: 92
+      good: 78
+      pass: 62
+    description_zh: 三柱平面布置接近 120° 均布（角间隔标准差 ≤ 8°）
+    clause_ref: st0437_triangular_layout
+
+  - id: st0437_column_diameter
+    category: structural_layout
+    weight: 0.07
+    source: DNV-ST-0437 — Column strength scantlings
+    regulation_ref: DNV-ST-0437 — Column diameter for 20 MW tri-float
+    metric: leg_mean_diameter_m
+    operator: range
+    unit: m
+    limits:
+      min: 5.5
+      max: 13.0
+    scoring:
+      excellent: 90
+      good: 75
+      pass: 60
+    description_zh: 柱体等效直径处于 20 MW 半潜式主柱常见尺度（约 5.5–13 m）
+    clause_ref: st0437_column_sizing
+
+  - id: st0437_column_uniformity
+    category: structural_layout
+    weight: 0.05
+    source: DNV-ST-0437 — Fabrication symmetry
+    regulation_ref: DNV-ST-0437 — Column size uniformity
+    metric: leg_diameter_uniformity_pct
+    operator: max
+    unit: "%"
+    limits:
+      max: 8
+    scoring:
+      excellent: 90
+      good: 75
+      pass: 60
+    description_zh: 三柱直径一致性（max-min 相对均值 ≤ 8%），利于载荷对称与建造互换
+    clause_ref: st0437_column_uniformity
+
+  - id: st0437_slenderness
+    category: structural_layout
+    weight: 0.06
+    source: DNV-ST-0437 — Buckling / global stability
+    regulation_ref: DNV-ST-0437 — Column slenderness L/D
+    metric: leg_slenderness_L_over_D
+    operator: slenderness_tier
+    unit: "-"
+    limits:
+      min: 1.5
+      ideal_min: 2.5
+      ideal_max: 8.0
+      max: 12.0
+    scoring:
+      excellent: 90
+      good: 75
+      pass: 60
+    description_zh: 主柱长细比 L/D（半潜式主柱常见 2.5–8；过短/过长均需 ULS 屈曲复核）
+    clause_ref: st0437_slenderness
+
+  - id: st0437_hub_interface_diameter
+    category: structural_layout
+    weight: 0.06
+    source: DNV-ST-0437 — Tower interface
+    regulation_ref: DNV-ST-0437 — Hub connection plate scale
+    metric: top_plate_diameter_m
+    operator: range
+    unit: m
+    limits:
+      min: 18
+      max: 28
+    scoring:
+      excellent: 90
+      good: 75
+      pass: 60
+    description_zh: 顶盘直径与 20 MW 风机接口及三柱汇交尺度匹配
+    clause_ref: st0437_hub_interface
+
+  - id: st0437_plate_leg_ratio
+    category: structural_layout
+    weight: 0.05
+    source: DNV-ST-0437 — Joint force transfer
+    regulation_ref: DNV-ST-0437 — Plate-to-column scale ratio
+    metric: plate_to_leg_diameter_ratio
+    operator: range
+    unit: "-"
+    limits:
+      min: 2.8
+      max: 5.5
+    scoring:
+      excellent: 90
+      good: 75
+      pass: 60
+    description_zh: 顶盘直径与柱径比（约 3–5）符合汇交节点力传递与构造习惯
+    clause_ref: st0437_hub_interface
+
+  - id: st0437_design_domain_footprint
+    category: structural_layout
+    weight: 0.04
+    source: DNV-ST-0437 — Design domain extent
+    regulation_ref: DNV-ST-0437 — Triangular design domain span
+    metric: design_domain_span_m
+    operator: range
+    unit: m
+    limits:
+      min: 38
+      max: 52
+    scoring:
+      excellent: 88
+      good: 72
+      pass: 58
+    description_zh: 设计域三角边长尺度与 Chen2026 OC4 半潜式包络一致
+    clause_ref: st0437_design_domain
+
+  # ── 疲劳 / 细节（12%）── DNVGL-RP-0286
+  - id: rp0286_min_thickness
+    category: detailing_fatigue_proxy
+    weight: 0.04
+    source: DNVGL-RP-0286 — Thickness for fatigue
+    regulation_ref: DNVGL-RP-0286 — Minimum plate thickness (corrosion allowance)
+    metric: wall_thickness_m
+    operator: min
+    unit: m
+    limits:
+      min: 0.040
+    scoring:
+      excellent: 92
+      good: 78
+      pass: 62
+    description_zh: 壳体名义壁厚 ≥ 40 mm（含腐蚀余量与可焊性，20 MW 级推荐下限）
+    clause_ref: rp0286_thickness_floor
+
+  - id: rp0286_dt_ratio
+    category: detailing_fatigue_proxy
+    weight: 0.04
+    source: DNVGL-RP-0286 — Tubular joints
+    regulation_ref: DNVGL-RP-0286 — D/t for tubular members
+    metric: dt_ratio
+    operator: range
+    unit: "-"
+    limits:
+      min: 80
+      max: 250
+    scoring:
+      excellent: 90
+      good: 75
+      pass: 60
+    description_zh: 柱体 D/t 比处于管节点疲劳与局部屈曲常用审查区间（80–250）
+    clause_ref: rp0286_dt_ratio
+
+  - id: rp0286_taper_gradual
+    category: detailing_fatigue_proxy
+    weight: 0.04
+    source: DNVGL-RP-0286 — Hotspot transitions
+    regulation_ref: DNVGL-RP-0286 — Gradual section transition
+    metric: leg_taper_ratio
+    operator: range
+    unit: "-"
+    limits:
+      min: 1.0
+      max: 1.45
+    scoring:
+      excellent: 90
+      good: 75
+      pass: 60
+    description_zh: 变径柱半径变化率适中（顶/底半径比 ≤ 1.45），降低热点应力集中风险
+    clause_ref: rp0286_taper_transition

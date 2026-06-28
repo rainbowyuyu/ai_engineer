@@ -1,9 +1,10 @@
 /**
- * 本地结果查看器：导入文件夹，按类型筛选，预览 STEP / OBJ / INP / VTK 与四张指标 PNG；
+ * 本地结果查看器：导入文件夹，按类型筛选，预览 STEP / STL / OBJ / INP / VTK 与四张指标 PNG；
  * 支持 BESO 多轨迭代序列：`fileNNN.vtk`、`fileNNN_state0.inp`、`fileNNN_state1.inp`、`fileNNN.inp` 分开，可在工具条选择要播放的序列。
  */
 import * as THREE from "three";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
+import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { parseInpC3D4ToBufferGeometry } from "./flow_main.inpCcxAscii.js";
 import { parseLegacyAsciiUnstructuredGridTets } from "./flow_main.vtkLegacyAscii.js";
@@ -47,6 +48,32 @@ function flattenNumberArray(arr) {
 }
 
 const METRIC_NAMES = ["Mass.png", "FI_mean.png", "FI_max.png", "FI_violated.png"];
+const RV_PREVIEW_EXTS = new Set([".vtk", ".inp", ".obj", ".step", ".stp", ".stl"]);
+const RV_STATIC_MOUNT_PREFIXES = new Set(["runs", "examples", "third_party", "uploads"]);
+const RV_FILE_ACCEPT = ".vtk,.inp,.obj,.step,.stp,.stl";
+
+function normFsPath(p) {
+  return String(p || "").replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+function workspaceRelativeFetchUrl(base, absPath, workspaceRoot) {
+  const root = normFsPath(workspaceRoot);
+  const abs = normFsPath(absPath);
+  if (!root || !abs.toLowerCase().startsWith(`${root.toLowerCase()}/`)) return null;
+  const rel = abs.slice(root.length).replace(/^\/+/, "");
+  const top = rel.split("/")[0] || "";
+  if (!RV_STATIC_MOUNT_PREFIXES.has(top)) return null;
+  const segs = rel.split("/").filter(Boolean).map((x) => encodeURIComponent(x));
+  return `${String(base || "").replace(/\/+$/, "")}/${segs.join("/")}`;
+}
+
+function isResultsViewerFetchItem(it) {
+  const ext = String(it?.ext || extOf(it?.name || "")).toLowerCase();
+  if (RV_PREVIEW_EXTS.has(ext)) return true;
+  const nm = String(it?.name || "").toLowerCase();
+  if (nm === "measurements.json") return true;
+  return METRIC_NAMES.some((m) => m.toLowerCase() === nm);
+}
 
 function extOf(name) {
   const i = name.lastIndexOf(".");
@@ -159,10 +186,165 @@ function pickDefaultMeshFile(files) {
     return e === ".step" || e === ".stp";
   });
   if (steps.length) {
+    const prefer = steps.find((f) => /rebuilt|fitted|smoothed/i.test(f.name));
+    if (prefer) return prefer;
     return [...steps].sort((a, b) => a.name.localeCompare(b.name))[0];
+  }
+  const stls = arr.filter((f) => extOf(f.name) === ".stl");
+  if (stls.length) {
+    const prefer = stls.find((f) => /smoothed|preview|overlay|raw_boundary/i.test(f.name));
+    if (prefer) return prefer;
+    return [...stls].sort((a, b) => a.name.localeCompare(b.name))[0];
   }
   const inps = arr.filter((f) => extOf(f.name) === ".inp").sort((a, b) => a.name.localeCompare(b.name));
   return inps[0] || null;
+}
+
+const PARAMETRIC_SCALE_MIN = 0.35;
+const PARAMETRIC_SCALE_MAX = 1.75;
+const PARAMETRIC_WALL_MIN = 20;
+const PARAMETRIC_WALL_MAX = 1200;
+const PARAMETRIC_MAX_STATIONS = 8;
+
+function findMeasurementsFile(files) {
+  return (
+    Array.from(files || []).find((f) => {
+      const rel = (f.webkitRelativePath || f.name || "").toLowerCase();
+      return rel.endsWith("measurements.json") || f.name?.toLowerCase() === "measurements.json";
+    }) || null
+  );
+}
+
+function clampParametric(v, lo, hi) {
+  return Math.min(hi, Math.max(lo, v));
+}
+
+function interpLegRadius(leg, t) {
+  const fracs = Array.isArray(leg.station_fracs) && leg.station_fracs.length ? leg.station_fracs : [0, 1 / 3, 2 / 3, 1];
+  const radii =
+    Array.isArray(leg.station_radii_mm) && leg.station_radii_mm.length === fracs.length
+      ? leg.station_radii_mm
+      : fracs.map(() => Number(leg.radius_mm) || 3000);
+  const tv = clampParametric(Number(t), 0, 1);
+  if (tv <= fracs[0]) return radii[0];
+  if (tv >= fracs[fracs.length - 1]) return radii[fracs.length - 1];
+  for (let i = 0; i < fracs.length - 1; i += 1) {
+    if (fracs[i] <= tv && tv <= fracs[i + 1]) {
+      const span = Math.max(fracs[i + 1] - fracs[i], 1e-9);
+      const u = (tv - fracs[i]) / span;
+      return radii[i] * (1 - u) + radii[i + 1] * u;
+    }
+  }
+  return radii[radii.length - 1];
+}
+
+/** @returns {{ t: number, scale: number, locked?: boolean }[]} */
+function defaultLegStationsFromMeas(leg) {
+  const fracs = Array.isArray(leg.station_fracs) && leg.station_fracs.length ? leg.station_fracs : [0, 1 / 3, 2 / 3, 1];
+  const scales = Array.isArray(leg.radius_scales) && leg.radius_scales.length === fracs.length ? leg.radius_scales : fracs.map(() => 1);
+  return fracs.map((t, i) => ({
+    t: Number(t),
+    scale: Number(scales[i] ?? 1),
+    locked: i === 0 || i === fracs.length - 1,
+  }));
+}
+
+function normalizeLegStations(stations) {
+  const cleaned = (stations || [])
+    .map((s) => ({ t: clampParametric(Number(s.t), 0, 1), scale: clampParametric(Number(s.scale), PARAMETRIC_SCALE_MIN, PARAMETRIC_SCALE_MAX) }))
+    .sort((a, b) => a.t - b.t);
+  if (!cleaned.length) return [{ t: 0, scale: 1, locked: true }, { t: 1, scale: 1, locked: true }];
+  if (cleaned[0].t > 1e-4) cleaned.unshift({ t: 0, scale: cleaned[0].scale, locked: true });
+  else cleaned[0] = { ...cleaned[0], t: 0, locked: true };
+  if (1 - cleaned[cleaned.length - 1].t > 1e-4) cleaned.push({ t: 1, scale: cleaned[cleaned.length - 1].scale, locked: true });
+  else cleaned[cleaned.length - 1] = { ...cleaned[cleaned.length - 1], t: 1, locked: true };
+  const out = [];
+  for (const st of cleaned) {
+    if (out.length && Math.abs(st.t - out[out.length - 1].t) < 0.008) out[out.length - 1] = { ...st, locked: st.locked || out[out.length - 1].locked };
+    else out.push({ ...st });
+  }
+  out[0].locked = true;
+  out[out.length - 1].locked = true;
+  return out;
+}
+
+function addOrientedFrustum(group, p0, p1, rBottom, rTop, color, opts = {}) {
+  const segLen = p0.distanceTo(p1);
+  if (segLen < 1) return;
+  const hollow = Boolean(opts.hollow);
+  const wall = Math.max(Number(opts.wall) || 0, 0);
+  const mk = (rb, rt, side, opacity = 1) => {
+    const geom = new THREE.CylinderGeometry(rt, rb, segLen, 36);
+    const mat = new THREE.MeshStandardMaterial({
+      color,
+      metalness: 0.12,
+      roughness: 0.42,
+      side,
+      transparent: opacity < 1,
+      opacity,
+    });
+    const mesh = new THREE.Mesh(geom, mat);
+    const mid = p0.clone().add(p1).multiplyScalar(0.5);
+    mesh.position.copy(mid);
+    const dir = p1.clone().sub(p0).normalize();
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    group.add(mesh);
+  };
+  mk(rBottom, rTop, THREE.DoubleSide, hollow ? 0.92 : 1);
+  if (hollow && wall > 0) {
+    const ri0 = Math.max(rBottom - wall, 1);
+    const ri1 = Math.max(rTop - wall, 1);
+    if (ri0 > 1.5 && ri1 > 1.5) mk(ri0, ri1, THREE.BackSide, 0.85);
+  }
+}
+
+/**
+ * @param {object} meas
+ * @param {{ t: number, scale: number }[][]} legStations
+ * @param {boolean[]} legHollow
+ * @param {number[]} legWallMm
+ * @param {number} hubScale
+ */
+function buildParametricThreeGroup(meas, legStations, legHollow, legWallMm, hubScale) {
+  const group = new THREE.Group();
+  const legColors = [0x7dd3fc, 0xa5b4fc, 0x6ee7b7];
+  const legs = Array.isArray(meas?.legs) ? meas.legs : [];
+  legs.forEach((leg, li) => {
+    const axis = new THREE.Vector3(...(leg.axis || [0, 0, 1])).normalize();
+    const base = new THREE.Vector3(...(leg.base || [0, 0, 0]));
+    const length = Math.max(Number(leg.length_mm) || 1, 1);
+    const stations = normalizeLegStations(legStations[li] || defaultLegStationsFromMeas(leg));
+    const color = legColors[li % legColors.length];
+    const hollow = Boolean(legHollow[li]);
+    const wall = Number(legWallMm[li]) || 200;
+    for (let si = 0; si < stations.length - 1; si += 1) {
+      const s0 = stations[si];
+      const s1 = stations[si + 1];
+      const r0 = Math.max(interpLegRadius(leg, s0.t) * (s0.scale ?? 1), 1);
+      const r1 = Math.max(interpLegRadius(leg, s1.t) * (s1.scale ?? 1), 1);
+      const p0 = base.clone().add(axis.clone().multiplyScalar(s0.t * length));
+      const p1 = base.clone().add(axis.clone().multiplyScalar(s1.t * length));
+      addOrientedFrustum(group, p0, p1, r0, r1, color, { hollow, wall });
+    }
+  });
+  const hub = meas?.hub;
+  if (hub) {
+    const hr = Math.max(Number(hub.radius_mm) * hubScale, 100);
+    const h = Math.max(Number(hub.thickness_mm) || 500, 100);
+    const z0 = Number(hub.z_bottom_mm) || 0;
+    const geom = new THREE.CylinderGeometry(hr, hr, h, 48);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xfcd34d,
+      metalness: 0.1,
+      roughness: 0.4,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geom, mat);
+    mesh.position.set(Number(hub.center_xy?.[0]) || 0, Number(hub.center_xy?.[1]) || 0, z0 + h / 2);
+    mesh.rotation.x = Math.PI / 2;
+    group.add(mesh);
+  }
+  return group;
 }
 
 function findFile(fileList, baseName) {
@@ -197,8 +379,8 @@ export function mountResultsViewer(opts = {}) {
                 <div id="rvHelpPopover" class="resultsViewerHelpPopover" role="region" aria-label="使用说明" aria-hidden="true">
                   <div class="resultsViewerHelpPopoverHd">使用说明</div>
                   <div class="resultsViewerHelpPopoverBd">
-                    <p class="resultsViewerHelpPopoverP">导入 <span class="mono">runs/&lt;job&gt;/</span> 或 <span class="mono">examples/beso/</span> · 筛选后预览 <span class="mono">.vtk / .step / .obj / .inp</span>；<span class="mono">file*.vtk</span>、<span class="mono">file*_state0.inp</span>、<span class="mono">file*_state1.inp</span> 等为<strong>不同序列</strong>，可在工具条切换播放。</p>
-                    <p class="resultsViewerHelpPopoverP"><span class="mono">STEP</span> 使用 <span class="mono">occt-import-js</span>（OpenCascade WASM）三角化；<span class="mono">VTK</span> / <span class="mono">INP(C3D4)</span> 为四面体展开三角面；<span class="mono">INP</span> 三维优先走服务端 <span class="mono">FreeCAD</span> 转换（需本机后端与 FreeCAD）；<span class="mono">VTK</span> 与 <span class="mono">state0</span>/<span class="mono">state1</span> 等为<strong>独立序列</strong>。单帧大文件解析可能需数秒。</p>
+                    <p class="resultsViewerHelpPopoverP">导入 <span class="mono">runs/&lt;job&gt;/</span> 或 <span class="mono">examples/beso/</span> · 筛选后预览 <span class="mono">.vtk / .step / .stl / .obj / .inp</span>；<span class="mono">file*.vtk</span>、<span class="mono">file*_state0.inp</span>、<span class="mono">file*_state1.inp</span> 等为<strong>不同序列</strong>，可在工具条切换播放。</p>
+                    <p class="resultsViewerHelpPopoverP"><span class="mono">STEP</span> 使用 <span class="mono">occt-import-js</span>（OpenCascade WASM）三角化；<span class="mono">STL</span> 为浏览器端三角网格；<span class="mono">VTK</span> / <span class="mono">INP(C3D4)</span> 为四面体展开三角面；<span class="mono">INP</span> 三维优先走服务端 <span class="mono">FreeCAD</span> 转换（需本机后端与 FreeCAD）；<span class="mono">VTK</span> 与 <span class="mono">state0</span>/<span class="mono">state1</span> 等为<strong>独立序列</strong>。单帧大文件解析可能需数秒。</p>
                     <p class="resultsViewerHelpPopoverP"><strong>播放快捷键</strong>（焦点不在输入框时）：<span class="mono">Space</span> 播放/暂停；<span class="mono">←</span> <span class="mono">→</span> 上一帧/下一帧；<span class="mono">Home</span> / <span class="mono">End</span> 首帧/末帧。拖动进度条时右侧帧号会随刻度预览；刻度确认后再加载对应帧。</p>
                   </div>
                 </div>
@@ -212,7 +394,9 @@ export function mountResultsViewer(opts = {}) {
       </header>
       <div class="resultsViewerToolbar">
         <button type="button" class="btn btnPrimary" id="rvPickBtn">导入文件夹</button>
+        <button type="button" class="btn" id="rvPickFilesBtn">导入文件</button>
         <input type="file" id="rvDirInput" class="hidden" webkitdirectory directory multiple />
+        <input type="file" id="rvFilesInput" class="hidden" multiple accept=".vtk,.inp,.obj,.step,.stp,.stl" />
         <span class="resultsViewerMeta" id="rvMeta">尚未导入</span>
       </div>
       <div class="resultsViewerVtkSeq hidden" id="rvVtkSeqBar" aria-label="迭代网格序列">
@@ -267,11 +451,23 @@ export function mountResultsViewer(opts = {}) {
           <div class="resultsViewerFilters" id="rvFilters">
             <button type="button" class="rvFilter active" data-ext="all">全部</button>
             <button type="button" class="rvFilter" data-ext=".stp">STEP</button>
+            <button type="button" class="rvFilter" data-ext=".stl">STL</button>
             <button type="button" class="rvFilter" data-ext=".obj">OBJ</button>
             <button type="button" class="rvFilter" data-ext=".inp">INP</button>
             <button type="button" class="rvFilter" data-ext=".vtk">VTK</button>
           </div>
           <input type="search" class="resultsViewerSearch" id="rvSearch" placeholder="筛选文件名…" autocomplete="off" />
+          <div class="resultsViewerParametric hidden" id="rvParametric" aria-label="变径柱参数调节">
+            <div class="resultsViewerParametricHd">
+              <span class="chip">变径柱</span>
+              <span class="resultsViewerParametricSub">摇杆控制点 · 可镂空</span>
+            </div>
+            <div class="resultsViewerParametricBd" id="rvParametricBd"></div>
+            <div class="resultsViewerParametricFt">
+              <button type="button" class="btn" id="rvParametricReset">重置缩放</button>
+              <span class="resultsViewerParametricStatus mono" id="rvParametricStatus"></span>
+            </div>
+          </div>
           <div class="resultsViewerFileList" id="rvFileList"></div>
         </aside>
         <section class="resultsViewerPreviewCol" id="rvPreviewCol">
@@ -285,10 +481,10 @@ export function mountResultsViewer(opts = {}) {
                   <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M24 6L8 14v20l16 8 16-8V14L24 6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" opacity=".35"/><path d="M24 14l10 5v12l-10 5-10-5V19l10-5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
                 </div>
                 <h3 class="resultsViewerCanvasEmptyTitle">等待三维预览</h3>
-                <p class="resultsViewerCanvasEmptyLead">导入优化输出目录，或将文件 / 文件夹拖入下方深色区域即可切换数据源。</p>
+                <p class="resultsViewerCanvasEmptyLead">请先点「导入文件夹」（如 <span class="mono">beso7/addition</span> 或 <span class="mono">beso_output</span>），或「导入文件」/ 拖入 <span class="mono">.stl</span>、<span class="mono">.step</span>。</p>
                 <ul class="resultsViewerCanvasEmptyList">
                   <li>网格：<span class="mono">.vtk</span>、<span class="mono">.inp</span>（C3D4）</li>
-                  <li>几何：<span class="mono">.step</span> / <span class="mono">.obj</span></li>
+                  <li>几何：<span class="mono">.step</span>、<span class="mono">.stl</span>、<span class="mono">.obj</span></li>
                   <li>多序列 <span class="mono">fileNNN.vtk</span> 可在上方轨道播放</li>
                 </ul>
               </div>
@@ -348,7 +544,9 @@ export function mountResultsViewer(opts = {}) {
   const shell = root.querySelector(".resultsViewerShell");
   const btnClose = root.querySelector("#rvCloseBtn");
   const btnPick = root.querySelector("#rvPickBtn");
+  const btnPickFiles = root.querySelector("#rvPickFilesBtn");
   const inpDir = root.querySelector("#rvDirInput");
+  const inpFiles = root.querySelector("#rvFilesInput");
   const meta = root.querySelector("#rvMeta");
   const hint = root.querySelector("#rvCanvasHint");
   const emptyState = root.querySelector("#rvCanvasEmpty");
@@ -435,6 +633,25 @@ export function mountResultsViewer(opts = {}) {
   const rvSeqHintPop = root.querySelector("#rvSeqHintPop");
   const rvVtkJump = root.querySelector("#rvVtkJump");
   const rvVtkLoop = root.querySelector("#rvVtkLoop");
+  const rvParametric = root.querySelector("#rvParametric");
+  const rvParametricBd = root.querySelector("#rvParametricBd");
+  const rvParametricReset = root.querySelector("#rvParametricReset");
+  const rvParametricStatus = root.querySelector("#rvParametricStatus");
+
+  /** @type {{ active: boolean, data: object|null, legStations: {t:number,scale:number,locked?:boolean}[][], legHollow: boolean[], legWallMm: number[], hubScale: number, measAbs: string|null, outAbs: string|null, rebuildTimer: ReturnType<typeof setTimeout>|null, rebuildGen: number, drag: object|null }} */
+  const parametric = {
+    active: false,
+    data: null,
+    legStations: [],
+    legHollow: [],
+    legWallMm: [],
+    hubScale: 1,
+    measAbs: null,
+    outAbs: null,
+    rebuildTimer: null,
+    rebuildGen: 0,
+    drag: null,
+  };
 
   const LS_PLAYBACK_MS = "beso_rv_playback_interval_ms";
   const LS_PLAYBACK_LOOP = "beso_rv_playback_loop";
@@ -567,6 +784,7 @@ export function mountResultsViewer(opts = {}) {
   loadSavedPlaybackPrefs();
 
   const objLoader = new OBJLoader();
+  const stlLoader = new STLLoader();
 
   METRIC_NAMES.forEach((name) => {
     const card = document.createElement("div");
@@ -896,6 +1114,25 @@ export function mountResultsViewer(opts = {}) {
     });
   }
 
+  async function previewStl(file) {
+    hideTextPreview();
+    showTransientCanvasHint("正在加载 STL…");
+    await new Promise((r) => requestAnimationFrame(r));
+    const buf = await file.arrayBuffer();
+    const geometry = stlLoader.parse(buf);
+    geometry.computeVertexNormals();
+    if (!threeApi) threeApi = initThree();
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xa5b4fc,
+      metalness: 0.1,
+      roughness: 0.44,
+      side: THREE.DoubleSide,
+    });
+    threeApi.setRoot(new THREE.Mesh(geometry, mat));
+    objLabel.textContent = file.name;
+    hideTransientCanvasHint();
+  }
+
   async function previewStep(file) {
     hideTextPreview();
     showTransientCanvasHint("正在加载 STEP（OpenCascade WASM）…");
@@ -903,6 +1140,9 @@ export function mountResultsViewer(opts = {}) {
 
     const occt = await loadOcctImportJs();
     const buf = new Uint8Array(await file.arrayBuffer());
+    if (buf.byteLength < 64) {
+      throw new Error("STEP 文件过小或为空，请确认导出是否成功");
+    }
     const params = {
       linearUnit: "millimeter",
       linearDeflectionType: "bounding_box_ratio",
@@ -1224,6 +1464,9 @@ export function mountResultsViewer(opts = {}) {
       } else if (ex === ".step" || ex === ".stp") {
         stopVtkPlayback();
         await previewStep(file);
+      } else if (ex === ".stl") {
+        stopVtkPlayback();
+        await previewStl(file);
       } else if (ex === ".inp") {
         stopVtkPlayback();
         syncMeshSeqIndexFromFile(file);
@@ -1240,7 +1483,9 @@ export function mountResultsViewer(opts = {}) {
 
   function isPreviewableFile(f) {
     const ex = extOf(f.name);
-    return ex === ".step" || ex === ".stp" || ex === ".obj" || ex === ".inp" || ex === ".vtk";
+    return (
+      ex === ".step" || ex === ".stp" || ex === ".stl" || ex === ".obj" || ex === ".inp" || ex === ".vtk"
+    );
   }
 
   function fileMatchesFilter(f) {
@@ -1249,6 +1494,8 @@ export function mountResultsViewer(opts = {}) {
     if (activeExtFilter !== "all") {
       if (activeExtFilter === ".stp") {
         if (ex !== ".stp" && ex !== ".step") return false;
+      } else if (activeExtFilter === ".stl") {
+        if (ex !== ".stl") return false;
       } else if (ex !== activeExtFilter) {
         return false;
       }
@@ -1281,13 +1528,15 @@ export function mountResultsViewer(opts = {}) {
       const icon =
         exn === ".step" || exn === ".stp"
           ? "⬡"
-          : exn === ".obj"
-            ? "◆"
-            : exn === ".inp"
-              ? "▤"
-              : exn === ".vtk"
-                ? "◇"
-                : "·";
+          : exn === ".stl"
+            ? "▣"
+            : exn === ".obj"
+              ? "◆"
+              : exn === ".inp"
+                ? "▤"
+                : exn === ".vtk"
+                  ? "◇"
+                  : "·";
       row.innerHTML = `<span class="resultsViewerFileIcon">${icon}</span><span class="resultsViewerFileName">${escapeHtml(
         f.name,
       )}</span>`;
@@ -1423,8 +1672,9 @@ export function mountResultsViewer(opts = {}) {
   /**
    * 与「导入文件夹」一致：用已有 File 列表刷新列表、序列轨与默认预览。
    * @param {File[]} fileList
+   * @param {{ measurementsAbs?: string, outDirAbs?: string }} [ctx]
    */
-  function applyImportedFiles(fileList) {
+  async function applyImportedFiles(fileList, ctx = {}) {
     const fl = Array.isArray(fileList) ? fileList : [];
     if (fl.length > 0) hideRichCanvasEmpty();
     stopVtkPlayback();
@@ -1450,14 +1700,17 @@ export function mountResultsViewer(opts = {}) {
     applyPngs(fl);
     updateVtkSeqBarUi();
     refreshFileList();
+    await setupParametricPanel(fl, ctx);
     const def = pickDefaultMeshFile(fl);
-    if (def) void loadPreviewForFile(def);
+    if (parametric.active) {
+      /* 变径柱实时预览已由 setupParametricPanel 展示 */
+    } else if (def) void loadPreviewForFile(def);
     else {
       if (fl.length === 0) {
         hideTransientCanvasHint();
         showRichCanvasEmpty();
       } else {
-        showTransientCanvasHint("未找到可预览的 .vtk / .step / .obj / .inp，可调整左侧筛选");
+        showTransientCanvasHint("未找到可预览的 .vtk / .step / .stl / .obj / .inp，可调整左侧筛选");
       }
       objLabel.textContent = "—";
     }
@@ -1469,8 +1722,21 @@ export function mountResultsViewer(opts = {}) {
     applyImportedFiles(Array.from(fl));
   }
 
+  function onFilesChange(ev) {
+    const fl = ev.target?.files;
+    if (!fl?.length) return;
+    applyImportedFiles(Array.from(fl));
+  }
+
+  async function fetchWorkspaceRoot(base) {
+    const r = await fetch(`${base}/api/cad-explorer/status`, { cache: "no-store" });
+    if (!r.ok) throw new Error(`无法获取 workspace_root (${r.status})`);
+    const j = await r.json();
+    return String(j.workspace_root || "");
+  }
+
   /**
-   * 通过 /api/scan-directory + /runs/… 拉取工作区内目录下的已扫描文件，等价于编程方式「导入文件夹」。
+   * 通过 /api/scan-directory + 工作区静态挂载（/runs、/examples 等）拉取可预览文件。
    * @param {string} scanDir 绝对路径（与后端 scan_dir 一致）
    */
   async function openFromScanDir(scanDir) {
@@ -1485,27 +1751,32 @@ export function mountResultsViewer(opts = {}) {
     }
     const bundle = await r.json();
     const items = Array.isArray(bundle.files) ? bundle.files : [];
+    let workspaceRoot = String(bundle.workspace_root || "");
+    if (!workspaceRoot) {
+      try {
+        workspaceRoot = await fetchWorkspaceRoot(base);
+      } catch {
+        workspaceRoot = "";
+      }
+    }
     /** @type {File[]} */
     const out = [];
     for (const it of items.slice(0, RV_SCAN_MAX_FILES)) {
-      const abs = String(it.path || "").replace(/\\/g, "/");
-      const low = abs.toLowerCase();
-      const i = low.indexOf("/runs/");
-      if (i < 0) continue;
-      const rel = abs.slice(i + "/runs/".length);
-      const segs = rel
-        .split("/")
-        .filter(Boolean)
-        .map((x) => encodeURIComponent(x))
-        .join("/");
-      const fu = `${base}/runs/${segs}`;
+      if (!isResultsViewerFetchItem(it)) continue;
+      const abs = String(it.path || "");
+      const fu =
+        workspaceRoot && abs
+          ? workspaceRelativeFetchUrl(base, abs, workspaceRoot)
+          : null;
+      if (!fu) continue;
       try {
         const fr = await fetch(fu, { cache: "no-store" });
         if (!fr.ok) continue;
         const buf = await fr.arrayBuffer();
         if (buf.byteLength > RV_SCAN_MAX_BYTES) continue;
-        const name = String(it.name || rel.split("/").pop() || "file");
-        const pseudo = `scan/${name}`;
+        const name = String(it.name || abs.split(/[/\\]/).pop() || "file");
+        const relPath = workspaceRoot ? normFsPath(abs).slice(normFsPath(workspaceRoot).length).replace(/^\/+/, "") : name;
+        const pseudo = relPath || name;
         const file = new File([buf], name, { type: "application/octet-stream" });
         try {
           Object.defineProperty(file, "webkitRelativePath", { value: pseudo, configurable: true });
@@ -1520,14 +1791,362 @@ export function mountResultsViewer(opts = {}) {
     open();
     if (!out.length) {
       applyImportedFiles([]);
-      if (meta)
-        meta.textContent = `已连接目录（扫描 ${items.length} 个输入项）但未能从 /runs/ 拉取可预览文件；请用「导入文件夹」或确认文件在 runs 下。`;
+      if (meta) {
+        meta.textContent =
+          `已扫描 ${items.length} 项，但未能从工作区静态路径拉取 STEP/STL/VTK 等；请点「导入文件夹」选择 ` +
+          `examples/beso/beso7/addition，或将 .stl/.step 拖入预览区。`;
+      }
       return;
     }
-    applyImportedFiles(out);
+    const measItem = items.find((it) => String(it.name || "").toLowerCase() === "measurements.json");
+    const method1Dir = s.replace(/\\/g, "/").includes("method1_parametric")
+      ? s
+      : `${s.replace(/\\/g, "/").replace(/\/+$/, "")}/method1_parametric`;
+    applyImportedFiles(out, {
+      measurementsAbs: measItem?.path || `${method1Dir}/measurements.json`,
+      outDirAbs: method1Dir,
+    });
     const tail = s.replace(/\\/g, "/").split("/").filter(Boolean).pop() || "scan";
-    if (meta) meta.textContent = `${tail} · 自服务器拉取 ${out.length} 个文件`;
+    if (meta) meta.textContent = `${tail} · 自服务器拉取 ${out.length} 个可预览文件`;
   }
+
+  function buildParametricParamsPayload() {
+    return {
+      leg_stations: parametric.legStations.map((sts) =>
+        normalizeLegStations(sts).map((s) => ({ t: s.t, scale: s.scale })),
+      ),
+      leg_hollow: [...parametric.legHollow],
+      leg_wall_mm: [...parametric.legWallMm],
+      hub_radius_scale: parametric.hubScale,
+    };
+  }
+
+  function parametricPreviewAndSync() {
+    previewParametricNow({ preserveView: true });
+    scheduleParametricServerRebuild();
+  }
+
+  function renderParametricJoysticks() {
+    if (!rvParametricBd || !parametric.data) return;
+    rvParametricBd.innerHTML = "";
+    const legs = Array.isArray(parametric.data.legs) ? parametric.data.legs : [];
+    legs.forEach((leg, li) => {
+      if (!parametric.legStations[li]) parametric.legStations[li] = defaultLegStationsFromMeas(leg);
+      parametric.legStations[li] = normalizeLegStations(parametric.legStations[li]);
+      if (parametric.legHollow[li] == null) parametric.legHollow[li] = false;
+      if (parametric.legWallMm[li] == null) parametric.legWallMm[li] = 200;
+
+      const block = document.createElement("div");
+      block.className = "resultsViewerParametricLeg";
+
+      const title = document.createElement("div");
+      title.className = "resultsViewerParametricLegTitle";
+      title.textContent = `柱 ${li + 1} · R≈${Number(leg.radius_mm || 0).toFixed(0)} mm`;
+      block.appendChild(title);
+
+      const opts = document.createElement("div");
+      opts.className = "resultsViewerParametricOpts";
+      const hollowLab = document.createElement("label");
+      hollowLab.className = "resultsViewerParametricCheck";
+      const hollowCb = document.createElement("input");
+      hollowCb.type = "checkbox";
+      hollowCb.checked = Boolean(parametric.legHollow[li]);
+      hollowCb.dataset.leg = String(li);
+      hollowCb.className = "rvParamHollow";
+      hollowLab.append(hollowCb, document.createTextNode(" 镂空"));
+      const wallLab = document.createElement("label");
+      wallLab.className = "resultsViewerParametricWallLab";
+      wallLab.innerHTML = `壁厚 <input type="number" class="rvParamWall" data-leg="${li}" min="${PARAMETRIC_WALL_MIN}" max="${PARAMETRIC_WALL_MAX}" step="10" value="${parametric.legWallMm[li]}" /> mm`;
+      opts.append(hollowLab, wallLab);
+      block.appendChild(opts);
+
+      const joyWrap = document.createElement("div");
+      joyWrap.className = "resultsViewerParametricJoyWrap";
+
+      const track = document.createElement("div");
+      track.className = "rvParamJoyTrack";
+      track.dataset.leg = String(li);
+      track.title = "上下拖中间点改位置；左右拖改半径；顶/底手柄仅调半径";
+
+      const axisLab = document.createElement("div");
+      axisLab.className = "rvParamJoyAxisLab";
+      axisLab.innerHTML = '<span class="rvParamJoyTop">顶</span><span class="rvParamJoyMid">摇杆轨</span><span class="rvParamJoyBot">底</span>';
+
+      const stations = parametric.legStations[li];
+      stations.forEach((st, si) => {
+        const h = document.createElement("button");
+        h.type = "button";
+        h.className = "rvParamJoyHandle";
+        if (st.locked) h.classList.add("rvParamJoyHandle--locked");
+        h.dataset.leg = String(li);
+        h.dataset.st = String(si);
+        const pct = (1 - st.t) * 100;
+        h.style.top = `${pct}%`;
+        const baseR = interpLegRadius(leg, st.t);
+        const effR = baseR * (st.scale ?? 1);
+        h.innerHTML = `<span class="rvParamJoyKnob"></span><span class="rvParamJoyTag">×${(st.scale ?? 1).toFixed(2)}</span><span class="rvParamJoyR">${effR.toFixed(0)}</span>`;
+        h.title = st.locked ? `端点 t=${(st.t * 100).toFixed(0)}% · 左右拖调半径` : `t=${(st.t * 100).toFixed(0)}% · 拖移位置/半径 · 双击删除`;
+        if (!st.locked) {
+          h.addEventListener("dblclick", (ev) => {
+            ev.preventDefault();
+            if (stations.length <= 2) return;
+            parametric.legStations[li] = stations.filter((_, j) => j !== si);
+            renderParametricJoysticks();
+            parametricPreviewAndSync();
+          });
+        }
+        track.appendChild(h);
+      });
+
+      joyWrap.append(axisLab, track);
+      block.appendChild(joyWrap);
+
+      const addBtn = document.createElement("button");
+      addBtn.type = "button";
+      addBtn.className = "btn rvParamAddSt";
+      addBtn.dataset.leg = String(li);
+      addBtn.textContent = "+ 控制点";
+      addBtn.disabled = stations.length >= PARAMETRIC_MAX_STATIONS;
+      block.appendChild(addBtn);
+
+      rvParametricBd.appendChild(block);
+    });
+
+    const hub = parametric.data.hub;
+    if (hub) {
+      const block = document.createElement("div");
+      block.className = "resultsViewerParametricLeg";
+      const title = document.createElement("div");
+      title.className = "resultsViewerParametricLegTitle";
+      title.textContent = `顶盘 · R≈${Number(hub.radius_mm).toFixed(0)} mm`;
+      block.appendChild(title);
+      const row = document.createElement("label");
+      row.className = "resultsViewerParametricRow";
+      row.innerHTML = `<span class="resultsViewerParametricLab">外圆缩放</span><input type="range" class="resultsViewerParametricRange" id="rvParametricHubRange" min="${PARAMETRIC_SCALE_MIN}" max="${PARAMETRIC_SCALE_MAX}" step="0.01" value="${parametric.hubScale}" /><span class="resultsViewerParametricVal mono" id="rvParametricHubVal">×${parametric.hubScale.toFixed(2)} → ${(Number(hub.radius_mm) * parametric.hubScale).toFixed(0)} mm</span>`;
+      block.appendChild(row);
+      rvParametricBd.appendChild(block);
+    }
+  }
+
+  function addMiddleStation(legIdx) {
+    const sts = normalizeLegStations(parametric.legStations[legIdx] || []);
+    if (sts.length >= PARAMETRIC_MAX_STATIONS) return;
+    let bestGap = 0;
+    let bestT = 0.5;
+    for (let i = 0; i < sts.length - 1; i += 1) {
+      const g = sts[i + 1].t - sts[i].t;
+      if (g > bestGap) {
+        bestGap = g;
+        bestT = (sts[i].t + sts[i + 1].t) / 2;
+      }
+    }
+    sts.splice(sts.length - 1, 0, { t: bestT, scale: 1 });
+    parametric.legStations[legIdx] = normalizeLegStations(sts);
+  }
+
+  function onJoyHandlePointerDown(handle, ev) {
+    if (!(handle instanceof HTMLElement)) return;
+    ev.preventDefault();
+    const legIdx = Number(handle.dataset.leg);
+    const stIdx = Number(handle.dataset.st);
+    const track = handle.closest(".rvParamJoyTrack");
+    if (!track || !parametric.legStations[legIdx]) return;
+    const stations = parametric.legStations[legIdx];
+    const station = stations[stIdx];
+    if (!station) return;
+    const locked = Boolean(station.locked);
+    const minT = stIdx > 0 ? stations[stIdx - 1].t + 0.04 : 0;
+    const maxT = stIdx < stations.length - 1 ? stations[stIdx + 1].t - 0.04 : 1;
+    parametric.drag = {
+      legIdx,
+      stIdx,
+      locked,
+      minT,
+      maxT,
+      startX: ev.clientX,
+      startY: ev.clientY,
+      startT: station.t,
+      startScale: station.scale,
+      track,
+    };
+    handle.setPointerCapture(ev.pointerId);
+  }
+
+  function onJoyHandlePointerMove(ev) {
+    const d = parametric.drag;
+    if (!d) return;
+    const stations = parametric.legStations[d.legIdx];
+    const station = stations?.[d.stIdx];
+    if (!station) return;
+    const dx = ev.clientX - d.startX;
+    const dy = ev.clientY - d.startY;
+    station.scale = clampParametric(d.startScale + dx * 0.0045, PARAMETRIC_SCALE_MIN, PARAMETRIC_SCALE_MAX);
+    if (!d.locked && d.track) {
+      const rect = d.track.getBoundingClientRect();
+      const relY = clampParametric((ev.clientY - rect.top) / Math.max(rect.height, 1), 0, 1);
+      const t = clampParametric(1 - relY, d.minT, d.maxT);
+      station.t = t;
+    }
+    parametric.legStations[d.legIdx] = normalizeLegStations(stations);
+    renderParametricJoysticks();
+    previewParametricNow({ preserveView: true });
+  }
+
+  function onJoyHandlePointerUp(ev) {
+    if (!parametric.drag) return;
+    try {
+      ev.currentTarget?.releasePointerCapture?.(ev.pointerId);
+    } catch {
+      /* ignore */
+    }
+    parametric.drag = null;
+    scheduleParametricServerRebuild();
+  }
+
+  function previewParametricNow({ preserveView = true } = {}) {
+    if (!parametric.active || !parametric.data) return;
+    hideTextPreview();
+    if (!threeApi) threeApi = initThree();
+    const rootObj = buildParametricThreeGroup(
+      parametric.data,
+      parametric.legStations,
+      parametric.legHollow,
+      parametric.legWallMm,
+      parametric.hubScale,
+    );
+    threeApi.setRoot(rootObj, { preserveView });
+    objLabel.textContent = "变径柱 · 实时预览";
+    hideTransientCanvasHint();
+  }
+
+  function scheduleParametricServerRebuild() {
+    if (!parametric.measAbs) return;
+    const base = String(getBaseUrl() || "").replace(/\/+$/, "");
+    if (!base) return;
+    if (parametric.rebuildTimer) clearTimeout(parametric.rebuildTimer);
+    parametric.rebuildTimer = setTimeout(async () => {
+      parametric.rebuildTimer = null;
+      const gen = ++parametric.rebuildGen;
+      if (rvParametricStatus) rvParametricStatus.textContent = "服务端重建…";
+      try {
+        const r = await fetch(`${base}/api/beso7/parametric-rebuild`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            measurements_path: parametric.measAbs,
+            out_dir: parametric.outAbs || undefined,
+            params: buildParametricParamsPayload(),
+            preview_only: true,
+          }),
+        });
+        if (!r.ok) {
+          const t = await r.text().catch(() => "");
+          throw new Error(t.slice(0, 200) || `HTTP ${r.status}`);
+        }
+        const j = await r.json();
+        if (gen !== parametric.rebuildGen) return;
+        if (rvParametricStatus) rvParametricStatus.textContent = "已同步 preview.stl";
+        if (j.preview_url) {
+          /* 高精度 STL 可选加载；实时预览已由 Three.js 完成 */
+        }
+      } catch (e) {
+        if (gen === parametric.rebuildGen && rvParametricStatus) {
+          rvParametricStatus.textContent = `重建: ${e?.message || e}`;
+        }
+      }
+    }, 650);
+  }
+
+  function onParametricInput(ev) {
+    const t = ev.target;
+    if (!t || parametric.active === false) return;
+    if (t.id === "rvParametricHubRange") {
+      parametric.hubScale = Number(t.value);
+      const hub = parametric.data?.hub;
+      const hubVal = root.querySelector("#rvParametricHubVal");
+      if (hubVal && hub) {
+        hubVal.textContent = `×${parametric.hubScale.toFixed(2)} → ${(Number(hub.radius_mm) * parametric.hubScale).toFixed(0)} mm`;
+      }
+      parametricPreviewAndSync();
+      return;
+    }
+    if (t.classList?.contains("rvParamHollow")) {
+      const li = Number(t.dataset.leg);
+      parametric.legHollow[li] = Boolean(t.checked);
+      parametricPreviewAndSync();
+      return;
+    }
+    if (t.classList?.contains("rvParamWall")) {
+      const li = Number(t.dataset.leg);
+      parametric.legWallMm[li] = clampParametric(Number(t.value) || 200, PARAMETRIC_WALL_MIN, PARAMETRIC_WALL_MAX);
+      parametricPreviewAndSync();
+    }
+  }
+
+  function onParametricClick(ev) {
+    const t = ev.target;
+    if (!(t instanceof HTMLElement)) return;
+    if (t.classList.contains("rvParamAddSt")) {
+      addMiddleStation(Number(t.dataset.leg));
+      renderParametricJoysticks();
+      parametricPreviewAndSync();
+    }
+  }
+
+  function resetParametricScales() {
+    const legs = Array.isArray(parametric.data?.legs) ? parametric.data.legs : [];
+    parametric.legStations = legs.map((leg) => defaultLegStationsFromMeas(leg));
+    parametric.legHollow = legs.map(() => false);
+    parametric.legWallMm = legs.map(() => 200);
+    parametric.hubScale = 1;
+    renderParametricJoysticks();
+    previewParametricNow({ preserveView: false });
+    scheduleParametricServerRebuild();
+  }
+
+  async function setupParametricPanel(fileList, ctx = {}) {
+    parametric.active = false;
+    parametric.data = null;
+    parametric.measAbs = ctx.measurementsAbs || null;
+    parametric.outAbs = ctx.outDirAbs || null;
+    parametric.drag = null;
+    rvParametric?.classList.add("hidden");
+    if (rvParametricStatus) rvParametricStatus.textContent = "";
+    const mf = findMeasurementsFile(fileList);
+    if (!mf) return;
+    try {
+      const data = JSON.parse(await mf.text());
+      if (!Array.isArray(data?.legs) || !data.legs.length) return;
+      parametric.data = data;
+      parametric.legStations = data.legs.map((leg) => defaultLegStationsFromMeas(leg));
+      parametric.legHollow = data.legs.map(() => false);
+      parametric.legWallMm = data.legs.map(() => 200);
+      parametric.hubScale = 1;
+      parametric.active = true;
+      rvParametric?.classList.remove("hidden");
+      renderParametricJoysticks();
+      previewParametricNow({ preserveView: false });
+      if (rvParametricStatus) {
+        rvParametricStatus.textContent = parametric.measAbs
+          ? "拖摇杆 · 自动重建 STL"
+          : "本地实时预览（导入服务器目录可写回 STL）";
+      }
+    } catch {
+      /* ignore invalid json */
+    }
+  }
+
+  rvParametricBd?.addEventListener("input", onParametricInput);
+  rvParametricBd?.addEventListener("change", onParametricInput);
+  rvParametricBd?.addEventListener("click", onParametricClick);
+  rvParametricBd?.addEventListener("pointerdown", (ev) => {
+    const h = ev.target?.closest?.(".rvParamJoyHandle");
+    if (h) onJoyHandlePointerDown(h, ev);
+  });
+  rvParametricBd?.addEventListener("pointermove", onJoyHandlePointerMove);
+  rvParametricBd?.addEventListener("pointerup", onJoyHandlePointerUp);
+  rvParametricBd?.addEventListener("pointercancel", onJoyHandlePointerUp);
+  rvParametricReset?.addEventListener("click", () => resetParametricScales());
 
   function closeCtxMenu() {
     ctxMenu?.classList.add("hidden");
@@ -1756,7 +2375,9 @@ export function mountResultsViewer(opts = {}) {
     if (e.target?.dataset?.rvClose) close();
   });
   btnPick?.addEventListener("click", () => inpDir?.click());
+  btnPickFiles?.addEventListener("click", () => inpFiles?.click());
   inpDir?.addEventListener("change", onDirChange);
+  inpFiles?.addEventListener("change", onFilesChange);
   syncSpinUi();
   syncFsUi();
   btnSpin?.addEventListener("click", () => {

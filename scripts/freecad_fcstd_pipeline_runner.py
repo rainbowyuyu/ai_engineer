@@ -298,6 +298,8 @@ def _export_fused_all_solids(
         v_parts = sum(_solid_volume_sum_mm3(s) for _nm, s in pairs)
 
         assy_sh, assy_nm = _primary_assembly_compound(doc)
+        if assy_nm is not None and assy_nm in ex:
+            assy_sh, assy_nm = None, None
         use_assembly = False
         if assy_sh is not None and assy_nm is not None and assy_nm not in ex:
             v_assy = _solid_volume_sum_mm3(assy_sh)
@@ -314,6 +316,28 @@ def _export_fused_all_solids(
                 )
 
         if use_assembly and assy_sh is not None and assy_nm is not None and assy_nm not in ex:
+            try:
+                n_assy_sol = len(assy_sh.Solids) if hasattr(assy_sh, "Solids") else 0
+            except Exception:
+                n_assy_sol = 0
+            # 单 Solid 装配且另有 PartDesign::Body 时，Compound 常未含侧立柱；改用 Body 最终形状
+            body_obj = doc.getObject("Body")
+            body_sh = _geometry_shape(body_obj) if body_obj is not None else None
+            if (
+                n_assy_sol <= 1
+                and body_sh is not None
+                and _shape_has_positive_solid_volume(body_sh)
+                and float(_solid_volume_sum_mm3(body_sh)) > float(_solid_volume_sum_mm3(assy_sh)) * 1.01
+            ):
+                print(
+                    "[INFO] fuse_all_solids: 装配「"
+                    + assy_nm
+                    + f"」仅 {n_assy_sol} 个 Solid，改用 PartDesign::Body 导出 STEP（含侧立柱等完整几何）。",
+                    file=sys.stderr,
+                )
+                out_step.parent.mkdir(parents=True, exist_ok=True)
+                body_sh.exportStep(str(out_step))
+                return
             out_step.parent.mkdir(parents=True, exist_ok=True)
             assy_sh.exportStep(str(out_step))
             try:
@@ -347,7 +371,162 @@ def _export_fused_all_solids(
         FreeCAD.closeDocument(doc.Name)
 
 
-def _run_gmsh_mesh(repo_root: Path, step_path: Path, mesh_inp: Path, preset: str) -> None:
+def _is_fem_gmsh_mesh(obj) -> bool:
+    tid = getattr(obj, "TypeId", "") or ""
+    name = getattr(obj, "Name", "") or ""
+    return tid.startswith("Fem::") and ("MeshGmsh" in name or "FemMesh" in tid)
+
+
+def _find_fem_gmsh_mesh(doc, ref: str):
+    """按对象 Name 或 FreeCAD Label（如 FEMMeshGmsh004）查找 Gmsh FEM 网格。"""
+    ref = str(ref).strip()
+    if not ref:
+        return None
+    o = doc.getObject(ref)
+    if o is not None and _is_fem_gmsh_mesh(o):
+        return o
+    for obj in doc.Objects:
+        if obj is None:
+            continue
+        if getattr(obj, "Label", "") == ref and _is_fem_gmsh_mesh(obj):
+            return obj
+    return None
+
+
+def _copy_gmsh_mesh_settings(src, dst) -> None:
+    """将参考 FemMeshGmsh 的尺寸/曲率等设置复制到临时网格对象。"""
+    for prop in (
+        "CharacteristicLengthMax",
+        "CharacteristicLengthMin",
+        "MeshSizeFromCurvature",
+        "ElementOrder",
+        "SecondOrderLinear",
+        "Algorithm",
+        "Algorithm3D",
+        "OptimizeNetgen",
+        "RecombinationAlgorithm",
+        "SubdivisionAlgorithm",
+        "GeometryTolerance",
+    ):
+        if hasattr(src, prop) and hasattr(dst, prop):
+            try:
+                setattr(dst, prop, getattr(src, prop))
+            except Exception:
+                pass
+
+
+def _parse_length_mm(value: object) -> float:
+    s = str(value).strip()
+    if not s:
+        return 0.0
+    num = ""
+    for ch in s:
+        if ch.isdigit() or ch in ".-+eE":
+            num += ch
+        elif num:
+            break
+    return float(num) if num else float(s)
+
+
+def _set_mesh_characteristic_lengths(
+    mesh,
+    *,
+    char_max_mm: float | None = None,
+    char_min_mm: float | None = None,
+    mesh_scale: float | None = None,
+) -> None:
+    """覆盖或缩放 Gmsh CharacteristicLength（数值越小网格越细）。"""
+    max_v = char_max_mm
+    min_v = char_min_mm
+    scale = float(mesh_scale) if mesh_scale is not None else None
+    if scale is not None and scale > 0 and abs(scale - 1.0) > 1e-9:
+        if max_v is None and hasattr(mesh, "CharacteristicLengthMax"):
+            max_v = _parse_length_mm(mesh.CharacteristicLengthMax) * scale
+        if min_v is None and hasattr(mesh, "CharacteristicLengthMin"):
+            min_v = _parse_length_mm(mesh.CharacteristicLengthMin) * scale
+    if max_v is not None and float(max_v) > 0 and hasattr(mesh, "CharacteristicLengthMax"):
+        mesh.CharacteristicLengthMax = f"{float(max_v):g} mm"
+    if min_v is not None and float(min_v) > 0 and hasattr(mesh, "CharacteristicLengthMin"):
+        mesh.CharacteristicLengthMin = f"{float(min_v):g} mm"
+
+
+def _gmsh_volume_mesh_from_fcstd_fem(
+    fcstd: Path,
+    mesh_ref: str,
+    out_inp: Path,
+    *,
+    element_dimension: str = "3D",
+    char_max_mm: float | None = None,
+    char_min_mm: float | None = None,
+    mesh_scale: float | None = None,
+) -> None:
+    """按 FCStd 内已有 FemMeshGmsh（如 Label=FEMMeshGmsh004）的几何与 Gmsh 参数生成体网格 INP。"""
+    import FreeCAD  # noqa: PLC0415
+    import ObjectsFem  # noqa: PLC0415
+    from femmesh.gmshtools import GmshTools  # noqa: PLC0415
+
+    doc = FreeCAD.openDocument(str(fcstd))
+    tmp_name = "_PipelineGmshFromFcstd"
+    try:
+        ref_mesh = _find_fem_gmsh_mesh(doc, mesh_ref)
+        if ref_mesh is None:
+            _die(f"未找到 FEM Gmsh 网格（Name 或 Label）: {mesh_ref}", 3)
+        geom = ref_mesh.Shape
+        if geom is None:
+            _die(f"FEM 网格「{ref_mesh.Name}」未绑定 Shape", 3)
+        geom_name = getattr(geom, "Name", str(geom))
+        print(
+            f"[INFO] mesh_from_fcstd_fem_mesh: 参考「{ref_mesh.Name}」(Label={ref_mesh.Label})，"
+            f"几何={geom_name}，参考单元维={getattr(ref_mesh, 'ElementDimension', '?')}，"
+            f"导出体网格维={element_dimension}",
+            file=sys.stderr,
+        )
+        existing = doc.getObject(tmp_name)
+        if existing is not None:
+            doc.removeObject(tmp_name)
+        tmp_mesh = ObjectsFem.makeMeshGmsh(doc, tmp_name)
+        tmp_mesh.Shape = geom
+        _copy_gmsh_mesh_settings(ref_mesh, tmp_mesh)
+        tmp_mesh.ElementDimension = str(element_dimension)
+        _set_mesh_characteristic_lengths(
+            tmp_mesh,
+            char_max_mm=char_max_mm,
+            char_min_mm=char_min_mm,
+            mesh_scale=mesh_scale,
+        )
+        doc.recompute()
+        print(
+            f"[INFO] Gmsh 参数: Max={tmp_mesh.CharacteristicLengthMax!s} "
+            f"Min={tmp_mesh.CharacteristicLengthMin!s} "
+            f"Curvature={getattr(tmp_mesh, 'MeshSizeFromCurvature', 'n/a')}",
+            file=sys.stderr,
+        )
+        tools = GmshTools(tmp_mesh)
+        if not tools.run(True):
+            _die("按 FCStd FEM 参考网格参数运行 Gmsh 失败", 4)
+        fm = tmp_mesh.FemMesh
+        if fm is None or fm.NodeCount < 1:
+            _die("Gmsh 体网格为空", 4)
+        tetra = int(getattr(fm, "TetraCount", 0) or 0)
+        print(
+            f"[INFO] 体网格: nodes={fm.NodeCount} tetra={tetra}",
+            file=sys.stderr,
+        )
+        out_inp.parent.mkdir(parents=True, exist_ok=True)
+        fm.write(str(out_inp))
+    finally:
+        FreeCAD.closeDocument(doc.Name)
+
+
+def _run_gmsh_mesh(
+    repo_root: Path,
+    step_path: Path,
+    mesh_inp: Path,
+    preset: str,
+    *,
+    char_max_mm: float | None = None,
+    char_min_mm: float | None = None,
+) -> None:
     mesh_inp.parent.mkdir(parents=True, exist_ok=True)
     runner = repo_root / "scripts" / "run_freecad_iges_to_inp.py"
     py = Path(sys.executable)
@@ -362,6 +541,10 @@ def _run_gmsh_mesh(repo_root: Path, step_path: Path, mesh_inp: Path, preset: str
         preset,
         "--no-check-beso",
     ]
+    if char_max_mm is not None and float(char_max_mm) > 0:
+        cmd.extend(["--char-max", str(float(char_max_mm))])
+    if char_min_mm is not None and float(char_min_mm) > 0:
+        cmd.extend(["--char-min", str(float(char_min_mm))])
     print("[INFO] mesh cmd:", " ".join(cmd))
     subprocess.check_call(cmd, cwd=str(repo_root))
 
@@ -937,9 +1120,30 @@ def main() -> int:
 
     mesh_inp = work_dir / "_mesh_volume.inp"
     step_path = work_dir / "_fuse_export.step"
+    mesh_from_fem_raw = cfg.get("mesh_from_fcstd_fem_mesh")
+    mesh_from_fem = str(mesh_from_fem_raw).strip() if mesh_from_fem_raw else ""
+    mesh_elem_dim = str(cfg.get("mesh_element_dimension", "3D")).strip() or "3D"
 
     mesh_path: Path | None = None
-    if fuse_all:
+    if mesh_from_fem:
+        char_max_cfg = cfg.get("mesh_char_max_mm")
+        char_min_cfg = cfg.get("mesh_char_min_mm")
+        char_max_mm = float(char_max_cfg) if char_max_cfg is not None else None
+        char_min_mm = float(char_min_cfg) if char_min_cfg is not None else None
+        mesh_scale_raw = cfg.get("mesh_char_scale")
+        mesh_scale = float(mesh_scale_raw) if mesh_scale_raw is not None else None
+        _gmsh_volume_mesh_from_fcstd_fem(
+            fcstd,
+            mesh_from_fem,
+            mesh_inp,
+            element_dimension=mesh_elem_dim,
+            char_max_mm=char_max_mm,
+            char_min_mm=char_min_mm,
+            mesh_scale=mesh_scale,
+        )
+        mesh_path = mesh_inp
+        print("[OK] FCStd FEM 参考网格 → 体网格 INP:", mesh_path)
+    elif fuse_all:
         print(
             "[INFO] fuse_all_solids=true：跳过 FreeCAD FEM CalculiX 导出，"
             "使用 FCStd 内全部有体积实体的 Compound + Gmsh，以保证非设计域与整体设计域进入同一 INP。",
@@ -956,14 +1160,34 @@ def main() -> int:
                 print("[OK] FEM CalculiX export:", mesh_path)
             except Exception as ex:
                 print(f"[WARN] FEM INP 不可用，改用 Gmsh 体网格: {ex}", file=sys.stderr)
-    if mesh_path is None:
+    if mesh_path is None and not mesh_from_fem:
         if fuse_all:
-            fv_ratio = float(cfg.get("fuse_all_compound_volume_ratio", 0.97))
-            _export_fused_all_solids(fcstd, step_path, fuse_exclude, compound_vs_parts_ratio=fv_ratio)
+            use_prebuilt = bool(cfg.get("use_prebuilt_fuse_step", False))
+            if use_prebuilt and step_path.is_file():
+                print(
+                    f"[INFO] use_prebuilt_fuse_step=true：使用已有 STEP {step_path}",
+                    file=sys.stderr,
+                )
+            else:
+                fv_ratio = float(cfg.get("fuse_all_compound_volume_ratio", 0.97))
+                _export_fused_all_solids(
+                    fcstd, step_path, fuse_exclude, compound_vs_parts_ratio=fv_ratio
+                )
         else:
             _export_fused_step(fcstd, fuse_names, step_path)
         print("[OK] fused STEP:", step_path)
-        _run_gmsh_mesh(repo_root, step_path, mesh_inp, mesh_preset)
+        char_max_cfg = cfg.get("mesh_char_max_mm")
+        char_min_cfg = cfg.get("mesh_char_min_mm")
+        char_max_mm = float(char_max_cfg) if char_max_cfg is not None else None
+        char_min_mm = float(char_min_cfg) if char_min_cfg is not None else None
+        _run_gmsh_mesh(
+            repo_root,
+            step_path,
+            mesh_inp,
+            mesh_preset,
+            char_max_mm=char_max_mm,
+            char_min_mm=char_min_mm,
+        )
         mesh_path = mesh_inp
         print("[OK] volume mesh INP:", mesh_path)
 

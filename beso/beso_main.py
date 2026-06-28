@@ -525,6 +525,7 @@ while True:
         for eigen_number in energy_density_eigen:  # numbering from 1
             denominator.append(max(energy_density_eigen[eigen_number].values()))
         bf_dif = {}
+        bf_dif = {}
         bf_coef = {}
         buckling_influence_tolerance = 0.2  # Ki - K1 tolerance to influence sensitivity
         for bfn in range(len(buckling_factors) - 1):

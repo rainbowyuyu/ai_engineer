@@ -9784,6 +9784,216 @@ a.resultsViewerTopBtn:visited{
   border-color: rgba(37,99,235,.45);
   box-shadow: 0 0 0 3px rgba(37,99,235,.12);
 }
+.resultsViewerSearch:focus{
+  outline: none;
+  border-color: rgba(37,99,235,.45);
+  box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+}
+.resultsViewerParametric{
+  margin: 0 8px 6px;
+  padding: 8px 8px 6px;
+  border-radius: 12px;
+  border: 1px solid rgba(37,99,235,.18);
+  background: linear-gradient(165deg, rgba(239,246,255,.95), rgba(248,250,252,.88));
+  flex-shrink: 0;
+  max-height: 42vh;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.resultsViewerParametricHd{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-shrink: 0;
+}
+.resultsViewerParametricSub{
+  font-size: 10px;
+  color: #64748b;
+  font-weight: 650;
+}
+.resultsViewerParametricBd{
+  overflow: auto;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 2px;
+}
+.resultsViewerParametricLeg{
+  border-top: 1px dashed rgba(15,23,42,.08);
+  padding-top: 6px;
+}
+.resultsViewerParametricLeg:first-child{
+  border-top: none;
+  padding-top: 0;
+}
+.resultsViewerParametricLegTitle{
+  font-size: 11px;
+  font-weight: 800;
+  color: #1e40af;
+  margin-bottom: 4px;
+}
+.resultsViewerParametricRow{
+  display: grid;
+  grid-template-columns: 52px 1fr auto;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 10px;
+}
+.resultsViewerParametricLab{
+  color: #475569;
+  font-weight: 700;
+}
+.resultsViewerParametricVal{
+  font-size: 9px;
+  color: #64748b;
+  white-space: nowrap;
+}
+.resultsViewerParametricRange{
+  width: 100%;
+  accent-color: #2563eb;
+}
+.resultsViewerParametricFt{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+.resultsViewerParametricFt .btn{
+  font-size: 10px;
+  padding: 4px 8px;
+}
+.resultsViewerParametricStatus{
+  font-size: 9px;
+  color: #64748b;
+  text-align: right;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.resultsViewerParametricOpts{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-bottom: 6px;
+  font-size: 10px;
+}
+.resultsViewerParametricCheck{
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+}
+.resultsViewerParametricWallLab{
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #475569;
+  font-weight: 650;
+}
+.resultsViewerParametricWallLab input{
+  width: 52px;
+  font-size: 10px;
+  padding: 2px 4px;
+  border-radius: 6px;
+  border: 1px solid rgba(15,23,42,.12);
+}
+.resultsViewerParametricJoyWrap{
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 6px;
+  align-items: stretch;
+  min-height: 132px;
+}
+.rvParamJoyAxisLab{
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-size: 9px;
+  font-weight: 800;
+  color: #64748b;
+  text-align: center;
+  padding: 2px 0;
+}
+.rvParamJoyTrack{
+  position: relative;
+  min-height: 128px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(37,99,235,.08), rgba(148,163,184,.12));
+  border: 1px solid rgba(37,99,235,.22);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.5);
+  touch-action: none;
+}
+.rvParamJoyTrack::before{
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  transform: translateX(-50%);
+  background: rgba(37,99,235,.25);
+  border-radius: 2px;
+}
+.rvParamJoyHandle{
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 88px;
+  height: 28px;
+  margin: 0;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  z-index: 2;
+}
+.rvParamJoyHandle:active{ cursor: grabbing; }
+.rvParamJoyHandle--locked .rvParamJoyKnob{
+  border-color: #1d4ed8;
+  background: rgba(37,99,235,.18);
+}
+.rvParamJoyKnob{
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #2563eb;
+  background: rgba(255,255,255,.95);
+  box-shadow: 0 2px 8px rgba(37,99,235,.25);
+  flex-shrink: 0;
+}
+.rvParamJoyTag{
+  font-size: 9px;
+  font-weight: 800;
+  color: #1e40af;
+  font-family: var(--mono);
+}
+.rvParamJoyR{
+  font-size: 8px;
+  color: #64748b;
+  font-family: var(--mono);
+}
+.rvParamAddSt{
+  margin-top: 4px;
+  font-size: 10px;
+  padding: 3px 8px;
+  width: 100%;
+}
 .resultsViewerFileList{
   flex: 1;
   min-height: 0;

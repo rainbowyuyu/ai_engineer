@@ -2,13 +2,10 @@
 """
 beso2 完整流程（仓库根目录执行）：
 
-1. 用 **FreeCAD 自带 Python**（默认 ``D:\\freecad\\bin\\python.exe``）跑
-   ``freecad_fcstd_pipeline_runner.py``，配置默认 ``examples/beso2/beso2.fcpipeline``（**BESO3.FCStd + 纵向 Z 向力**）。
-   覆盖配置：运行前设置 ``FC_FCSTD_PIPELINE_CONFIG`` 指向其它 ``*.fcpipeline`` 绝对路径。
-   装配 ``Part::Compound``（与文档 ``Compound`` 一致）→ STEP → Gmsh 体网格 →
-   按 ``Pad001`` 划分 **design_space** 与 **nondesign_space** → 写出 ``Analysis-beso.inp``。
-2. 校验流水线 ``work_dir`` 下 ``beso_dual_domain_manifest.json`` 中单元数之和。
-3. 若未设 ``SKIP_BESO=1``，再运行 ``run_beso2_example_fcstd.py``（``beso.py`` 按 INP 中 ``design_space`` / ``nondesign_space`` 或单域自动生成 ``beso_conf``）。
+推荐直接使用 ``python scripts/run_beso2_cases.py``（全模型 + 论文 +X + 截图 -Z 三套）。
+
+本脚本为单配置包装：默认 ``examples/beso2/beso2_paper.fcpipeline``（FEM 参考 BC + Pad001/Pad 双域）。
+覆盖配置：``FC_FCSTD_PIPELINE_CONFIG`` 指向其它 ``*.fcpipeline``。
 
 FreeCAD FEM 参考（CalculiX 写出 INP）：``Mod/Fem/femtools/ccxtools.py`` 中 ``FemToolsCcx.write_inp_file`` →
 ``femsolver.calculix.writer.FemInputWriterCcx``；本流程体网格优先走 **Gmsh + 全装配 STEP**，
@@ -30,7 +27,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-_DEFAULT_CFG = REPO / "examples" / "beso2" / "beso2.fcpipeline"
+_DEFAULT_CFG = REPO / "examples" / "beso2" / "beso2_paper.fcpipeline"
 
 
 def _pipeline_config_path() -> Path:

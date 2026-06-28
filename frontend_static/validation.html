@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>验证功能 — AI Engineer</title>
+    <link rel="icon" href="./assets/beso-agent-mark.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./flow_main.css" />
+    <link rel="stylesheet" href="./flow_main.validation.css" />
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js" crossorigin="anonymous"></script>
+  </head>
+  <body>
+    <div class="app valApp">
+      <header class="top">
+        <div class="brand" title="AI Engineer · 设计验证">
+          <a href="./index.html" style="display:flex;align-items:center;text-decoration:none">
+            <img class="brandLogo" src="./assets/beso-agent-lockup.svg" width="200" height="28" alt="AI Engineer" />
+          </a>
+        </div>
+        <div class="topRight">
+          <div class="topUtilityCluster" aria-label="工具">
+            <a class="btn resultsViewerTopBtn" href="./index.html" title="返回主页工作台">← 主页</a>
+            <a class="btn resultsViewerTopBtn" href="./cad_design_studio.html" target="_blank" rel="noopener">CAD 设计台</a>
+          </div>
+        </div>
+      </header>
+
+      <main class="valMain">
+        <section class="valStage" aria-label="验证输入">
+          <header class="valHero">
+            <h1 class="heroTitle">设计验证与合规评分</h1>
+            <p class="heroSub">
+              上传或指定几何 JSON，对照 DNV ST-0437 / DNVGL-OS-C301 / DNVGL-RP-0286 规则库与
+              <strong>风电钢耗强度统计表</strong>，生成 Nature 风格图表与可审计验证报告。
+            </p>
+          </header>
+
+          <div class="valComposer">
+            <label class="fieldLabel" for="geomPath">几何 JSON 路径（工作区内）</label>
+            <input
+              id="geomPath"
+              type="text"
+              value="rules/optimized_geometry.json"
+              spellcheck="false"
+              autocomplete="off"
+              placeholder="例如 rules/optimized_geometry.json"
+            />
+            <div class="valToolbar">
+              <label class="valCheck">
+                <input type="checkbox" id="useLlm" />
+                LLM 条款解释（需 QWEN_API_KEY，不参与打分）
+              </label>
+              <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+                <span class="valStatus" id="valStatus" role="status" aria-live="polite"></span>
+                <button type="button" class="btn valRulesBtn" id="valRulesBtn" title="查看全部打分规则与权重">
+                  打分规则明细
+                </button>
+                <button type="button" class="btn btnPrimary valRunBtn" id="valRunBtn">
+                  <span class="valSpinner" aria-hidden="true"></span>
+                  运行验证
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="valResults" id="valResults" aria-label="验证结果">
+          <div class="valReportShell">
+            <header class="valReportHead">
+              <div class="valGradeRing" id="valGradeRing" style="--pct: 0" aria-hidden="true">
+                <span class="valGradeLetter" id="valGradeLetter">—</span>
+              </div>
+              <div class="valScoreBlock">
+                <div class="valScoreNum"><span id="valScoreNum">—</span> <span style="font-size:0.55em;color:var(--muted);font-weight:650">/ 100</span></div>
+                <p class="valScoreMeta">综合验证得分 · 含基准对标、稳性代理、结构布局与疲劳细节四维加权</p>
+                <div class="valBenchStrip" id="valBenchStrip"></div>
+              </div>
+              <div class="valDlLinks">
+                <button type="button" class="btn valRulesBtn valRulesBtn--head" id="valRulesBtnHead">
+                  打分规则明细
+                </button>
+                <a id="valReportLink" href="#" target="_blank" rel="noopener">下载 Markdown 报告</a>
+                <a id="valJsonLink" href="#" target="_blank" rel="noopener">validation_score.json</a>
+              </div>
+            </header>
+
+            <nav class="valTabs" role="tablist" aria-label="报告视图">
+              <button type="button" class="valTab is-active" data-tab="Overview" role="tab" aria-selected="true">总览</button>
+              <button type="button" class="valTab" data-tab="Charts" role="tab" aria-selected="false">图表</button>
+              <button type="button" class="valTab" data-tab="Rules" role="tab" aria-selected="false">规则明细</button>
+              <button type="button" class="valTab" data-tab="Report" role="tab" aria-selected="false">完整报告</button>
+            </nav>
+
+            <div id="valPanelOverview" class="valTabPanel is-active" role="tabpanel">
+              <div class="valCatGrid" id="valCatGrid"></div>
+              <p class="fieldLabel" style="margin-bottom:10px">预览 · 钢耗基准位置</p>
+              <div class="valFigGrid" id="valFigGridPreview" style="grid-template-columns:1fr"></div>
+            </div>
+
+            <div id="valPanelCharts" class="valTabPanel" role="tabpanel">
+              <p class="fieldLabel" style="margin-bottom:12px">Nature 风格验证图表 · 点击放大</p>
+              <div class="valFigGrid" id="valFigGrid"></div>
+            </div>
+
+            <div id="valPanelRules" class="valTabPanel" role="tabpanel">
+              <div class="valRulesWrap">
+                <table class="valRulesTable">
+                  <thead>
+                    <tr>
+                      <th>规则 ID</th>
+                      <th>状态</th>
+                      <th>得分</th>
+                      <th>实测</th>
+                      <th>阈值</th>
+                    </tr>
+                  </thead>
+                  <tbody id="valRulesBody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div id="valPanelReport" class="valTabPanel" role="tabpanel">
+              <div class="valReportFigStrip" id="valReportFigStrip"></div>
+              <article class="valReportProse" id="valReportProse"></article>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="valLightbox" id="valLightbox" aria-hidden="true" role="dialog" aria-label="图表预览">
+      <button type="button" class="valLightboxClose" aria-label="关闭">✕</button>
+      <img id="valLightboxImg" alt="" />
+    </div>
+
+    <div class="valRulesModal" id="valRulesModal" aria-hidden="true" role="dialog" aria-labelledby="valRulesModalTitle">
+      <div class="valRulesModalPanel">
+        <header class="valRulesModalHead">
+          <div>
+            <h2 id="valRulesModalTitle">打分规则明细</h2>
+            <p class="valRulesModalSub" id="valRulesModalSub">共 — 条规则 · 四维加权综合分</p>
+          </div>
+          <button type="button" class="valRulesModalClose" id="valRulesModalClose" aria-label="关闭">✕</button>
+        </header>
+        <div class="valRulesModalWeights" id="valRulesModalWeights"></div>
+        <div class="valRulesModalBody" id="valRulesModalBody"></div>
+      </div>
+    </div>
+
+    <script src="./flow_main.validation.js"></script>
+  </body>
+</html>

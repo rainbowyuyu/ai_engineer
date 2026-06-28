@@ -1,0 +1,121 @@
+# DNV / 行业条款索引 — 与 validation_rules.yaml 中 clause_ref 一一对应
+meta:
+  version: "2.0"
+  standards:
+    - DNV-ST-0437:2024
+    - DNVGL-OS-C301:2018
+    - DNVGL-RP-0286:2019
+
+clauses:
+  - id: fleet_benchmark
+    doc: 风电项目钢耗强度统计表.xlsx
+    section: 行业统计 — 20 MW 同容量样本
+    summary_zh: 以已建成/在建漂浮式项目钢耗强度与总用钢量为横向基准，支撑方案竞争力量化评估。
+
+  - id: fleet_international
+    doc: 风电项目钢耗强度统计表.xlsx
+    section: 国际项目（WindFloat Atlantic, Kincardine 等）
+    summary_zh: 国际漂浮式项目公开钢耗强度多处于 316–390 t/MW；作为方案不劣化下限参考。
+
+  - id: tuqiang_target
+    doc: 国家重大专项 / 图强示范 (2026)
+    section: 设计指标
+    summary_zh: 20 MW 漂浮式示范平台目标钢耗强度 ≤ 300 t/MW，已建成图强约 278 t/MW。
+
+  - id: c301_draft_general
+    doc: DNVGL-OS-C301
+    section: Sec.2 Stability principles / Column stabilised units
+    page: 12
+    summary_zh: 柱稳式装置在整个生命周期内需证明稳性；运营吃水与压载/拖航工况应协调定义并留足稳性储备。
+    excerpt: "Stability and watertight integrity — For column stabilised units where a change in draft is necessary..."
+
+  - id: c301_watertight_envelope
+    doc: DNVGL-OS-C301
+    section: Sec.3 Watertight integrity
+    page: 18
+    summary_zh: 水密边界须覆盖所有入水结构；竖向包络高度不足将导致风暴工况稳性储备与破损稳性下降。
+    excerpt: "Watertight integrity shall be maintained..."
+
+  - id: c301_freeboard
+    doc: DNVGL-OS-C301
+    section: Load line / Freeboard
+    page: 15
+    summary_zh: 干舷与最深载重线关系决定甲板淹没问题；hub 区相对吃水的 clearance 需在详细稳性计算中验证。
+    excerpt: "Doors or hatch covers placed above the deepest load line draft..."
+
+  - id: c301_watertight_closure
+    doc: DNVGL-OS-C301
+    section: Closure arrangements
+    page: 22
+    summary_zh: 水密/风雨密关闭装置及甲板板厚需满足设计压差与检验通道要求。
+    excerpt: "Watertight doors and hatches shall be designed to withstand design loads..."
+
+  - id: st0437_layout_spacing
+    doc: DNV-ST-0437:2024
+    section: Ch.4 Layout and stability — Column spacing
+    page: 52
+    summary_zh: 三柱半潜式柱间距与 GM、系泊导缆及干涉检查耦合；20 MW 级常见间距约 55–85 m（设计水线处）。
+    related_rule_ids: [st0437_column_spacing]
+
+  - id: st0437_triangular_layout
+    doc: DNV-ST-0437:2024
+    section: Ch.4 Geometry — Triangular layout
+    page: 48
+    summary_zh: 推荐三柱 120° 均布；偏差过大导致载荷分配不均与稳性不对称。
+    related_rule_ids: [st0437_triangular_layout]
+
+  - id: st0437_column_sizing
+    doc: DNV-ST-0437:2024
+    section: Ch.5 Column strength — Scantlings
+    page: 45
+    summary_zh: 柱径需满足轴力、弯矩、屈曲及制造运输约束；20 MW 半潜式柱径通常为米级至十余米。
+    related_rule_ids: [st0437_column_diameter]
+
+  - id: st0437_column_uniformity
+    doc: DNV-ST-0437:2024
+    section: Ch.5 Fabrication and symmetry
+    page: 46
+    summary_zh: 对称结构宜保持柱尺度一致，便于载荷分配假设与重复性建造。
+    related_rule_ids: [st0437_column_uniformity]
+
+  - id: st0437_slenderness
+    doc: DNV-ST-0437:2024
+    section: Ch.5 Global buckling — Slenderness
+    page: 50
+    summary_zh: 柱体长细比 L/D 是整体屈曲与模态特性的关键指标，需在 ULS 中校核。
+    related_rule_ids: [st0437_slenderness]
+
+  - id: st0437_hub_interface
+    doc: DNV-ST-0437:2024
+    section: Ch.6 Tower / Hub interface
+    page: 60
+    summary_zh: 顶盘与柱顶节点为载荷汇集区，尺度与柱径比需满足局部强度与疲劳详查要求。
+    related_rule_ids: [st0437_hub_interface_diameter, st0437_plate_leg_ratio]
+
+  - id: st0437_design_domain
+    doc: DNV-ST-0437:2024
+    section: Ch.4 Design domain definition
+    page: 42
+    summary_zh: 可优化设计域包络应与稳性、水密分区及建造边界一致。
+    related_rule_ids: [st0437_design_domain_footprint]
+
+  - id: rp0286_thickness_floor
+    doc: DNVGL-RP-0286:2019
+    section: Sec.3.2 Minimum thickness
+    page: 35
+    summary_zh: 疲劳与腐蚀环境下壳体最小厚度应考虑焊接质量、检验与腐蚀余量（通常 ≥ 25–40 mm 量级）。
+    related_rule_ids: [rp0286_min_thickness]
+
+  - id: rp0286_dt_ratio
+    doc: DNVGL-RP-0286:2019
+    section: Sec.4 Tubular joints — D/t
+    page: 42
+    summary_zh: 管节点 D/t 影响 SCF 与疲劳寿命；极端比值需额外 FEA 与热点详查。
+    related_rule_ids: [rp0286_dt_ratio]
+
+  - id: rp0286_taper_transition
+    doc: DNVGL-RP-0286:2019
+    section: Sec.3.4 Section transitions
+    page: 38
+    summary_zh: 变截面过渡应平缓，避免突变导致热点应力与疲劳损伤集中。
+    related_rule_ids: [rp0286_taper_gradual]
