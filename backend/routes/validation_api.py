@@ -31,6 +31,7 @@ _MEDIA_TYPES = {
     ".pdf": "application/pdf",
     ".md": "text/markdown; charset=utf-8",
     ".json": "application/json; charset=utf-8",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 
 
@@ -91,15 +92,22 @@ def validation_rules_summary() -> dict[str, Any]:
     if not rules_path.is_file():
         raise HTTPException(status_code=404, detail="validation_rules.yaml not found")
     rules, cat_weights, scoring_config = load_rules(rules_path)
+    from backend.validation.ai_review import load_ai_review_config
+
+    ai_review_cfg = load_ai_review_config(rules_path)
     category_labels = {
         "benchmark": "基准对标",
         "stability_watertight": "稳性 / 水密",
         "structural_layout": "结构布局",
         "detailing_fatigue_proxy": "疲劳 / 细节",
     }
+    ai_labels = ai_review_cfg.get("dimension_labels_zh") or {}
     return {
         "category_weights": cat_weights,
         "category_labels": category_labels,
+        "ai_review_weights": ai_review_cfg.get("dimension_weights") or {},
+        "ai_review_labels": ai_labels,
+        "ai_review_primary": ai_review_cfg.get("primary", True),
         "scoring_config": scoring_config,
         "rule_count": len(rules),
         "rules": [
@@ -122,6 +130,33 @@ def validation_rules_summary() -> dict[str, Any]:
             for r in rules
         ],
     }
+
+
+@router.get("/{validation_id}/export/word")
+def validation_export_word(validation_id: str) -> FileResponse:
+    """Download full validation report as Word; generates docx on demand if missing."""
+    out_dir = find_validation_dir(validation_id)
+    if out_dir is None:
+        raise HTTPException(status_code=404, detail="Validation run not found")
+    docx = out_dir / "validation_report.docx"
+    if not docx.is_file():
+        try:
+            from backend.validation.word_export import build_validation_docx
+
+            build_validation_docx(out_dir, validation_id=validation_id)
+        except ImportError as e:
+            raise HTTPException(
+                status_code=503,
+                detail="Word export requires python-docx (pip install -r backend/requirements-validation.txt)",
+            ) from e
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Word export failed: {e}") from e
+    filename = f"validation_report_{validation_id[:8]}.docx"
+    return FileResponse(
+        docx,
+        media_type=_MEDIA_TYPES[".docx"],
+        filename=filename,
+    )
 
 
 @router.get("/{validation_id}/files/{filename}")

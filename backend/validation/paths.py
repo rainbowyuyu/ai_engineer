@@ -9,13 +9,19 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 FIGURE_STEMS = (
     "fig_benchmark_position",
+    "fig_benchmark_capacity",
+    "fig_benchmark_unit_cost",
+    "fig_benchmark_construction",
+    "fig_benchmark_fatigue",
     "fig_score_radar",
+    "fig_fleet_metrics_bars",
     "fig_rule_heatmap",
     "fig_capacity_intensity",
+    "fig_ai_review_validity",
 )
 
 ALLOWED_ARTIFACTS = frozenset(
-    {"validation_report.md", "validation_score.json", "input_geometry_snapshot.json"}
+    {"validation_report.md", "validation_report.docx", "validation_score.json", "input_geometry_snapshot.json"}
     | {f"{s}.png" for s in FIGURE_STEMS}
     | {f"{s}.pdf" for s in FIGURE_STEMS}
 )
@@ -61,7 +67,10 @@ def artifact_urls(validation_id: str, out_dir: Path) -> dict[str, object]:
     urls: dict[str, object] = {
         "report_md": f"{api_base}/validation_report.md",
         "score_json": f"{api_base}/validation_score.json",
+        "export_word": f"/api/validation/{validation_id}/export/word",
     }
+    if (out_dir / "validation_report.docx").is_file():
+        urls["report_docx"] = f"{api_base}/validation_report.docx"
     figures: dict[str, list[str]] = {}
     for stem in FIGURE_STEMS:
         paths: list[str] = []

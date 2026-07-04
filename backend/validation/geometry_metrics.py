@@ -38,6 +38,12 @@ class GeometryMetrics:
     steel_mass_t_source: str
     steel_intensity_t_per_MW: float
     total_steel_t: float
+    unit_cost_cny_per_MW: float | None
+    unit_cost_source: str
+    construction_years: float | None
+    construction_years_source: str
+    fatigue_life_years: float | None
+    fatigue_life_source: str
     assumptions: list[str] = field(default_factory=list)
 
 
@@ -170,8 +176,49 @@ def _estimate_steel_mass_t(
 
     beso7 = data.get("beso7_method1_topology_reconstructed") or {}
     legs = beso7.get("legs") or []
-    plate = beso7.get("hub_top_plate") or {}
     opt = data.get("optimization_info") or {}
+    plate = beso7.get("hub_top_plate") or {}
+
+    if legs:
+        try:
+            from backend.tools.mixed_platform_steel import (
+                compute_steel_report,
+                default_params_from_geometry,
+            )
+
+            params = default_params_from_geometry(data)
+            target = float(opt.get("target_power_MW") or 20.0)
+            if opt.get("scale_factor") is not None:
+                report = compute_steel_report(
+                    data,
+                    params=params,
+                    target_power_mw=target,
+                    optimize=False,
+                    scale_factor=1.0,
+                )
+            else:
+                report = compute_steel_report(
+                    data,
+                    params=params,
+                    target_power_mw=target,
+                    optimize=True,
+                )
+            steel = report["steel_summary"]
+            comp = report["computation"]
+            assumptions.append(
+                f"用钢量：restruction4 混合平台模型（静倾≤{comp['pitch_limit_deg']}°），"
+                f"水平缩放 {comp['final_horizontal_scale_factor']:.2f}，"
+                f"结构钢 {steel['struct_mass_t']:.0f} t，"
+                f"钢耗 {steel['steel_intensity_t_per_MW']:.1f} t/MW"
+            )
+            return (
+                float(steel["struct_mass_t"]),
+                "mixed_platform_steel_restruction4",
+                assumptions,
+            )
+        except Exception as exc:
+            assumptions.append(f"restruction4 计算失败，回退壳体估算：{exc}")
+
     plate_wall = float(opt.get("top_plate_wall_m") or wall_thickness_m)
 
     if legs:
@@ -198,6 +245,75 @@ def _estimate_steel_mass_t(
         return mass_kg / 1000.0, "volume_proxy", assumptions
 
     return 0.0, "missing_geometry", ["无法从 JSON 估算钢重"]
+
+
+def _estimate_ai_review_economics(
+    data: dict[str, Any],
+    *,
+    target_power_mw: float,
+    steel_intensity_t_per_MW: float,
+    total_steel_t: float,
+    dt_ratio: float | None,
+    wall_thickness_m: float,
+    leg_taper_ratio: float | None,
+) -> tuple[
+    float | None,
+    str,
+    float | None,
+    str,
+    float | None,
+    str,
+    list[str],
+]:
+    """单位造价、施工年限、疲劳寿命：优先 validation_overrides，否则工程代理估算。"""
+    notes: list[str] = []
+    vo = data.get("validation_overrides") or {}
+
+    cost_override = vo.get("unit_cost_cny_per_MW")
+    if cost_override is not None:
+        unit_cost = float(cost_override)
+        cost_src = "validation_overrides.unit_cost_cny_per_MW"
+    else:
+        ref_int = 255.5
+        ref_cost = 2500.0
+        unit_cost = steel_intensity_t_per_MW * (ref_cost / ref_int) if steel_intensity_t_per_MW > 0 else None
+        cost_src = "proxy_steel_intensity_to_cost"
+        notes.append(f"单位造价代理：钢耗强度 × ({ref_cost:.0f}/{ref_int:.1f}) 万元/MW")
+
+    const_override = vo.get("construction_years")
+    if const_override is not None:
+        construction = float(const_override)
+        const_src = "validation_overrides.construction_years"
+    else:
+        base = 2.0
+        steel_term = min(2.2, total_steel_t / 6000.0) if total_steel_t > 0 else 0.4
+        taper_term = 0.15 if leg_taper_ratio and leg_taper_ratio > 1.35 else 0.0
+        construction = base + steel_term + taper_term
+        const_src = "proxy_steel_mass_and_complexity"
+        notes.append("施工年限代理：基础 2.0 年 + 钢量/复杂度修正")
+
+    fatigue_override = vo.get("fatigue_life_years")
+    if fatigue_override is not None:
+        fatigue = float(fatigue_override)
+        fatigue_src = "validation_overrides.fatigue_life_years"
+    else:
+        life = 25.0
+        if dt_ratio is not None:
+            if 80 <= dt_ratio <= 250:
+                life += 1.5
+            elif dt_ratio > 250:
+                life -= 2.0
+            else:
+                life -= 1.0
+        if wall_thickness_m >= 0.04:
+            life += 0.5
+        if leg_taper_ratio is not None and leg_taper_ratio <= 1.45:
+            life += 0.5
+        fatigue = max(18.0, min(30.0, life))
+        fatigue_src = "proxy_dt_wall_taper"
+        notes.append("疲劳寿命代理：设计寿命 25 年 ± D/t、壁厚与变径修正")
+
+    return unit_cost, cost_src, construction, const_src, fatigue, fatigue_src, notes
 
 
 def extract_geometry_metrics(data: dict[str, Any]) -> GeometryMetrics:
@@ -273,6 +389,17 @@ def extract_geometry_metrics(data: dict[str, Any]) -> GeometryMetrics:
     intensity = steel_mass_t / target_power if target_power > 0 else 0.0
     vol = asm.get("volume_m3")
 
+    unit_cost, cost_src, construction, const_src, fatigue, fatigue_src, econ_notes = _estimate_ai_review_economics(
+        data,
+        target_power_mw=target_power,
+        steel_intensity_t_per_MW=intensity,
+        total_steel_t=steel_mass_t,
+        dt_ratio=dt_ratio,
+        wall_thickness_m=wall_thickness_m,
+        leg_taper_ratio=taper,
+    )
+    assumptions.extend(econ_notes)
+
     return GeometryMetrics(
         target_power_MW=target_power,
         draft_m=draft_m,
@@ -304,6 +431,12 @@ def extract_geometry_metrics(data: dict[str, Any]) -> GeometryMetrics:
         steel_mass_t_source=mass_source,
         steel_intensity_t_per_MW=intensity,
         total_steel_t=steel_mass_t,
+        unit_cost_cny_per_MW=unit_cost,
+        unit_cost_source=cost_src,
+        construction_years=construction,
+        construction_years_source=const_src,
+        fatigue_life_years=fatigue,
+        fatigue_life_source=fatigue_src,
         assumptions=assumptions,
     )
 
@@ -341,4 +474,7 @@ def metrics_as_dict(m: GeometryMetrics) -> dict[str, float | None]:
         "steel_mass_t_est": m.steel_mass_t_est,
         "steel_intensity_t_per_MW": m.steel_intensity_t_per_MW,
         "total_steel_t": m.total_steel_t,
+        "unit_cost_cny_per_MW": m.unit_cost_cny_per_MW,
+        "construction_years": m.construction_years,
+        "fatigue_life_years": m.fatigue_life_years,
     }

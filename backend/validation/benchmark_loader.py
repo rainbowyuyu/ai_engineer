@@ -5,11 +5,16 @@ import datetime
 import re
 import zipfile
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_XLSX = _REPO_ROOT / "rules" / "风电项目钢耗强度统计表.xlsx"
+DEFAULT_FLEET_METRICS = _REPO_ROOT / "rules" / "fleet_ai_review_metrics.yaml"
+DEFAULT_FLEET_REFERENCE = _REPO_ROOT / "rules" / "fleet_ai_review_reference.yaml"
 
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 
@@ -32,6 +37,11 @@ class BenchmarkRecord:
     steel_intensity: float | None
     capacity_mw: float | None
     total_steel_t: float | None
+    unit_cost_cny_per_MW: float | None = None
+    construction_years: float | None = None
+    fatigue_life_years: float | None = None
+    metrics_source: str = ""
+    metrics_notes: list[str] = field(default_factory=list)
 
     @property
     def sort_year(self) -> int:
@@ -40,6 +50,17 @@ class BenchmarkRecord:
 
 _YEAR_IN_NAME = re.compile(r"[\uff08(](\d{4})[\uff09)]")
 _PLANNED_NAME_HINTS = ("AI", "Tuqiang", "图强", "Linghang", "领航", "观澜", "扶瑶", "gongxiang", "Tiancheng")
+
+
+def is_proposed_alias_entry(record: BenchmarkRecord) -> bool:
+    """Exclude duplicate 'AI' fleet row — same design as the proposed candidate."""
+    sn = (record.short_name or "").strip()
+    if sn == "AI":
+        return True
+    name = record.name or ""
+    if name.startswith("AI") and "2026" in name:
+        return True
+    return False
 
 
 def parse_year_info(name: str, *, current_year: int | None = None) -> tuple[int | None, str, str]:
@@ -125,6 +146,52 @@ def _is_domestic(name: str) -> bool:
     return any(k in name for k in keys)
 
 
+def _load_fleet_metrics_supplement(path: Path | None = None) -> list[dict[str, Any]]:
+    p = (path or DEFAULT_FLEET_METRICS).resolve()
+    if not p.is_file():
+        return []
+    raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    return list(raw.get("projects") or [])
+
+
+def _match_fleet_supplement(name: str, short_name: str, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for row in rows:
+        keys = row.get("match") or []
+        if any(k in name or k in short_name for k in keys):
+            return row
+    return None
+
+
+def enrich_record_metrics(
+    record: BenchmarkRecord,
+    supplement: list[dict[str, Any]] | None = None,
+) -> BenchmarkRecord:
+    """Attach public unit cost / schedule / fatigue data when available."""
+    supplement = supplement if supplement is not None else _load_fleet_metrics_supplement()
+    row = _match_fleet_supplement(record.name, record.short_name, supplement)
+    if not row:
+        return record
+    notes = list(record.metrics_notes)
+    if row.get("source"):
+        notes.append(str(row["source"]))
+    return BenchmarkRecord(
+        name=record.name,
+        short_name=record.short_name,
+        year=record.year,
+        year_label=record.year_label,
+        year_status=record.year_status,
+        region=record.region,
+        steel_intensity=record.steel_intensity,
+        capacity_mw=record.capacity_mw,
+        total_steel_t=record.total_steel_t,
+        unit_cost_cny_per_MW=row.get("unit_cost_cny_per_MW"),
+        construction_years=row.get("construction_years"),
+        fatigue_life_years=row.get("fatigue_life_years"),
+        metrics_source="fleet_ai_review_metrics.yaml",
+        metrics_notes=notes,
+    )
+
+
 def load_benchmark_records(xlsx_path: Path | None = None) -> list[BenchmarkRecord]:
     path = (xlsx_path or DEFAULT_XLSX).resolve()
     rows = _read_xlsx_rows(path)
@@ -166,7 +233,94 @@ def load_benchmark_records(xlsx_path: Path | None = None) -> list[BenchmarkRecor
                 total_steel_t=tot,
             )
         )
+    supplement = _load_fleet_metrics_supplement()
+    out = [enrich_record_metrics(r, supplement) for r in out]
+    out = merge_reference_only_records(out)
+    out = [r for r in out if not is_proposed_alias_entry(r)]
     out.sort(key=lambda r: (r.sort_year, r.short_name))
+    return out
+
+
+def _load_fleet_reference_projects(path: Path | None = None) -> list[dict[str, Any]]:
+    p = (path or DEFAULT_FLEET_REFERENCE).resolve()
+    if not p.is_file():
+        return []
+    raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    return list(raw.get("projects") or [])
+
+
+def _record_matches_reference(record: BenchmarkRecord, ref: dict[str, Any]) -> bool:
+    keys = [ref.get("short_name", ""), ref.get("name_en", ""), ref.get("id", "")]
+    keys.extend(ref.get("match") or [])
+    for k in keys:
+        if not k:
+            continue
+        if k in record.name or k in record.short_name:
+            return True
+    return False
+
+
+def merge_reference_only_records(
+    records: list[BenchmarkRecord],
+    reference: list[dict[str, Any]] | None = None,
+) -> list[BenchmarkRecord]:
+    """Append YAML reference projects not already present in xlsx fleet table."""
+    reference = reference if reference is not None else _load_fleet_reference_projects()
+    supplement = _load_fleet_metrics_supplement()
+    out = list(records)
+
+    for ref in reference:
+        if ref.get("status") in ("candidate",):
+            continue
+        if any(_record_matches_reference(r, ref) for r in out):
+            continue
+        m = ref.get("metrics") or {}
+        si = m.get("steel_t_per_MW")
+        cap = m.get("capacity_mw")
+        if si is None or cap is None:
+            continue
+        if any(
+            r.capacity_mw is not None
+            and r.steel_intensity is not None
+            and abs(float(r.capacity_mw) - float(cap)) < 0.05
+            and abs(float(r.steel_intensity) - float(si)) < 2.0
+            for r in out
+        ):
+            continue
+        year = ref.get("year")
+        year_status = ref.get("status") or "unknown"
+        if year_status == "commissioned" and year:
+            year_label = str(year)
+        elif year_status == "planned" and year:
+            year_label = f"规划·{year}"
+        else:
+            year_label = str(year) if year else "未标注"
+        name_en = ref.get("name_en") or ref.get("short_name") or ref.get("id")
+        rec = BenchmarkRecord(
+            name=str(name_en),
+            short_name=str(ref.get("short_name") or name_en),
+            year=int(year) if year is not None else None,
+            year_label=year_label,
+            year_status=year_status if year_status in ("commissioned", "planned") else "unknown",
+            region=str(ref.get("region") or "international"),
+            steel_intensity=float(si),
+            capacity_mw=float(cap),
+            total_steel_t=float(m["steel_total_t"]) if m.get("steel_total_t") else float(si) * float(cap),
+            metrics_source="fleet_ai_review_reference.yaml",
+            metrics_notes=[str(ref.get("sources", {}).get("steel_t_per_MW") or "reference yaml")],
+        )
+        rec = enrich_record_metrics(rec, supplement)
+        mref = ref.get("metrics") or {}
+        if mref.get("unit_cost_cny_per_MW") is not None:
+            rec = replace(
+                rec,
+                unit_cost_cny_per_MW=float(mref["unit_cost_cny_per_MW"]),
+                construction_years=mref.get("construction_years"),
+                fatigue_life_years=mref.get("fatigue_life_years"),
+                metrics_source="fleet_ai_review_reference.yaml",
+            )
+        out.append(rec)
+
     return out
 
 
@@ -254,6 +408,7 @@ def enrich_benchmark_metrics(
 
     confidence = {
         "validation_overrides.steel_mass_t": 1.0,
+        "mixed_platform_steel_restruction4": 0.95,
         "shell_surface_model": 0.62,
         "volume_proxy": 0.72,
         "missing_geometry": 0.0,

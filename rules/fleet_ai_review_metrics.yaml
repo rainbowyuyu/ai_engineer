@@ -1,0 +1,111 @@
+# 机队 AI Review 五维补充指标（公开资料 + 工程代理）
+# 完整出处与可信度见 fleet_ai_review_reference.yaml
+# 单位：unit_cost 万元/MW；construction_years 年；fatigue_life_years 年
+
+sources_note: |
+  造价：示范样机 3800–4800 万元/MW（38–48 元/W）；规模化 16–20 MW 约 2500–3200 万元/MW。
+  施工：样机 3.0–3.5 年；明阳天成/观澜等 2.0–2.8 年。
+  疲劳：国内 25 年；WindFloat/Kincardine 认证 25 年。
+
+projects:
+  - match: ["Three gorgesYinling", "三峡引领"]
+    unit_cost_cny_per_MW: 4436
+    construction_years: 3.5
+    fatigue_life_years: 25
+    source: "国金证券：引领号总投资 2.44 亿元，44 元/W"
+
+  - match: ["Haizhuang Fuyao", "海装扶瑶", "扶瑶"]
+    unit_cost_cny_per_MW: 4000
+    construction_years: 3.4
+    fatigue_life_years: 25
+    source: "样机 EPC 38000–40000 元/kW（世纪新能源/中金）"
+
+  - match: ["Haiyou Guanlan", "海油观澜", "观澜"]
+    unit_cost_cny_per_MW: 4800
+    construction_years: 2.6
+    fatigue_life_years: 25
+    source: "国金证券：观澜号折合约 48 元/W"
+
+  - match: ["GHN Energy gongxiang", "gongxiang"]
+    unit_cost_cny_per_MW: 4300
+    construction_years: 3.2
+    fatigue_life_years: 25
+    source: "4MW 共享基础示范，对标早期样机造价"
+
+  - match: ["Mingyang Tiancheng", "明阳", "Tiancheng"]
+    unit_cost_cny_per_MW: 2800
+    construction_years: 2.0
+    fatigue_life_years: 25
+    source: "明阳：UHPC 浮体降本 40%+；一年研发+一年施工"
+
+  - match: ["Three gorges Linghang", "三峡领航", "Linghang"]
+    unit_cost_cny_per_MW: 3000
+    construction_years: 2.8
+    fatigue_life_years: 25
+    source: "16MW 规划；对标万宁一期 25 元/W 目标"
+
+  - match: ["Tuqiang", "图强"]
+    unit_cost_cny_per_MW: 2720
+    construction_years: 3.0
+    fatigue_life_years: 25
+    source: "重大专项 278 t/MW + 造价代理"
+
+  - match: ["WindFloat Atlantic"]
+    unit_cost_cny_per_MW: 3600
+    construction_years: 2.5
+    fatigue_life_years: 25
+    source: "Principle Power 25 年设计；欧洲预商业化造价区间"
+
+  - match: ["WindFloat 2", "WindFloat"]
+    unit_cost_cny_per_MW: 15000
+    construction_years: 3.0
+    fatigue_life_years: 25
+    source: "全球首台 2MW 原型，造价极高"
+
+  - match: ["Kincardine Ph2"]
+    unit_cost_cny_per_MW: 6800
+    construction_years: 2.5
+    fatigue_life_years: 25
+    source: "NS Energy：全场合计 £350M，设计寿命 25 年"
+
+  - match: ["Kincardine Ph1"]
+    unit_cost_cny_per_MW: 7000
+    construction_years: 3.5
+    fatigue_life_years: 25
+    source: "Kincardine 早期 2MW 单元分摊"
+
+  - match: ["Fukushima"]
+    unit_cost_cny_per_MW: 5000
+    construction_years: 4.0
+    fatigue_life_years: 30
+    source: "福岛 7MW 示范；930 t/MW"
+
+  - match: ["Hywind Scotland"]
+    unit_cost_cny_per_MW: 8100
+    construction_years: 1.8
+    fatigue_life_years: 20
+    source: "Equinor £264M/30MW；spar 2300t/6MW"
+
+  - match: ["Hywind Tampen", "Tampen"]
+    unit_cost_cny_per_MW: 5200
+    construction_years: 2.5
+    fatigue_life_years: 25
+    source: "Equinor 88MW 漂浮式油田项目"
+
+  - match: ["Wanning", "万宁"]
+    unit_cost_cny_per_MW: 2088
+    construction_years: 2.5
+    fatigue_life_years: 25
+    source: "万宁一期 EPC 2088 万元/MW"
+
+  - match: ["Longyuan", "南日岛", "Nanri"]
+    unit_cost_cny_per_MW: 4200
+    construction_years: 3.0
+    fatigue_life_years: 25
+    source: "龙源 4MW 漂浮式示范"
+
+  - match: ["Golfe du Lion"]
+    unit_cost_cny_per_MW: 3400
+    construction_years: 2.8
+    fatigue_life_years: 25
+    source: "法国 30MW 漂浮式规划"

@@ -238,7 +238,8 @@
   .valDlLinks { align-items: center; }
 }
 
-.valDlLinks a {
+.valDlLinks a,
+.valDlLinks .valDocxBtn {
   font-size: 12px;
   font-weight: 650;
   color: #2563eb;
@@ -250,7 +251,18 @@
   transition: var(--btn-transition);
 }
 
-.valDlLinks a:hover {
+.valDlLinks .valDocxBtn {
+  cursor: pointer;
+}
+
+.valDlLinks .valDocxBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.valDlLinks a:hover,
+.valDlLinks .valDocxBtn:not(:disabled):hover {
   background: rgba(37, 99, 235, 0.12);
   transform: translateY(-1px);
 }
@@ -334,6 +346,12 @@
 .valCatLabel {
   font-size: 12px;
   color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.valCatMeta {
+  font-size: 10px;
+  color: #64748b;
   margin-bottom: 6px;
 }
 
@@ -462,6 +480,65 @@
 
 .valRulesTable tbody tr:hover {
   background: rgba(37, 99, 235, 0.04);
+}
+
+.valValidityNote {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.valValiditySub {
+  margin: 14px 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.valValidityTable td:first-child {
+  text-align: left;
+  font-weight: 600;
+  min-width: 88px;
+}
+
+.valValidityScroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.valStickyCol {
+  position: sticky;
+  left: 0;
+  background: #fff;
+  z-index: 1;
+  text-align: left !important;
+  min-width: 92px;
+}
+
+.valThGroup {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.valThGroup--ai {
+  background: rgba(37, 99, 235, 0.08);
+  color: #1d4ed8;
+}
+
+.valThGroup--reg {
+  background: rgba(230, 75, 53, 0.08);
+  color: #b91c1c;
+}
+
+.valThAi { background: rgba(37, 99, 235, 0.04); font-size: 11px; }
+.valThReg { background: rgba(230, 75, 53, 0.04); font-size: 11px; }
+.valTdAi { background: rgba(37, 99, 235, 0.02); }
+.valTdReg { background: rgba(230, 75, 53, 0.02); }
+
+.valRowCandidate td {
+  font-weight: 700;
+  background: rgba(0, 160, 135, 0.06) !important;
 }
 
 .valBadge {
@@ -732,19 +809,47 @@
 
 .valRulesModalWeights {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  gap: 4px;
   padding: 10px 20px;
   border-bottom: 1px solid var(--border);
   background: rgba(248, 250, 252, 0.9);
 }
 
 .valRulesWeightChip {
-  font-size: 12px;
-  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
   border-radius: 999px;
-  background: rgba(37, 99, 235, 0.08);
-  color: #1e40af;
+  font-size: 11px;
+  background: rgba(248, 250, 252, 0.95);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+.valRulesWeightChip--ai {
+  border-color: rgba(37, 99, 235, 0.22);
+  background: rgba(239, 246, 255, 0.95);
+}
+.valRulesWeightChip--dnv em {
+  font-style: normal;
+  font-size: 9px;
+  color: #94a3b8;
+  margin-left: 2px;
+}
+.valRulesWeightRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-bottom: 8px;
+}
+.valRulesWeightLead {
+  font-size: 10px;
+  font-weight: 800;
+  color: #64748b;
+  min-width: 72px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .valRulesModalBody {
@@ -831,4 +936,241 @@
   font-size: 12px;
   color: #92400e;
   line-height: 1.5;
+}
+
+/* Backend connection banner */
+.valConnBanner {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: linear-gradient(135deg, rgba(254, 242, 242, 0.95), rgba(255, 251, 235, 0.9));
+  animation: valFadeUp 0.45s var(--landing-ease);
+}
+
+.valConnBannerInner strong {
+  display: block;
+  font-size: 14px;
+  color: #b91c1c;
+  margin-bottom: 6px;
+}
+
+.valConnBannerInner p {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #7f1d1d;
+}
+
+.valConnBannerInner code {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.valConnField {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.valConnField input {
+  flex: 1;
+  min-width: 200px;
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.valConnRetry {
+  border-radius: 999px !important;
+  font-size: 12px;
+  padding: 8px 16px;
+}
+
+/* Full-screen loading overlay */
+.valLoadingOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(14px) saturate(1.2);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.35s var(--landing-ease);
+}
+
+.valLoadingOverlay.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.valLoadingCard {
+  width: min(420px, 92vw);
+  padding: 28px 26px 22px;
+  border-radius: 24px;
+  background:
+    radial-gradient(120% 80% at 50% -20%, rgba(37, 99, 235, 0.12), transparent 55%),
+    rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  box-shadow:
+    0 32px 80px rgba(15, 23, 42, 0.22),
+    0 0 0 1px rgba(15, 23, 42, 0.04);
+  transform: translateY(12px) scale(0.98);
+  transition: transform 0.45s var(--landing-ease);
+}
+
+.valLoadingOverlay.is-open .valLoadingCard {
+  transform: none;
+}
+
+.valLoadingOrb {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 18px;
+}
+
+.valLoadingOrbRing {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, #2563eb, #10b981, #00a087, #2563eb);
+  animation: valOrbSpin 1.4s linear infinite;
+  mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+}
+
+.valLoadingOrbCore {
+  position: absolute;
+  inset: 14px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #fff, #f8fafc);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+@keyframes valOrbSpin {
+  to { transform: rotate(360deg); }
+}
+
+.valLoadingTitle {
+  margin: 0 0 6px;
+  text-align: center;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  background: linear-gradient(120deg, #0f172a, #2563eb 60%, #10b981);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.valLoadingStep {
+  margin: 0 0 16px;
+  text-align: center;
+  font-size: 13px;
+  color: #64748b;
+  min-height: 1.4em;
+  transition: color 0.25s ease;
+}
+
+.valLoadingTrack {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+.valLoadingBar {
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb, #10b981, #00a087);
+  background-size: 200% 100%;
+  animation: valBarShimmer 1.8s ease-in-out infinite;
+  transition: width 0.55s var(--landing-ease);
+}
+
+@keyframes valBarShimmer {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.valLoadingSteps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.valLoadingSteps li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: #94a3b8;
+  transition: color 0.3s ease, transform 0.3s var(--landing-ease);
+}
+
+.valLoadingSteps li.is-active {
+  color: #2563eb;
+  font-weight: 650;
+  transform: translateX(2px);
+}
+
+.valLoadingSteps li.is-done {
+  color: #059669;
+}
+
+.valLoadingSteps li .valStepIcon {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  flex-shrink: 0;
+  background: rgba(15, 23, 42, 0.05);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  transition: background 0.3s ease, border-color 0.3s ease, transform 0.3s var(--landing-ease);
+}
+
+.valLoadingSteps li.is-active .valStepIcon {
+  background: rgba(37, 99, 235, 0.12);
+  border-color: rgba(37, 99, 235, 0.35);
+  animation: valStepPulse 1.2s ease-in-out infinite;
+}
+
+.valLoadingSteps li.is-done .valStepIcon {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+@keyframes valStepPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .valLoadingOrbRing,
+  .valLoadingBar,
+  .valLoadingSteps li.is-active .valStepIcon {
+    animation: none;
+  }
 }

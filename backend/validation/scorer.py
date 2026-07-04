@@ -4,8 +4,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from backend.validation.ai_review import ai_review_overall, load_ai_review_config, score_ai_review
 from backend.validation.benchmark_loader import find_reference, load_benchmark_records, percentile_rank
 from backend.validation.geometry_metrics import GeometryMetrics
+from backend.validation.regulatory_review import regulatory_review_overall, score_regulatory_review
 from backend.validation.rules_engine import RuleResult, evaluate_all_rules
 
 
@@ -16,11 +18,16 @@ class ValidationScore:
     category_scores: dict[str, float]
     rule_results: list[RuleResult]
     metrics: dict[str, Any]
+    regulatory_overall: float = 0.0
+    regulatory_review_scores: dict[str, float] = field(default_factory=dict)
+    ai_review_scores: dict[str, float] = field(default_factory=dict)
+    ai_review_metrics: dict[str, float | None] = field(default_factory=dict)
+    ai_review_weights: dict[str, float] = field(default_factory=dict)
+    ai_review_labels: dict[str, str] = field(default_factory=dict)
     benchmark_context: dict[str, Any] = field(default_factory=dict)
     assumptions: list[str] = field(default_factory=list)
     calibration_notes: list[str] = field(default_factory=list)
     scoring_config: dict[str, Any] = field(default_factory=dict)
-
 
 def _grade(score: float) -> str:
     if score >= 85:
@@ -39,7 +46,7 @@ def _apply_overall_calibration(
 ) -> tuple[float, list[str]]:
     notes: list[str] = []
     source = metrics.steel_mass_t_source
-    if source == "validation_overrides.steel_mass_t":
+    if source in ("validation_overrides.steel_mass_t", "mixed_platform_steel_restruction4"):
         return overall, notes
 
     if source == "shell_surface_model":
@@ -85,7 +92,13 @@ def score_design(
     }
     weights = {**default_weights, **cat_weights}
     w_total = sum(weights.get(c, 0.0) for c in category_scores) or 1.0
-    overall = sum(category_scores[c] * weights.get(c, 0.0) for c in category_scores) / w_total
+    legacy_overall = sum(category_scores[c] * weights.get(c, 0.0) for c in category_scores) / w_total
+
+    ai_cfg = load_ai_review_config(rules_path)
+    ai_result = score_ai_review(metrics, rule_results, config=ai_cfg)
+    reg_result = score_regulatory_review(metrics, rule_results)
+    overall = ai_review_overall(ai_result) if ai_cfg.get("primary", True) else legacy_overall
+    reg_overall = regulatory_review_overall(reg_result)
 
     overall, calibration_notes = _apply_overall_calibration(overall, metrics, scoring_config)
 
@@ -93,7 +106,6 @@ def score_design(
     peers_20 = [r for r in bench if r.capacity_mw and abs(r.capacity_mw - metrics.target_power_MW) < 0.5]
     sample_si = [float(r.steel_intensity) for r in peers_20 if r.steel_intensity is not None]
     tuqiang = find_reference(bench, "Tuqiang", "图强")
-    ai_ref = find_reference(bench, "AI")
 
     benchmark_context: dict[str, Any] = {
         "percentile_vs_fleet_20mw": round(
@@ -109,20 +121,17 @@ def score_design(
         )
         if tuqiang and tuqiang.steel_intensity
         else None,
-        "delta_vs_ai_pct": round(
-            (metrics.steel_intensity_t_per_MW - ai_ref.steel_intensity) / ai_ref.steel_intensity * 100.0,
-            1,
-        )
-        if ai_ref and ai_ref.steel_intensity
-        else None,
         "target_line_300_t_per_MW": 300.0,
         "steel_mass_t_source": metrics.steel_mass_t_source,
         "estimation_confidence_score": {
             "validation_overrides.steel_mass_t": 1.0,
+            "mixed_platform_steel_restruction4": 0.95,
             "shell_surface_model": 0.62,
             "volume_proxy": 0.72,
             "missing_geometry": 0.0,
         }.get(metrics.steel_mass_t_source, 0.5),
+        "ai_review_metrics": ai_result.metrics,
+        "ai_review_metric_sources": ai_result.metric_sources,
     }
 
     from backend.validation.geometry_metrics import metrics_as_dict
@@ -130,11 +139,19 @@ def score_design(
     assumptions = list(metrics.assumptions)
     if calibration_notes:
         assumptions.extend(calibration_notes)
+    if ai_result.notes:
+        assumptions.extend(ai_result.notes)
 
     return ValidationScore(
         overall_score=round(overall, 2),
         grade=_grade(overall),
         category_scores=category_scores,
+        regulatory_overall=round(reg_overall, 2),
+        regulatory_review_scores=reg_result.scores,
+        ai_review_scores=ai_result.scores,
+        ai_review_metrics=ai_result.metrics,
+        ai_review_weights=ai_result.weights,
+        ai_review_labels=ai_result.labels_zh,
         rule_results=rule_results,
         metrics={
             **metrics_as_dict(metrics),

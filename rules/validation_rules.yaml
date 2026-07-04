@@ -13,6 +13,71 @@ scoring_config:
   max_overall_volume_proxy: 96.0
   shell_estimate_note_zh: 钢重来自壳体侧面积估算，基准对标分已降权并设综合分上限；请提供 validation_overrides.steel_mass_t 或称重数据以解除校准
 
+# AI Review 五维主评分（综合分 = 下列加权；DNV 规则仍作明细与钢耗/疲劳代理）
+ai_review:
+  primary: true
+  dimension_weights:
+    capacity_mw: 0.15
+    steel_per_mw: 0.30
+    unit_cost: 0.25
+    construction_years: 0.15
+    fatigue_life: 0.15
+  dimension_labels_zh:
+    capacity_mw: 单机兆瓦数
+    steel_per_mw: 单位兆瓦用钢量
+    unit_cost: 单位造价
+    construction_years: 施工年限
+    fatigue_life: 疲劳寿命
+  dimension_units:
+    capacity_mw: MW
+    steel_per_mw: t/MW
+    unit_cost: 万元/MW
+    construction_years: 年
+    fatigue_life: 年
+  references:
+    target_capacity_mw: 20
+    proposed:
+      steel_intensity_t_per_MW: 255.5
+      unit_cost_cny_per_MW: 2500
+      construction_years: 2.8
+      fatigue_life_years: 25
+    tuqiang:
+      steel_intensity_t_per_MW: 278
+      unit_cost_cny_per_MW: 2720
+      construction_years: 3.0
+      fatigue_life_years: 25
+
+# 法规五维：与 AI Review 相同指标，按 DNV/行业阈值与规则合成分维（供有效性对照）
+regulatory_review:
+  dimension_weights:
+    capacity_mw: 0.15
+    steel_per_mw: 0.30
+    unit_cost: 0.25
+    construction_years: 0.15
+    fatigue_life: 0.15
+  sources_zh:
+    capacity_mw: DNV-ST-0437 20 MW 半潜式设计基点
+    steel_per_mw: 行业钢耗规则合成分（300 t/MW 目标 / 机队对标 / 图强）
+    unit_cost: 漂浮式示范 EPC 投资强度控制线（非 AI 参考价）
+    construction_years: 示范工程批复工期管理惯例
+    fatigue_life: DNV 25 年设计寿命 + RP-0286 疲劳细节规则
+  thresholds:
+    capacity_mw:
+      target_mw: 20
+      tolerance_mw: 2
+      basis: DNV-ST-0437 / 核准单机容量 20 MW
+    unit_cost:
+      excellent_cny_per_MW: 3600
+      pass_cap_cny_per_MW: 4800
+      basis: 国内示范 EPC 上限约 4800 万元/MW；商业化参考 WindFloat Atlantic 约 3600
+    construction_years:
+      excellent_years: 2.5
+      pass_cap_years: 3.5
+      basis: 国内漂浮式示范批复工期通常 2.5–3.5 年
+    fatigue_life:
+      min_design_years: 25
+      basis: DNVGL-OS-C301 / RP-0286 设计服役寿命 25 年
+
 rules:
   # ── 基准对标（35%）── 风电项目钢耗强度统计表 + 20 MW 示范目标
   - id: bench_intensity_fleet_rank
@@ -73,16 +138,16 @@ rules:
     description_zh: 相对图强示范（278 t/MW）增幅不超过 10%（优于则满分）
     clause_ref: fleet_benchmark
 
-  - id: bench_intensity_vs_ai
+  - id: bench_intensity_vs_proposed
     category: benchmark
     weight: 0.04
-    source: 风电项目钢耗强度统计表.xlsx
-    regulation_ref: AI 方案 (2026) 智能优化基准
+    source: restruction4 / optimized_geometry
+    regulation_ref: 本方案 (Proposed) 设计目标
     metric: steel_intensity_t_per_MW
     operator: delta_vs_reference
     unit: t/MW
     reference:
-      name: AI
+      name: Proposed
     limits:
       reference_value: 255.5
       max_delta_pct: 12
@@ -90,8 +155,8 @@ rules:
       excellent: 90
       good: 75
       pass: 60
-    description_zh: 相对 AI 优化方案（255.5 t/MW）的竞争力（允许一定工程保守余量）
-    clause_ref: fleet_benchmark
+    description_zh: 相对本方案设计目标（255.5 t/MW）的工程保守余量
+    clause_ref: proposed_target
 
   - id: bench_total_steel_rank
     category: benchmark

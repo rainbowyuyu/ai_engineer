@@ -29,12 +29,72 @@ def _load_clause_map() -> dict[str, dict[str, Any]]:
     return {c["id"]: c for c in (raw.get("clauses") or [])}
 
 
+def _validity_markdown(validity: dict[str, Any] | None) -> list[str]:
+    if not validity:
+        return []
+    ai_cols = validity.get("ai_columns") or []
+    reg_cols = validity.get("regulatory_columns") or []
+    if not ai_cols:
+        return []
+    raw_hdr = "MW | t/MW | kCNY/MW | yr | yr"
+    ai_hdr = " | ".join(c.get("label", "") for c in ai_cols)
+    reg_hdr = " | ".join(c.get("label", "") for c in reg_cols)
+    lines = [
+        "## 表1 · 同一五维指标：AI Review vs 法规标准",
+        "",
+        f"*{validity.get('note', '')}*",
+        "",
+    ]
+
+    def append_cohort(title: str, cohort: list[dict[str, Any]]) -> None:
+        if not cohort:
+            return
+        lines.extend([f"### {title}", ""])
+        lines.append(f"| 项目 | {raw_hdr} | {ai_hdr} | {reg_hdr} |")
+        lines.append(
+            "|---|"
+            + "|".join("---:" for _ in range(5))
+            + "|"
+            + "|".join("---:" for _ in ai_cols)
+            + "|"
+            + "|".join("---:" for _ in reg_cols)
+            + "|"
+        )
+        for row in cohort:
+            ai = row.get("ai_scores") or {}
+            reg = row.get("regulatory_scores") or {}
+            raw = row.get("raw_metrics") or {}
+            raw_cells = " | ".join(
+                str(raw.get(c["key"])) if raw.get(c["key"]) is not None else "-"
+                for c in ai_cols
+            )
+            ai_cells = " | ".join(
+                f"{ai.get(c['key']):.1f}" if ai.get(c["key"]) is not None else "-"
+                for c in ai_cols
+            )
+            reg_cells = " | ".join(
+                f"{reg.get(c['key']):.1f}" if reg.get(c["key"]) is not None else "-"
+                for c in reg_cols
+            )
+            lines.append(f"| {row.get('name', '')} | {raw_cells} | {ai_cells} | {reg_cells} |")
+        lines.append("")
+
+    append_cohort("已建成机队", validity.get("commissioned_cohort") or [])
+    append_cohort("规划/前瞻项目", validity.get("planned_cohort") or [])
+    cand = validity.get("candidate")
+    if cand:
+        append_cohort("本方案（候选）", [cand])
+    return lines
+
+
 def build_markdown_report(
     score: ValidationScore,
     *,
     validation_id: str,
     geometry_title: str = "Design candidate",
     llm_rationales: dict[str, str] | None = None,
+    validity_table: dict[str, Any] | None = None,
+    plot_artifacts: dict[str, list[str]] | None = None,
 ) -> str:
     clauses = _load_clause_map()
     lines = [
@@ -59,11 +119,34 @@ def build_markdown_report(
             f"- 20 MW 机队分位: {bc.get('percentile_vs_fleet_20mw', '—')}%",
             f"- 机队中位钢耗: {bc.get('fleet_median_intensity_20mw', '—')} t/MW",
             f"- 相对图强: {bc.get('delta_vs_tuqiang_pct', '—')}%",
-            f"- 相对 AI 方案: {bc.get('delta_vs_ai_pct', '—')}%",
             "",
         ])
 
-    lines.extend(["## 维度得分", "", "| 维度 | 得分 |", "|---|---:|"])
+    lines.extend(["## AI Review 五维得分", "", "| 指标 | 实测 | 得分 |", "|---|---:|---:|"])
+    for key, val in (score.ai_review_scores or {}).items():
+        label = (score.ai_review_labels or {}).get(key, key)
+        measured = (score.ai_review_metrics or {}).get(key)
+        mtxt = f"{measured:.2f}" if isinstance(measured, (int, float)) else "—"
+        lines.append(f"| {label} | {mtxt} | {val:.1f} |")
+    lines.append("")
+    lines.append(
+        f"*综合分 {score.overall_score:.1f} 为 AI Review 五维加权；"
+        f"法规五维综合 {score.regulatory_overall:.1f} 为同一指标下的 DNV/行业阈值口径，供有效性对照。*"
+    )
+    lines.append("")
+
+    lines.extend(["## 法规五维得分（同一指标 · DNV/行业阈值）", "", "| 指标 | 实测 | 法规分 |", "|---|---:|---:|"])
+    reg_scores = score.regulatory_review_scores or {}
+    for key in score.ai_review_scores or {}:
+        label = (score.ai_review_labels or {}).get(key, key)
+        measured = (score.ai_review_metrics or {}).get(key)
+        mtxt = f"{measured:.2f}" if isinstance(measured, (int, float)) else "—"
+        rval = reg_scores.get(key)
+        rtxt = f"{rval:.1f}" if rval is not None else "—"
+        lines.append(f"| {label} | {mtxt} | {rtxt} |")
+    lines.append("")
+
+    lines.extend(["## 合规维度得分（DNV 规则分类 · 补充审计）", "", "| 维度 | 得分 |", "|---|---:|"])
     for cat, val in score.category_scores.items():
         lines.append(f"| {CATEGORY_LABELS.get(cat, cat)} | {val:.1f} |")
     lines.append("")
@@ -73,7 +156,9 @@ def build_markdown_report(
         "target_power_MW": "目标容量 (MW)",
         "steel_intensity_t_per_MW": "钢耗强度 (t/MW)",
         "steel_mass_t_est": "估算钢量 (t)",
-        "total_steel_t": "总用钢量 (t)",
+        "unit_cost_cny_per_MW": "单位造价 (万元/MW)",
+        "construction_years": "施工年限 (年)",
+        "fatigue_life_years": "疲劳寿命 (年)",
         "draft_m": "吃水 (m)",
         "wall_thickness_m": "壳体壁厚 (m)",
         "leg_mean_diameter_m": "柱均径 (m)",
@@ -133,6 +218,14 @@ def build_markdown_report(
             lines.append(f"- {note}")
         lines.append("")
 
+    lines.extend(_validity_markdown(validity_table))
+
+    if plot_artifacts:
+        lines.extend(["## 图表产物（PNG / PDF）", ""])
+        for stem in sorted(plot_artifacts):
+            lines.append(f"- `{stem}.png`, `{stem}.pdf`")
+        lines.append("")
+
     if score.assumptions:
         lines.extend(["## 假设与局限", ""])
         for a in score.assumptions:
@@ -143,11 +236,25 @@ def build_markdown_report(
     return "\n".join(lines)
 
 
-def score_to_json(score: ValidationScore, *, validation_id: str, artifacts: dict[str, Any]) -> dict[str, Any]:
-    return {
+def score_to_json(
+    score: ValidationScore,
+    *,
+    validation_id: str,
+    artifacts: dict[str, Any],
+    validity_table: dict[str, Any] | None = None,
+    fleet_radar: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload = {
         "validation_id": validation_id,
         "overall_score": score.overall_score,
         "grade": score.grade,
+        "regulatory_overall": score.regulatory_overall,
+        "regulatory_review_scores": score.regulatory_review_scores,
+        "ai_review_primary": True,
+        "ai_review_scores": score.ai_review_scores,
+        "ai_review_metrics": score.ai_review_metrics,
+        "ai_review_weights": score.ai_review_weights,
+        "ai_review_labels": score.ai_review_labels,
         "category_scores": score.category_scores,
         "metrics": score.metrics,
         "benchmark_context": score.benchmark_context,
@@ -174,6 +281,11 @@ def score_to_json(score: ValidationScore, *, validation_id: str, artifacts: dict
         ],
         "artifacts": artifacts,
     }
+    if validity_table:
+        payload["validity_table"] = validity_table
+    if fleet_radar:
+        payload["fleet_radar"] = fleet_radar
+    return payload
 
 
 def write_reports(
@@ -184,6 +296,8 @@ def write_reports(
     geometry_title: str = "Design candidate",
     plot_artifacts: dict[str, list[str]] | None = None,
     llm_rationales: dict[str, str] | None = None,
+    validity_table: dict[str, Any] | None = None,
+    fleet_radar: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     out_dir.mkdir(parents=True, exist_ok=True)
     md = build_markdown_report(
@@ -191,6 +305,8 @@ def write_reports(
         validation_id=validation_id,
         geometry_title=geometry_title,
         llm_rationales=llm_rationales,
+        validity_table=validity_table,
+        plot_artifacts=plot_artifacts,
     )
     md_path = out_dir / "validation_report.md"
     md_path.write_text(md, encoding="utf-8")
@@ -202,8 +318,40 @@ def write_reports(
         web_figs.update(api_urls.get("figures") or {})  # type: ignore[arg-type]
         art["figures"] = web_figs
 
-    payload = score_to_json(score, validation_id=validation_id, artifacts=art)
+    payload = score_to_json(
+        score,
+        validation_id=validation_id,
+        artifacts=art,
+        validity_table=validity_table,
+        fleet_radar=fleet_radar,
+    )
     json_path = out_dir / "validation_score.json"
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    return {"report_md": str(md_path), "score_json": str(json_path)}
+    docx_path: str | None = None
+    word_export_error: str | None = None
+    try:
+        from backend.validation.word_export import build_validation_docx
+
+        docx_file = build_validation_docx(
+            out_dir,
+            score=score,
+            validation_id=validation_id,
+            geometry_title=geometry_title,
+            llm_rationales=llm_rationales,
+        )
+        docx_path = str(docx_file)
+        art["report_docx"] = f"/api/validation/{validation_id}/files/validation_report.docx"
+        payload["artifacts"] = art
+        json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except ImportError:
+        word_export_error = "python-docx 未安装（pip install -r backend/requirements-validation.txt）"
+    except Exception as e:
+        word_export_error = str(e)
+
+    result = {"report_md": str(md_path), "score_json": str(json_path)}
+    if docx_path:
+        result["report_docx"] = docx_path
+    if word_export_error:
+        result["word_export_error"] = word_export_error
+    return result

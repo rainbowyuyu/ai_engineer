@@ -35,6 +35,10 @@ def test_score_design(geometry):
     assert "benchmark" in score.category_scores
     assert score.overall_score < 98
     assert 72 <= score.category_scores["benchmark"] <= 95
+    assert len(score.ai_review_scores) == 5
+    assert "steel_per_mw" in score.ai_review_scores
+    assert score.ai_review_metrics.get("capacity_mw") == 20.0
+    assert score.ai_review_metrics.get("steel_per_mw") is not None
 
 
 def test_run_validation_pipeline(geometry, tmp_path):
@@ -44,4 +48,10 @@ def test_run_validation_pipeline(geometry, tmp_path):
     assert (out / "validation_report.md").is_file()
     assert (out / "validation_score.json").is_file()
     assert (out / "fig_benchmark_position.png").is_file()
+    assert (out / "fig_benchmark_capacity.png").is_file()
+    assert (out / "fig_benchmark_unit_cost.png").is_file()
     assert (out / "fig_score_radar.png").is_file()
+    assert (out / "fig_ai_review_validity.png").is_file()
+    docx = out / "validation_report.docx"
+    if docx.is_file():
+        assert docx.stat().st_size > 5000

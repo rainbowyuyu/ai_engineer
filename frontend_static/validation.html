@@ -62,6 +62,17 @@
                 </button>
               </div>
             </div>
+            <div class="valConnBanner" id="valConnBanner" hidden role="alert">
+              <div class="valConnBannerInner">
+                <strong>后端未连接</strong>
+                <p id="valConnBannerText">无法访问验证 API。请启动后端并通过 <code>/ui/validation.html</code> 打开本页。</p>
+                <label class="valConnField">
+                  <span>API 地址</span>
+                  <input id="valApiBase" type="text" spellcheck="false" autocomplete="off" placeholder="http://127.0.0.1:8000" />
+                </label>
+                <button type="button" class="btn btnPrimary valConnRetry" id="valConnRetry">重新检测</button>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -73,12 +84,15 @@
               </div>
               <div class="valScoreBlock">
                 <div class="valScoreNum"><span id="valScoreNum">—</span> <span style="font-size:0.55em;color:var(--muted);font-weight:650">/ 100</span></div>
-                <p class="valScoreMeta">综合验证得分 · 含基准对标、稳性代理、结构布局与疲劳细节四维加权</p>
+                <p class="valScoreMeta">AI Review 综合得分 · 五维加权：单机兆瓦数、单位兆瓦用钢量、单位造价、施工年限、疲劳寿命</p>
                 <div class="valBenchStrip" id="valBenchStrip"></div>
               </div>
               <div class="valDlLinks">
                 <button type="button" class="btn valRulesBtn valRulesBtn--head" id="valRulesBtnHead">
                   打分规则明细
+                </button>
+                <button type="button" class="btn valDocxBtn" id="valDocxBtn" disabled title="下载含图表的完整 Word 报告">
+                  导出 Word 报告
                 </button>
                 <a id="valReportLink" href="#" target="_blank" rel="noopener">下载 Markdown 报告</a>
                 <a id="valJsonLink" href="#" target="_blank" rel="noopener">validation_score.json</a>
@@ -94,8 +108,9 @@
 
             <div id="valPanelOverview" class="valTabPanel is-active" role="tabpanel">
               <div class="valCatGrid" id="valCatGrid"></div>
-              <p class="fieldLabel" style="margin-bottom:10px">预览 · 钢耗基准位置</p>
-              <div class="valFigGrid" id="valFigGridPreview" style="grid-template-columns:1fr"></div>
+              <p class="fieldLabel" style="margin-bottom:10px">预览 · 基准位置与五维对比</p>
+              <div class="valFigGrid" id="valFigGridPreview" style="grid-template-columns:1fr 1fr"></div>
+              <div id="valValidityBlock"></div>
             </div>
 
             <div id="valPanelCharts" class="valTabPanel" role="tabpanel">
@@ -134,12 +149,27 @@
       <img id="valLightboxImg" alt="" />
     </div>
 
+    <div class="valLoadingOverlay" id="valLoadingOverlay" aria-hidden="true" aria-live="polite" aria-busy="false">
+      <div class="valLoadingCard" role="status">
+        <div class="valLoadingOrb" aria-hidden="true">
+          <div class="valLoadingOrbRing"></div>
+          <div class="valLoadingOrbCore"></div>
+        </div>
+        <h2 class="valLoadingTitle">AI Review 验证运行中</h2>
+        <p class="valLoadingStep" id="valLoadingStep">准备中…</p>
+        <div class="valLoadingTrack" aria-hidden="true">
+          <div class="valLoadingBar" id="valLoadingBar"></div>
+        </div>
+        <ol class="valLoadingSteps" id="valLoadingSteps"></ol>
+      </div>
+    </div>
+
     <div class="valRulesModal" id="valRulesModal" aria-hidden="true" role="dialog" aria-labelledby="valRulesModalTitle">
       <div class="valRulesModalPanel">
         <header class="valRulesModalHead">
           <div>
             <h2 id="valRulesModalTitle">打分规则明细</h2>
-            <p class="valRulesModalSub" id="valRulesModalSub">共 — 条规则 · 四维加权综合分</p>
+            <p class="valRulesModalSub" id="valRulesModalSub">共 — 条 DNV 合规规则 · 综合分由 AI Review 五维加权</p>
           </div>
           <button type="button" class="valRulesModalClose" id="valRulesModalClose" aria-label="关闭">✕</button>
         </header>
@@ -148,6 +178,6 @@
       </div>
     </div>
 
-    <script src="./flow_main.validation.js"></script>
+    <script src="./flow_main.validation.js?v=20260704"></script>
   </body>
 </html>

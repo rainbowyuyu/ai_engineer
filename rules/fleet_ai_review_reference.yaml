@@ -1,0 +1,410 @@
+# AI Review 五维机队参考数据（公开资料汇总）
+# 用于 validation 打分与对照表；钢耗优先采纳 风电项目钢耗强度统计表.xlsx
+#
+# 单位约定：
+#   capacity_mw: MW
+#   steel_t_per_MW: t/MW（结构/platform 等效钢耗，与 xlsx 口径一致）
+#   unit_cost_cny_per_MW: 万元/MW（全项目 EPC/建设投资口径，非仅风机裸价）
+#   construction_years: 年（立项/批复至并网）
+#   fatigue_life_years: 年（设计服役寿命）
+#
+# confidence: verified=多源一致 | reported=单一权威报道 | estimated=工程推算 | target=规划/设计目标
+
+meta:
+  updated: "2026-07-04"
+  cost_note: "1 万元/MW = 10 元/W；示范样机普遍 3500–4800 万元/MW，万宁一期 EPC 约 2088 万元/MW（规模化下限）"
+  steel_note: "钢耗为浮式基础+塔筒等效；混凝土/复合材料平台在公开报道中常折算或单列"
+  fatigue_note: "国内漂浮式通常按 GB/DNV 25 年；欧洲商业化项目多按 25 年认证（Hywind/WindFloat Atlantic）"
+
+projects:
+  - id: windfloat_2011
+    short_name: WindFloat
+    name_en: "WindFloat (2011)"
+    region: international
+    status: commissioned
+    year: 2011
+    metrics:
+      capacity_mw: 2.0
+      steel_t_per_MW: 690.0
+      steel_total_t: null
+      unit_cost_cny_per_MW: 15000
+      construction_years: 3.0
+      fatigue_life_years: 25
+    confidence:
+      capacity_mw: verified
+      steel_t_per_MW: reported
+      unit_cost_cny_per_MW: estimated
+      construction_years: estimated
+      fatigue_life_years: reported
+    sources:
+      steel_t_per_MW: "风电项目钢耗强度统计表.xlsx"
+      unit_cost_cny_per_MW: "全球首台漂浮式造价约 30 万元/kW 量级（BNEF），折算约 15000 万元/MW"
+      fatigue_life_years: "WindFloat 1 原型运行 5 年+，后续 Atlantic 按 25 年设计"
+
+  - id: fukushima_shimpuu
+    short_name: 福岛示范
+    name_en: "Fukushima Shimpuu (2013)"
+    region: international
+    status: commissioned
+    year: 2013
+    metrics:
+      capacity_mw: 7.0
+      steel_t_per_MW: 930.0
+      steel_total_t: 6508
+      unit_cost_cny_per_MW: 5000
+      construction_years: 4.0
+      fatigue_life_years: 30
+    confidence:
+      steel_t_per_MW: reported
+      unit_cost_cny_per_MW: estimated
+    sources:
+      steel_t_per_MW: "风电项目钢耗强度统计表.xlsx"
+      unit_cost_cny_per_MW: "日本早期 7MW 示范，造价显著高于后续商业化项目"
+
+  - id: windfloat_atlantic
+    short_name: WindFloat Atlantic
+    name_en: "WindFloat Atlantic (2020)"
+    region: international
+    status: commissioned
+    year: 2020
+    metrics:
+      capacity_mw: 8.4
+      steel_t_per_MW: 417
+      steel_total_t: 3500
+      unit_cost_cny_per_MW: 3600
+      construction_years: 2.5
+      fatigue_life_years: 25
+    confidence:
+      capacity_mw: verified
+      steel_t_per_MW: verified
+      unit_cost_cny_per_MW: estimated
+      fatigue_life_years: verified
+    sources:
+      capacity_mw: "Principle Power / WindFloat Atlantic 官网"
+      steel_t_per_MW: "主结构约 3500 t / 8.4 MW ≈ 417 t/MW（Floating Windfarm Guide, Principle Power）"
+      steel_total_t: "Primary structure ~3500 t（行业指南）"
+      unit_cost_cny_per_MW: "预商业化项目，欧洲漂浮式 3000–4000 万元/MW 区间"
+      fatigue_life_years: "WindFloat Atlantic 认证设计寿命 25 年"
+    notes: "xlsx 中按 6.2MW 均值 390 t/MW 为机队表简化口径；单机 8.4MW 宜按 417 t/MW 主结构钢耗"
+
+  - id: kincardine_ph1
+    short_name: Kincardine Ph1
+    name_en: "Kincardine Ph1 (2021)"
+    region: international
+    status: commissioned
+    year: 2021
+    metrics:
+      capacity_mw: 2.0
+      steel_t_per_MW: null
+      steel_total_t: null
+      unit_cost_cny_per_MW: 7000
+      construction_years: 3.5
+      fatigue_life_years: 25
+    confidence:
+      unit_cost_cny_per_MW: estimated
+    sources:
+      unit_cost_cny_per_MW: "Kincardine 全场合计 £350M / ~50MW ≈ £7M/MW（NS Energy, Quest FWE）"
+      fatigue_life_years: "NS Energy：operational life 25 years"
+
+  - id: kincardine_ph2
+    short_name: Kincardine Ph2
+    name_en: "Kincardine Ph2 (2021)"
+    region: international
+    status: commissioned
+    year: 2021
+    metrics:
+      capacity_mw: 9.5
+      steel_t_per_MW: 316.0
+      steel_total_t: 3000
+      unit_cost_cny_per_MW: 6800
+      construction_years: 2.5
+      fatigue_life_years: 25
+    confidence:
+      steel_t_per_MW: reported
+      unit_cost_cny_per_MW: estimated
+    sources:
+      steel_t_per_MW: "风电项目钢耗强度统计表.xlsx"
+      unit_cost_cny_per_MW: "同场址 £350M 级全投资分摊；9.5MW WindFloat 单元"
+      fatigue_life_years: "Kincardine 项目设计寿命 25 年"
+
+  - id: three_gorges_yinling
+    short_name: 三峡引领
+    name_en: "Three gorges Yinling (2021)"
+    region: domestic
+    status: commissioned
+    year: 2021
+    metrics:
+      capacity_mw: 5.5
+      steel_t_per_MW: 1000.0
+      steel_total_t: 4900
+      unit_cost_cny_per_MW: 4436
+      construction_years: 3.5
+      fatigue_life_years: 25
+    confidence:
+      capacity_mw: verified
+      steel_t_per_MW: reported
+      unit_cost_cny_per_MW: verified
+    sources:
+      capacity_mw: "三峡集团 2021-12-07 并网；5.5MW 明阳抗台风半潜式"
+      steel_t_per_MW: "风电项目钢耗强度统计表.xlsx（4900 t / 5.5 MW）"
+      unit_cost_cny_per_MW: "国金证券：总投资 2.44 亿元，44 元/W = 4436 万元/MW"
+      construction_years: "2018 浮式研发立项—2021 并网（北极星/三峡上海院）"
+      fatigue_life_years: "国内海上风电设计寿命常规 25 年"
+
+  - id: haizhuang_fuyao
+    short_name: 海装扶瑶
+    name_en: "Haizhuang Fuyao (2022)"
+    region: domestic
+    status: commissioned
+    year: 2022
+    metrics:
+      capacity_mw: 6.2
+      steel_t_per_MW: 630.0
+      steel_total_t: 3900
+      unit_cost_cny_per_MW: 4000
+      construction_years: 3.4
+      fatigue_life_years: 25
+    confidence:
+      steel_t_per_MW: reported
+      unit_cost_cny_per_MW: reported
+    sources:
+      steel_t_per_MW: "xlsx 3900 t；国金另报平台约 4800 t → 774 t/MW（仅平台钢）"
+      unit_cost_cny_per_MW: "已建成样机 EPC 38000–40000 元/kW（世纪新能源/中金）"
+      construction_years: "2018 批复—2022-06 湛江安装（平安证券表）"
+
+  - id: haiyou_guanlan
+    short_name: 海油观澜
+    name_en: "Haiyou Guanlan (2023)"
+    region: domestic
+    status: commissioned
+    year: 2023
+    metrics:
+      capacity_mw: 7.25
+      steel_t_per_MW: 552.0
+      steel_total_t: 4000
+      unit_cost_cny_per_MW: 4800
+      construction_years: 2.6
+      fatigue_life_years: 25
+    confidence:
+      steel_t_per_MW: verified
+      unit_cost_cny_per_MW: reported
+    sources:
+      steel_t_per_MW: "xlsx；国金/南都：国内同类型最低；平台约 4000 t"
+      unit_cost_cny_per_MW: "国金证券：折合约 48 元/W（含系泊/塔筒占比）"
+      construction_years: "2022 方案审核—2023-05 并网（中青网/平安证券）"
+
+  - id: ghn_gongxiang
+    short_name: GHN 共享
+    name_en: "GHN Energy gongxiang (2024)"
+    region: domestic
+    status: commissioned
+    year: 2024
+    metrics:
+      capacity_mw: 4.0
+      steel_t_per_MW: 1225.0
+      steel_total_t: 4900
+      unit_cost_cny_per_MW: 4300
+      construction_years: 3.2
+      fatigue_life_years: 25
+    confidence:
+      steel_t_per_MW: reported
+      unit_cost_cny_per_MW: estimated
+    sources:
+      steel_t_per_MW: "风电项目钢耗强度统计表.xlsx"
+      unit_cost_cny_per_MW: "4MW 早期共享基础示范，对标 4000+ 万元/MW 样机区间"
+
+  - id: mingyang_tiancheng
+    short_name: 明阳天成
+    name_en: "Mingyang Tiancheng (2024)"
+    region: domestic
+    status: commissioned
+    year: 2024
+    metrics:
+      capacity_mw: 16.6
+      steel_t_per_MW: 482.0
+      steel_total_t: 8000
+      unit_cost_cny_per_MW: 2800
+      construction_years: 2.0
+      fatigue_life_years: 25
+    confidence:
+      capacity_mw: verified
+      steel_t_per_MW: reported
+      unit_cost_cny_per_MW: reported
+    sources:
+      capacity_mw: "广东省科技厅/明阳：双 8.3MW，合计 16.6MW"
+      steel_t_per_MW: "风电项目钢耗强度统计表.xlsx"
+      unit_cost_cny_per_MW: "明阳：UHPC+复合浮筒使单位千瓦造价降 40%+（相对 3–4 万/kW 行业水平）"
+      construction_years: "明阳：一年研发集成、一年施工（2024 投运）"
+
+  - id: three_gorges_linghang
+    short_name: 三峡领航
+    name_en: "Three gorges Linghang (2026)"
+    region: domestic
+    status: planned
+    year: 2026
+    metrics:
+      capacity_mw: 16.0
+      steel_t_per_MW: 468.5
+      steel_total_t: 7500
+      unit_cost_cny_per_MW: 3000
+      construction_years: 2.8
+      fatigue_life_years: 25
+    confidence:
+      steel_t_per_MW: reported
+      unit_cost_cny_per_MW: estimated
+    sources:
+      steel_t_per_MW: "风电项目钢耗强度统计表.xlsx"
+      unit_cost_cny_per_MW: "对标万宁一期 25 元/W（2088 万元/MW）与 16MW 规模化区间"
+
+  - id: tuqiang
+    short_name: 图强
+    name_en: "Tuqiang (2026)"
+    region: domestic
+    status: planned
+    year: 2026
+    metrics:
+      capacity_mw: 20.0
+      steel_t_per_MW: 278.0
+      steel_total_t: 5560
+      unit_cost_cny_per_MW: 2720
+      construction_years: 3.0
+      fatigue_life_years: 25
+    confidence:
+      steel_t_per_MW: target
+      unit_cost_cny_per_MW: target
+    sources:
+      steel_t_per_MW: "xlsx + 国家重大专项 300 t/MW 目标线"
+      unit_cost_cny_per_MW: "validation_rules.yaml tuqiang 参考"
+
+  - id: candidate_beso7
+    short_name: 本方案
+    name_en: "BESO7 candidate"
+    region: candidate
+    status: candidate
+    year: 2026
+    metrics:
+      capacity_mw: 20.0
+      steel_t_per_MW: 255.5
+      steel_total_t: 5110
+      unit_cost_cny_per_MW: 2500
+      construction_years: 2.8
+      fatigue_life_years: 27.5
+    confidence:
+      steel_t_per_MW: verified
+      unit_cost_cny_per_MW: estimated
+      construction_years: estimated
+      fatigue_life_years: estimated
+    sources:
+      steel_t_per_MW: "mixed_platform_steel_restruction4"
+      unit_cost_cny_per_MW: "钢耗—造价代理（255.5 t/MW × 2500/255.5）"
+      fatigue_life_years: "D/t、壁厚、变径代理 ± 修正"
+
+  - id: hywind_scotland
+    short_name: Hywind Scotland
+    name_en: "Hywind Scotland (2017)"
+    region: international
+    status: commissioned
+    year: 2017
+    metrics:
+      capacity_mw: 6.0
+      steel_t_per_MW: 383
+      steel_total_t: 2300
+      unit_cost_cny_per_MW: 8100
+      construction_years: 1.8
+      fatigue_life_years: 20
+    confidence:
+      steel_t_per_MW: verified
+      unit_cost_cny_per_MW: verified
+    sources:
+      steel_t_per_MW: "Quest FWE / UCC：spar 子结构约 2300 t / 6 MW"
+      unit_cost_cny_per_MW: "Wikipedia/Equinor：£264M / 30 MW ≈ £8.8M/MW"
+      construction_years: "2016 开工—2017-10 并网"
+      fatigue_life_years: "设计退役 2037（运营 20 年）"
+
+  - id: hywind_tampen
+    short_name: Hywind Tampen
+    name_en: "Hywind Tampen (2023)"
+    region: international
+    status: commissioned
+    year: 2023
+    metrics:
+      capacity_mw: 8.0
+      steel_t_per_MW: 350
+      steel_total_t: 2800
+      unit_cost_cny_per_MW: 5200
+      construction_years: 2.5
+      fatigue_life_years: 25
+    confidence:
+      steel_t_per_MW: estimated
+      unit_cost_cny_per_MW: estimated
+    sources:
+      capacity_mw: "11×7.6MW 级（Equinor 88MW 级项目）"
+      steel_t_per_MW: "spar 型规模化较 Hywind Scotland 降本，工程估算"
+      unit_cost_cny_per_MW: "挪威油田供电项目，含系泊/安装溢价"
+
+  - id: wanning_phase1
+    short_name: 万宁一期
+    name_en: "Wanning floating phase1 (2025)"
+    region: domestic
+    status: planned
+    year: 2025
+    metrics:
+      capacity_mw: 16.5
+      steel_t_per_MW: 420
+      steel_total_t: 6930
+      unit_cost_cny_per_MW: 2088
+      construction_years: 2.5
+      fatigue_life_years: 25
+    confidence:
+      unit_cost_cny_per_MW: verified
+      steel_t_per_MW: estimated
+    sources:
+      unit_cost_cny_per_MW: "中电建万宁一期 EPC 20.88 亿元 / 100 MW（世纪新能源）"
+      capacity_mw: "6×16–18MW 样机工程"
+      steel_t_per_MW: "规模化半潜式工程估算"
+
+  - id: longyuan_nanri
+    short_name: 龙源南日岛
+    name_en: "Longyuan Nanri (2023)"
+    region: domestic
+    status: planned
+    year: 2023
+    metrics:
+      capacity_mw: 4.0
+      steel_t_per_MW: 1125
+      steel_total_t: 4500
+      unit_cost_cny_per_MW: 4200
+      construction_years: 3.0
+      fatigue_life_years: 25
+    confidence:
+      steel_t_per_MW: reported
+    sources:
+      steel_t_per_MW: "国金证券漂浮式样机对比表（龙源莆田南日岛 4MW）"
+      unit_cost_cny_per_MW: "4MW 示范样机造价区间"
+
+  - id: golfe_du_lion
+    short_name: Golfe du Lion
+    name_en: "Golfe du Lion (2024)"
+    region: international
+    status: planned
+    year: 2024
+    metrics:
+      capacity_mw: 10.0
+      steel_t_per_MW: 380
+      steel_total_t: 3800
+      unit_cost_cny_per_MW: 3400
+      construction_years: 2.8
+      fatigue_life_years: 25
+    confidence:
+      steel_t_per_MW: estimated
+      unit_cost_cny_per_MW: estimated
+    sources:
+      steel_t_per_MW: "法国 30MW 项目 3×10MW 半潜式（Principle Power 路线）"
+      unit_cost_cny_per_MW: "欧洲商业化漂浮式目标区间"
+
+scoring_hints:
+  capacity_mw: "越接近目标 20 MW 越高分"
+  steel_t_per_MW: "越低越好；20 MW 机队样本分位排名"
+  unit_cost_cny_per_MW: "越低越好；相对本方案参考 2500 万元/MW"
+  construction_years: "越短越好；样机 3–3.5 年，商业化 2.5–3 年"
+  fatigue_life_years: "越高越好；基准 25 年"
