@@ -21,7 +21,7 @@ FIGURE_CAPTIONS: dict[str, str] = {
     "fig_benchmark_unit_cost": "图3 单位造价 · 行业基准位置（含行业趋势线）",
     "fig_benchmark_construction": "图4 施工年限 · 行业基准位置（含行业趋势线）",
     "fig_benchmark_fatigue": "图5 疲劳寿命 · 行业基准位置（含行业趋势线）",
-    "fig_score_radar": "图6 AI Review 五维对比雷达（本方案 vs 机队）",
+    "fig_score_radar": "图6 AI Review 五维对比雷达（机队对比）",
     "fig_fleet_metrics_bars": "图7 AI Review 有效性（原始指标 vs AI/法规得分）",
     "fig_rule_heatmap": "图8 规则得分分解",
     "fig_capacity_intensity": "图9 容量–钢耗强度散点",

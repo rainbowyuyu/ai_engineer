@@ -33,33 +33,17 @@ class FleetReviewPoint:
 
 
 def metrics_from_benchmark(record: BenchmarkRecord) -> GeometryMetrics:
-    """Build geometry metrics from fleet benchmark row (steel from xlsx, economics from supplement)."""
+    """Build geometry metrics from fleet benchmark row — no proxy fill for missing public data."""
     cap = float(record.capacity_mw or 20.0)
-    si = float(record.steel_intensity or 300.0)
-    total = float(record.total_steel_t or si * cap)
-    ref_int = 255.5
-    ref_cost = 2500.0
+    si = float(record.steel_intensity) if record.steel_intensity is not None else 300.0
+    total = float(record.total_steel_t) if record.total_steel_t is not None else si * cap
 
-    if record.unit_cost_cny_per_MW is not None:
-        unit_cost = float(record.unit_cost_cny_per_MW)
-        cost_src = record.metrics_source or "fleet_ai_review_metrics.yaml"
-    else:
-        unit_cost = si * (ref_cost / ref_int)
-        cost_src = "proxy_steel_intensity_to_cost"
-
-    if record.construction_years is not None:
-        construction = float(record.construction_years)
-        const_src = record.metrics_source or "fleet_ai_review_metrics.yaml"
-    else:
-        construction = 2.0 + min(2.2, total / 6000.0)
-        const_src = "proxy_steel_mass_and_complexity"
-
-    if record.fatigue_life_years is not None:
-        fatigue = float(record.fatigue_life_years)
-        fatigue_src = record.metrics_source or "fleet_ai_review_metrics.yaml"
-    else:
-        fatigue = 25.0
-        fatigue_src = "proxy_dt_wall_taper"
+    unit_cost = float(record.unit_cost_cny_per_MW) if record.unit_cost_cny_per_MW is not None else None
+    cost_src = record.metrics_source or "fleet_reference"
+    construction = float(record.construction_years) if record.construction_years is not None else None
+    const_src = record.metrics_source or "fleet_reference"
+    fatigue = float(record.fatigue_life_years) if record.fatigue_life_years is not None else None
+    fatigue_src = record.metrics_source or "fleet_reference"
 
     notes = [f"机队基准：{record.short_name}"]
     notes.extend(record.metrics_notes)
@@ -96,7 +80,7 @@ def metrics_from_benchmark(record: BenchmarkRecord) -> GeometryMetrics:
         scale_factor=1.0,
         steel_mass_t_est=total,
         steel_mass_t_source="fleet_benchmark",
-        steel_intensity_t_per_MW=si,
+        steel_intensity_t_per_MW=float(record.steel_intensity) if record.steel_intensity is not None else si,
         total_steel_t=total,
         unit_cost_cny_per_MW=unit_cost,
         unit_cost_source=cost_src,
@@ -109,14 +93,8 @@ def metrics_from_benchmark(record: BenchmarkRecord) -> GeometryMetrics:
 
 
 def score_fleet_point(record: BenchmarkRecord) -> FleetReviewPoint | None:
-    if record.steel_intensity is None:
+    if record.capacity_mw is None:
         return None
-    metrics = metrics_from_benchmark(record)
-    full = score_design(metrics)
-    ai = score_ai_review(metrics, full.rule_results)
-    reg = score_regulatory_review(metrics, full.rule_results)
-    reg_overall = round(regulatory_review_overall(reg), 1)
-    reg_scores = {k: round(float(v), 1) for k, v in reg.scores.items()}
     display_metrics = {
         "capacity_mw": record.capacity_mw,
         "steel_per_mw": record.steel_intensity,
@@ -124,15 +102,49 @@ def score_fleet_point(record: BenchmarkRecord) -> FleetReviewPoint | None:
         "construction_years": record.construction_years,
         "fatigue_life": record.fatigue_life_years,
     }
+    metrics = metrics_from_benchmark(record)
+    full = score_design(metrics)
+    ai = score_ai_review(metrics, full.rule_results)
+    reg = score_regulatory_review(metrics, full.rule_results)
+    ai_scores = {k: round(float(v), 1) for k, v in ai.scores.items()}
+    reg_scores = {k: round(float(v), 1) for k, v in reg.scores.items()}
+    if record.steel_intensity is None:
+        ai_scores["steel_per_mw"] = None  # type: ignore[assignment]
+        reg_scores["steel_per_mw"] = None  # type: ignore[assignment]
+    if record.unit_cost_cny_per_MW is None:
+        ai_scores["unit_cost"] = None  # type: ignore[assignment]
+        reg_scores["unit_cost"] = None  # type: ignore[assignment]
+    if record.construction_years is None:
+        ai_scores["construction_years"] = None  # type: ignore[assignment]
+        reg_scores["construction_years"] = None  # type: ignore[assignment]
+    if record.fatigue_life_years is None:
+        ai_scores["fatigue_life"] = None  # type: ignore[assignment]
+        reg_scores["fatigue_life"] = None  # type: ignore[assignment]
+
+    weights = ai.weights
+    scored_dims = [k for k in DIMENSION_KEYS if ai_scores.get(k) is not None]
+    wsum = sum(weights.get(k, 0.0) for k in scored_dims) or 1.0
+    overall = (
+        round(sum(float(ai_scores[k]) * weights.get(k, 0.0) for k in scored_dims) / wsum, 1)
+        if scored_dims
+        else 0.0
+    )
+    reg_scored = [k for k in DIMENSION_KEYS if reg_scores.get(k) is not None]
+    rwsum = sum(weights.get(k, 0.0) for k in reg_scored) or 1.0
+    reg_overall = (
+        round(sum(float(reg_scores[k]) * weights.get(k, 0.0) for k in reg_scored) / rwsum, 1)
+        if reg_scored
+        else 0.0
+    )
     return FleetReviewPoint(
         name=record.name,
         short_name=record.short_name,
         year=record.year,
         year_status=record.year_status,
         region=record.region,
-        scores={k: round(float(v), 1) for k, v in ai.scores.items()},
+        scores=ai_scores,
         metrics=display_metrics,
-        overall=round(ai_review_overall(ai), 1),
+        overall=overall,
         regulatory_overall=reg_overall,
         regulatory_scores=reg_scores,
     )

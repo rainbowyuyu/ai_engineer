@@ -56,7 +56,7 @@ projects:
     fatigue_life_years: 25
     source: "Principle Power 25 年设计；欧洲预商业化造价区间"
 
-  - match: ["WindFloat 2", "WindFloat"]
+  - match: ["WindFloat 2", "WindFloat(2011)"]
     unit_cost_cny_per_MW: 15000
     construction_years: 3.0
     fatigue_life_years: 25
@@ -96,7 +96,7 @@ projects:
     unit_cost_cny_per_MW: 2088
     construction_years: 2.5
     fatigue_life_years: 25
-    source: "万宁一期 EPC 2088 万元/MW"
+    source: "万宁一期 EPC 2088 万元/MW；钢耗公开数据缺失"
 
   - match: ["Longyuan", "南日岛", "Nanri"]
     unit_cost_cny_per_MW: 4200

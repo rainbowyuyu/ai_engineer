@@ -15,6 +15,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_XLSX = _REPO_ROOT / "rules" / "风电项目钢耗强度统计表.xlsx"
 DEFAULT_FLEET_METRICS = _REPO_ROOT / "rules" / "fleet_ai_review_metrics.yaml"
 DEFAULT_FLEET_REFERENCE = _REPO_ROOT / "rules" / "fleet_ai_review_reference.yaml"
+DEFAULT_FLEET_ROSTER = _REPO_ROOT / "rules" / "fleet_table_roster.yaml"
 
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 
@@ -60,6 +61,28 @@ def is_proposed_alias_entry(record: BenchmarkRecord) -> bool:
     name = record.name or ""
     if name.startswith("AI") and "2026" in name:
         return True
+    return False
+
+
+def _load_excluded_xlsx_match(path: Path | None = None) -> tuple[str, ...]:
+    p = (path or DEFAULT_FLEET_ROSTER).resolve()
+    if not p.is_file():
+        return ("Kincardine Ph1", "AI")
+    raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    items = raw.get("excluded_xlsx_match") or ["Kincardine Ph1", "AI"]
+    return tuple(str(i) for i in items if i)
+
+
+def is_excluded_fleet_entry(record: BenchmarkRecord, excluded: tuple[str, ...] | None = None) -> bool:
+    """Drop xlsx rows that must not appear in the fleet comparison table."""
+    if is_proposed_alias_entry(record):
+        return True
+    keys = excluded if excluded is not None else _load_excluded_xlsx_match()
+    name = record.name or ""
+    short = record.short_name or ""
+    for key in keys:
+        if key in name or key in short:
+            return True
     return False
 
 
@@ -155,11 +178,156 @@ def _load_fleet_metrics_supplement(path: Path | None = None) -> list[dict[str, A
 
 
 def _match_fleet_supplement(name: str, short_name: str, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    best: dict[str, Any] | None = None
+    best_len = -1
     for row in rows:
         keys = row.get("match") or []
-        if any(k in name or k in short_name for k in keys):
-            return row
-    return None
+        for k in keys:
+            if not k:
+                continue
+            if k in name or k in short_name:
+                if len(k) > best_len:
+                    best = row
+                    best_len = len(k)
+    return best
+
+
+def _load_fleet_table_roster(path: Path | None = None) -> frozenset[str]:
+    p = (path or DEFAULT_FLEET_ROSTER).resolve()
+    if not p.is_file():
+        return frozenset()
+    raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    ids: list[str] = []
+    ids.extend(raw.get("commissioned_ids") or [])
+    ids.extend(raw.get("planned_ids") or [])
+    return frozenset(str(i) for i in ids if i)
+
+
+def _reference_by_id(reference: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {str(r.get("id")): r for r in reference if r.get("id")}
+
+
+def _record_on_roster(record: BenchmarkRecord, roster_ids: frozenset[str], ref_by_id: dict[str, dict[str, Any]]) -> bool:
+    if not roster_ids:
+        return True
+    best_id: str | None = None
+    best_len = -1
+    for ref_id in roster_ids:
+        ref = ref_by_id.get(ref_id)
+        if not ref:
+            continue
+        score = _reference_match_score(record, ref)
+        if score > best_len:
+            best_id = ref_id
+            best_len = score
+    return best_len >= 0
+
+
+def _record_from_reference(ref: dict[str, Any], supplement: list[dict[str, Any]]) -> BenchmarkRecord | None:
+    if ref.get("status") in ("candidate",):
+        return None
+    m = ref.get("metrics") or {}
+    cap = m.get("capacity_mw")
+    si = m.get("steel_t_per_MW")
+    if cap is None:
+        return None
+    year = ref.get("year")
+    year_status = ref.get("status") or "unknown"
+    if year_status == "commissioned" and year:
+        year_label = str(year)
+    elif year_status == "planned" and year:
+        year_label = f"规划·{year}"
+    else:
+        year_label = str(year) if year else "未标注"
+    name_en = ref.get("name_en") or ref.get("short_name") or ref.get("id")
+    rec = BenchmarkRecord(
+        name=str(name_en),
+        short_name=str(ref.get("short_name") or name_en),
+        year=int(year) if year is not None else None,
+        year_label=year_label,
+        year_status=year_status if year_status in ("commissioned", "planned") else "unknown",
+        region=str(ref.get("region") or "international"),
+        steel_intensity=float(si) if si is not None else None,
+        capacity_mw=float(cap),
+        total_steel_t=float(m["steel_total_t"])
+        if m.get("steel_total_t")
+        else (float(si) * float(cap) if si is not None else None),
+        unit_cost_cny_per_MW=float(m["unit_cost_cny_per_MW"]) if m.get("unit_cost_cny_per_MW") is not None else None,
+        construction_years=float(m["construction_years"]) if m.get("construction_years") is not None else None,
+        fatigue_life_years=float(m["fatigue_life_years"]) if m.get("fatigue_life_years") is not None else None,
+        metrics_source="fleet_ai_review_reference.yaml",
+        metrics_notes=[str(ref.get("sources", {}).get("steel_t_per_MW") or "reference yaml")],
+    )
+    return enrich_record_metrics(rec, supplement)
+
+
+def _apply_reference_override(record: BenchmarkRecord, ref: dict[str, Any]) -> BenchmarkRecord:
+    """Prefer verified reference metrics over simplified xlsx rows."""
+    m = ref.get("metrics") or {}
+    conf = ref.get("confidence") or {}
+    si = m.get("steel_t_per_MW")
+    cap = m.get("capacity_mw")
+    tot = m.get("steel_total_t")
+    notes = list(record.metrics_notes)
+    if ref.get("notes"):
+        notes.append(str(ref["notes"]))
+    updated = replace(
+        record,
+        steel_intensity=float(si) if si is not None else record.steel_intensity,
+        capacity_mw=float(cap) if cap is not None else record.capacity_mw,
+        total_steel_t=float(tot) if tot is not None else record.total_steel_t,
+        unit_cost_cny_per_MW=float(m["unit_cost_cny_per_MW"])
+        if m.get("unit_cost_cny_per_MW") is not None
+        else record.unit_cost_cny_per_MW,
+        construction_years=float(m["construction_years"])
+        if m.get("construction_years") is not None
+        else record.construction_years,
+        fatigue_life_years=float(m["fatigue_life_years"])
+        if m.get("fatigue_life_years") is not None
+        else record.fatigue_life_years,
+        metrics_source="fleet_ai_review_reference.yaml",
+        metrics_notes=notes,
+    )
+    if conf.get("steel_t_per_MW") in ("verified", "reported") and si is not None:
+        updated = replace(updated, steel_intensity=float(si))
+    if conf.get("capacity_mw") in ("verified", "reported") and cap is not None:
+        updated = replace(updated, capacity_mw=float(cap))
+    return updated
+
+
+def _compact_match_text(text: str) -> str:
+    """Ignore spaces for xlsx vs reference name matching (e.g. 'Name(2020)' vs 'Name (2020)')."""
+    return re.sub(r"\s+", "", (text or "").strip()).lower()
+
+
+def _reference_match_keys(ref: dict[str, Any]) -> list[str]:
+    keys = [str(ref.get("short_name") or ""), str(ref.get("name_en") or ""), str(ref.get("id") or "")]
+    keys.extend(str(k) for k in (ref.get("match") or []) if k)
+    return [k for k in keys if k]
+
+
+def _reference_match_score(record: BenchmarkRecord, ref: dict[str, Any]) -> int:
+    best = -1
+    name_c = _compact_match_text(record.name)
+    short_c = _compact_match_text(record.short_name)
+    for k in _reference_match_keys(ref):
+        kc = _compact_match_text(k)
+        if not kc:
+            continue
+        if kc in name_c or kc in short_c or k in record.name or k in record.short_name:
+            best = max(best, len(k))
+    return best
+
+
+def _find_reference_for_record(record: BenchmarkRecord, reference: list[dict[str, Any]]) -> dict[str, Any] | None:
+    best: dict[str, Any] | None = None
+    best_len = -1
+    for ref in reference:
+        score = _reference_match_score(record, ref)
+        if score > best_len:
+            best = ref
+            best_len = score
+    return best if best_len >= 0 else None
 
 
 def enrich_record_metrics(
@@ -234,11 +402,23 @@ def load_benchmark_records(xlsx_path: Path | None = None) -> list[BenchmarkRecor
             )
         )
     supplement = _load_fleet_metrics_supplement()
+    reference = _load_fleet_reference_projects()
+    roster_ids = _load_fleet_table_roster()
+    ref_by_id = _reference_by_id(reference)
+
     out = [enrich_record_metrics(r, supplement) for r in out]
-    out = merge_reference_only_records(out)
-    out = [r for r in out if not is_proposed_alias_entry(r)]
-    out.sort(key=lambda r: (r.sort_year, r.short_name))
-    return out
+    merged: list[BenchmarkRecord] = []
+    for rec in out:
+        ref = _find_reference_for_record(rec, reference)
+        if ref is not None:
+            rec = _apply_reference_override(rec, ref)
+        merged.append(rec)
+
+    merged = [r for r in merged if not is_excluded_fleet_entry(r)]
+    if roster_ids:
+        merged = [r for r in merged if _record_on_roster(r, roster_ids, ref_by_id)]
+    merged.sort(key=lambda r: (r.sort_year, r.short_name))
+    return merged
 
 
 def _load_fleet_reference_projects(path: Path | None = None) -> list[dict[str, Any]]:
@@ -250,78 +430,15 @@ def _load_fleet_reference_projects(path: Path | None = None) -> list[dict[str, A
 
 
 def _record_matches_reference(record: BenchmarkRecord, ref: dict[str, Any]) -> bool:
-    keys = [ref.get("short_name", ""), ref.get("name_en", ""), ref.get("id", "")]
-    keys.extend(ref.get("match") or [])
-    for k in keys:
-        if not k:
-            continue
-        if k in record.name or k in record.short_name:
-            return True
-    return False
+    return _reference_match_score(record, ref) >= 0
 
 
 def merge_reference_only_records(
     records: list[BenchmarkRecord],
     reference: list[dict[str, Any]] | None = None,
 ) -> list[BenchmarkRecord]:
-    """Append YAML reference projects not already present in xlsx fleet table."""
-    reference = reference if reference is not None else _load_fleet_reference_projects()
-    supplement = _load_fleet_metrics_supplement()
-    out = list(records)
-
-    for ref in reference:
-        if ref.get("status") in ("candidate",):
-            continue
-        if any(_record_matches_reference(r, ref) for r in out):
-            continue
-        m = ref.get("metrics") or {}
-        si = m.get("steel_t_per_MW")
-        cap = m.get("capacity_mw")
-        if si is None or cap is None:
-            continue
-        if any(
-            r.capacity_mw is not None
-            and r.steel_intensity is not None
-            and abs(float(r.capacity_mw) - float(cap)) < 0.05
-            and abs(float(r.steel_intensity) - float(si)) < 2.0
-            for r in out
-        ):
-            continue
-        year = ref.get("year")
-        year_status = ref.get("status") or "unknown"
-        if year_status == "commissioned" and year:
-            year_label = str(year)
-        elif year_status == "planned" and year:
-            year_label = f"规划·{year}"
-        else:
-            year_label = str(year) if year else "未标注"
-        name_en = ref.get("name_en") or ref.get("short_name") or ref.get("id")
-        rec = BenchmarkRecord(
-            name=str(name_en),
-            short_name=str(ref.get("short_name") or name_en),
-            year=int(year) if year is not None else None,
-            year_label=year_label,
-            year_status=year_status if year_status in ("commissioned", "planned") else "unknown",
-            region=str(ref.get("region") or "international"),
-            steel_intensity=float(si),
-            capacity_mw=float(cap),
-            total_steel_t=float(m["steel_total_t"]) if m.get("steel_total_t") else float(si) * float(cap),
-            metrics_source="fleet_ai_review_reference.yaml",
-            metrics_notes=[str(ref.get("sources", {}).get("steel_t_per_MW") or "reference yaml")],
-        )
-        rec = enrich_record_metrics(rec, supplement)
-        mref = ref.get("metrics") or {}
-        if mref.get("unit_cost_cny_per_MW") is not None:
-            rec = replace(
-                rec,
-                unit_cost_cny_per_MW=float(mref["unit_cost_cny_per_MW"]),
-                construction_years=mref.get("construction_years"),
-                fatigue_life_years=mref.get("fatigue_life_years"),
-                metrics_source="fleet_ai_review_reference.yaml",
-            )
-        out.append(rec)
-
-    return out
+    """Deprecated — roster merge runs inside load_benchmark_records()."""
+    return list(records)
 
 
 def filter_peers(

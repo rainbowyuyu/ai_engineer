@@ -1,0 +1,30 @@
+# AI Review table whitelist — must match 风电项目钢耗强度统计表.xlsx (section 2 rows)
+# Do not merge turbines that are absent from the spreadsheet.
+
+meta:
+  updated: "2026-07-05"
+  source: "rules/风电项目钢耗强度统计表.xlsx"
+  xlsx_fleet_count: 11
+  commissioned_count: 9
+  planned_count: 2
+
+# Reference ids aligned with fleet_ai_review_reference.yaml
+commissioned_ids:
+  - windfloat_2011
+  - fukushima_shimpuu
+  - windfloat_atlantic
+  - kincardine_ph2
+  - three_gorges_yinling
+  - haizhuang_fuyao
+  - haiyou_guanlan
+  - mingyang_tiancheng
+  - ghn_gongxiang
+
+planned_ids:
+  - three_gorges_linghang
+  - tuqiang
+
+# Rows present in xlsx but excluded from fleet table (duplicate / candidate alias)
+excluded_xlsx_match:
+  - "Kincardine Ph1"
+  - "AI"

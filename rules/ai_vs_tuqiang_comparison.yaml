@@ -1,0 +1,122 @@
+# AI vs Tuqiang — eight-metric comparison (standalone; not AI Review scoring)
+# Economic metrics: validation_rules / fleet_ai_review_reference / restruction4
+# Structural responses: Zwind Phase IV · Yangjiang Sanshan III 50-yr sea states H1–H6 envelope
+
+meta:
+  title: "AI vs Tuqiang — key performance comparison"
+  updated: "2026-07-05"
+  capacity_mw: 20.0
+  footnote: >
+    Steel mass and unit cost refer to the 20 MW floating foundation.
+    Structural metrics are Zwind limit-state / fatigue envelopes (H1–H6).
+    Frequency panel: structural modes shall not overlap 1P (0.08–0.12 Hz) or 3P (0.24–0.35 Hz) bands.
+
+platforms:
+  ai:
+    label: "AI"
+    color: "#00A087"
+  tuqiang:
+    label: "Tuqiang"
+    color: "#E64B35"
+
+metrics:
+  - id: steel_total
+    label: "Steel mass"
+    icon: "steel"
+    unit: "t"
+    ai: 5110
+    tuqiang: 5560
+    lower_is_better: true
+    source: "restruction4 hybrid platform; validation_rules 255.5 t/MW × 20 MW"
+
+  - id: steel_per_mw
+    label: "Steel mass per MW"
+    icon: "intensity"
+    unit: "t/MW"
+    ai: 255.5
+    tuqiang: 278.0
+    lower_is_better: true
+    reference_line: 300.0
+    reference_label: "300 t/MW target"
+    source: "validation_rules.yaml · 5110/5560 t ÷ 20 MW"
+
+  - id: unit_cost
+    label: "Unit cost"
+    icon: "cost"
+    unit: "10$^{4}$ CNY/MW"
+    ai: 2500
+    tuqiang: 2720
+    lower_is_better: true
+    source: "validation_rules.yaml · scaled EPC proxy"
+
+  - id: system_frequency
+    label: "Structural frequency"
+    icon: "frequency"
+    chart: avoidance
+    unit: "Hz"
+    x_max: 0.5
+    subtitle: "Modes outside 1P / 3P excitation bands (Zwind modal)"
+    excitation_bands:
+      - label: "1P range"
+        hz_min: 0.08
+        hz_max: 0.12
+        color: "#3C5488"
+      - label: "3P range"
+        hz_min: 0.24
+        hz_max: 0.35
+        color: "#E64B35"
+    ai_modes:
+      - label: "1st SS"
+        hz: 0.42
+        ls: ":"
+      - label: "1st FA"
+        hz: 0.44
+        ls: "-"
+    tuqiang_modes:
+      - label: "1st SS"
+        hz: 0.39
+        ls: ":"
+      - label: "1st FA"
+        hz: 0.41
+        ls: "-"
+    source: "Zwind modal analysis · tower 1st modes vs rotor 1P/3P bands"
+
+  - id: platform_motion
+    label: "Platform motion"
+    icon: "motion"
+    unit: "deg"
+    subtitle: "Peak pitch · extreme load case"
+    ai: 3.58
+    tuqiang: 4.05
+    lower_is_better: true
+    source: "Zwind H5 combined storm · pitch limit 4.2 deg"
+
+  - id: structural_strength
+    label: "Structural strength"
+    icon: "strength"
+    unit: "UC"
+    subtitle: "Max unity check · static combos"
+    ai: 0.84
+    tuqiang: 0.78
+    lower_is_better: true
+    source: "Phase IV static limit states · publication Table comparison"
+
+  - id: component_fatigue
+    label: "Component fatigue"
+    icon: "fatigue"
+    unit: "D"
+    subtitle: "Miner damage ratio · design life"
+    ai: 0.71
+    tuqiang: 0.79
+    lower_is_better: true
+    source: "Zwind H6 fatigue screening · hotspot envelope"
+
+  - id: mooring_tension
+    label: "Mooring tension"
+    icon: "mooring"
+    unit: "kN"
+    subtitle: "Peak line tension"
+    ai: 4380
+    tuqiang: 4710
+    lower_is_better: true
+    source: "Zwind mooring model · H5 storm envelope"

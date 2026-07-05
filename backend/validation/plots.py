@@ -79,9 +79,8 @@ RADAR_HIGHLIGHT = (
     "海油观澜",
     "三峡领航",
     "明阳天成",
-    "万宁一期",
     "Kincardine Ph2",
-    "Hywind Scotland",
+    "WindFloat Atlantic",
 )
 
 # Radar overlay: proposed design is drawn separately — do not include its alias "AI"
@@ -123,7 +122,7 @@ BENCHMARK_METRIC_CONFIGS: tuple[dict[str, Any], ...] = (
         "title": "Benchmark position — unit cost",
         "title_zh": "单位造价 · 行业基准位置",
         "target": 2500.0,
-        "target_label": "2500 (10$^{4}$ CNY/MW, proposed ref.)",
+        "target_label": "2500 (10$^{4}$ CNY/MW, design target)",
         "unit": "10$^{4}$ CNY/MW",
         "fmt": ".0f",
         "lower_is_better": True,
@@ -136,7 +135,7 @@ BENCHMARK_METRIC_CONFIGS: tuple[dict[str, Any], ...] = (
         "title": "Benchmark position — construction period",
         "title_zh": "施工年限 · 行业基准位置",
         "target": 2.8,
-        "target_label": "2.8 yr target (proposed ref.)",
+        "target_label": "2.8 yr design target",
         "unit": "yr",
         "fmt": ".1f",
         "lower_is_better": True,
@@ -278,22 +277,14 @@ def _score_cell(val: float | None) -> str:
 
 def _radar_score_table(
     ax_tbl: plt.Axes,
-    candidate_label: str,
-    candidate_scores: dict[str, float],
-    candidate_overall: float,
     fleet_points: list[FleetReviewPoint],
     cats: list[str],
 ) -> None:
-    """Bottom panel: color swatch + five-dimension scores (no overlapping chart labels)."""
+    """Bottom panel: fleet five-dimension scores (no proposed / candidate row)."""
     ax_tbl.axis("off")
     dim_headers = ["Cap.", "Steel", "Cost", "Sched.", "Life"]
     header = ["", "Project", "Overall", *dim_headers]
     rows: list[list[str]] = []
-
-    rows.append(
-        [NATURE_COLORS["candidate"], candidate_label, _score_cell(candidate_overall)]
-        + [_score_cell(candidate_scores.get(c)) for c in cats]
-    )
 
     highlights = [p for p in fleet_points if _is_highlight(p)]
     highlights.sort(key=lambda p: p.overall, reverse=True)
@@ -325,10 +316,6 @@ def _radar_score_table(
             if color:
                 cell.set_facecolor(color)
             cell.get_text().set_text("")
-        if r == 1:
-            cell.set_facecolor("#E8F5F2")
-            if c == 1:
-                cell.set_text_props(fontweight="bold", ha="left")
         elif c == 1:
             cell.set_text_props(ha="left", fontsize=7.5)
 
@@ -404,19 +391,6 @@ def _record_metric_value(record: BenchmarkRecord, attr: str) -> float | None:
         return None
 
 
-def _candidate_metric_value(score: ValidationScore, attrs: tuple[str, ...]) -> float | None:
-    for key in attrs:
-        if key in (score.ai_review_metrics or {}):
-            val = score.ai_review_metrics.get(key)
-            if val is not None:
-                return float(val)
-        if key in score.metrics:
-            val = score.metrics.get(key)
-            if val is not None:
-                return float(val)
-    return None
-
-
 def _year_polynomial_trend(
     records: list[BenchmarkRecord],
     *,
@@ -472,10 +446,6 @@ def _trend_direction_note(
     return "Tightening / improving" if improving else "Loosening / under pressure"
 
 
-def _format_metric_annotation(val: float, unit: str, fmt: str) -> str:
-    return f"{val:{fmt}} {unit}"
-
-
 def plot_benchmark_metric(
     score: ValidationScore,
     out_dir: Path,
@@ -483,8 +453,9 @@ def plot_benchmark_metric(
     label: str = "Proposed",
 ) -> list[str]:
     """Fleet-order benchmark chart with quadratic trend curve vs. commissioning year."""
+    _ = score
+    _ = label
     configure_nature_style()
-    label = _chart_label(label)
     attr = str(config["record_attr"])
     records = [r for r in load_benchmark_records() if _record_metric_value(r, attr) is not None]
     records.sort(key=lambda r: (r.sort_year, r.short_name))
@@ -493,7 +464,6 @@ def plot_benchmark_metric(
 
     x = np.arange(len(records))
     y = np.array([_record_metric_value(r, attr) for r in records], dtype=float)
-    cand_y = _candidate_metric_value(score, tuple(config["candidate_attrs"]))
     tick_labels = [_chart_year_label(r) for r in records]
 
     fig, ax = plt.subplots(figsize=(7.6, 3.8))
@@ -557,33 +527,8 @@ def plot_benchmark_metric(
             label=str(config.get("target_label") or "target"),
         )
 
-    if cand_y is not None:
-        fmt = str(config.get("fmt") or ".1f")
-        unit = str(config.get("unit") or "")
-        ax.scatter(
-            [len(records)],
-            [cand_y],
-            s=80,
-            c=NATURE_COLORS["candidate"],
-            marker="*",
-            edgecolors="black",
-            linewidths=0.5,
-            zorder=5,
-            label=label,
-        )
-        ax.annotate(
-            f"{label}\n{_format_metric_annotation(cand_y, unit, fmt)}",
-            (len(records), cand_y),
-            textcoords="offset points",
-            xytext=(6, 6),
-            fontsize=7,
-            color=NATURE_COLORS["candidate"],
-        )
-        ax.set_xticks(list(x) + [len(records)])
-        ax.set_xticklabels(tick_labels + [label], rotation=0, fontsize=7)
-    else:
-        ax.set_xticks(x)
-        ax.set_xticklabels(tick_labels, rotation=0, fontsize=7)
+    ax.set_xticks(x)
+    ax.set_xticklabels(tick_labels, rotation=0, fontsize=7)
 
     ax.set_xlabel("Commissioning / planning year (fleet order)")
     ax.set_ylabel(str(config["ylabel"]))
@@ -620,12 +565,13 @@ def plot_score_radar(
     candidate_label: str = "Proposed",
 ) -> list[str]:
     configure_nature_style()
-    candidate_label = _chart_label(candidate_label)
-    if not score.ai_review_scores:
-        return []
+    _ = score  # fleet-only chart; candidate scores shown in validity table instead
+    _ = candidate_label
     cats = list(DIMENSION_KEYS)
     labels = [RADAR_SHORT_LABELS.get(c, c) for c in cats]
     fleet_points = fleet_points or score_fleet_benchmarks()
+    if not fleet_points:
+        return []
     angles = np.linspace(0, 2 * np.pi, len(cats), endpoint=False).tolist()
     angles_c = angles + [angles[0]]
 
@@ -677,38 +623,6 @@ def plot_score_radar(
             )
         )
 
-    cand_vals = [float(score.ai_review_scores.get(c, 0)) for c in cats]
-    cand_c = cand_vals + [cand_vals[0]]
-    prop_color = NATURE_COLORS["candidate"]
-    ax.fill(angles_c, cand_c, alpha=0.20, color=prop_color, zorder=5)
-    ax.plot(
-        angles_c,
-        cand_c,
-        "o-",
-        color=prop_color,
-        linewidth=3.0,
-        markersize=8,
-        markerfacecolor=prop_color,
-        markeredgecolor="#1a1a1a",
-        markeredgewidth=0.55,
-        zorder=6,
-        label=candidate_label,
-    )
-
-    for ang, val in zip(angles, cand_vals):
-        r_text = min(float(val) + 7.0, 97.0)
-        ax.text(
-            ang,
-            r_text,
-            f"{val:.0f}",
-            ha="center",
-            va="center",
-            fontsize=8,
-            fontweight="bold",
-            color="#004D40",
-            zorder=7,
-        )
-
     ax.set_xticks(angles)
     ax.set_xticklabels(labels, fontsize=9.5)
     ax.tick_params(axis="x", pad=18)
@@ -718,7 +632,7 @@ def plot_score_radar(
     ax.grid(color="#DDDDDD", linewidth=0.55, alpha=0.9)
     ax.spines["polar"].set_color("#CCCCCC")
     ax.set_title(
-        f"AI Review — {candidate_label} (overall {score.overall_score:.0f})",
+        "AI Review — fleet five-metric comparison",
         fontsize=10.5,
         fontweight="bold",
         pad=24,
@@ -735,18 +649,11 @@ def plot_score_radar(
         title_fontsize=7,
     )
 
-    _radar_score_table(
-        ax_tbl,
-        candidate_label,
-        score.ai_review_scores,
-        score.overall_score,
-        fleet_points,
-        cats,
-    )
+    _radar_score_table(ax_tbl, fleet_points, cats)
     fig.text(
         0.5,
         0.02,
-        f"Proposed (filled) vs. four benchmarks; scores 0–100. {candidate_label} overall {score.overall_score:.0f}.",
+        "Fleet benchmark overlay (four highlighted projects); background traces show full roster. Scores 0–100.",
         ha="center",
         fontsize=7,
         color="#666666",
@@ -880,9 +787,9 @@ def plot_rule_heatmap(score: ValidationScore, out_dir: Path) -> list[str]:
 
 def plot_capacity_intensity(score: ValidationScore, out_dir: Path, label: str = "Candidate") -> list[str]:
     configure_nature_style()
+    _ = score
+    _ = label
     records = [r for r in load_benchmark_records() if r.steel_intensity and r.capacity_mw]
-    cand_x = score.metrics.get("target_power_MW")
-    cand_y = score.metrics.get("steel_intensity_t_per_MW")
 
     fig, ax = plt.subplots(figsize=(4.8, 4.0))
     _style_axis(ax)
@@ -890,8 +797,6 @@ def plot_capacity_intensity(score: ValidationScore, out_dir: Path, label: str = 
     for r in records:
         ax.scatter(r.capacity_mw, r.steel_intensity, c=NATURE_COLORS[r.region], s=28,
                    edgecolors="white", linewidths=0.5, alpha=0.85)
-    ax.scatter([cand_x], [cand_y], s=120, c=NATURE_COLORS["candidate"], marker="*",
-               edgecolors="black", linewidths=0.5, zorder=5, label=label)
     ax.axhline(300, color="#999", linestyle=":", linewidth=0.8)
     ax.set_xlabel("Unit capacity (MW)")
     ax.set_ylabel("Steel intensity (t MW$^{-1}$)")
@@ -899,7 +804,6 @@ def plot_capacity_intensity(score: ValidationScore, out_dir: Path, label: str = 
     handles = [
         Line2D([0], [0], marker="o", color="w", markerfacecolor=NATURE_COLORS["international"], markersize=5, label="Intl."),
         Line2D([0], [0], marker="o", color="w", markerfacecolor=NATURE_COLORS["domestic"], markersize=5, label="China"),
-        Line2D([0], [0], marker="*", color="w", markerfacecolor=NATURE_COLORS["candidate"], markersize=10, label=label),
     ]
     ax.legend(handles=handles, loc="upper right")
     return _save(fig, out_dir, "fig_capacity_intensity")

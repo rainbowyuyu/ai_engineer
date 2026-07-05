@@ -69,7 +69,7 @@ projects:
     year: 2020
     metrics:
       capacity_mw: 8.4
-      steel_t_per_MW: 417
+      steel_t_per_MW: 417.0
       steel_total_t: 3500
       unit_cost_cny_per_MW: 3600
       construction_years: 2.5
@@ -80,31 +80,12 @@ projects:
       unit_cost_cny_per_MW: estimated
       fatigue_life_years: verified
     sources:
-      capacity_mw: "Principle Power / WindFloat Atlantic 官网"
-      steel_t_per_MW: "主结构约 3500 t / 8.4 MW ≈ 417 t/MW（Floating Windfarm Guide, Principle Power）"
-      steel_total_t: "Primary structure ~3500 t（行业指南）"
-      unit_cost_cny_per_MW: "预商业化项目，欧洲漂浮式 3000–4000 万元/MW 区间"
+      capacity_mw: "Principle Power / WindFloat Atlantic 官网（3×8.4 MW）"
+      steel_t_per_MW: "主结构约 3500 t / 8.4 MW ≈ 417 t/MW"
+      steel_total_t: "Primary structure ~3500 t"
+      unit_cost_cny_per_MW: "欧洲预商业化漂浮式 3000–4000 万元/MW"
       fatigue_life_years: "WindFloat Atlantic 认证设计寿命 25 年"
-    notes: "xlsx 中按 6.2MW 均值 390 t/MW 为机队表简化口径；单机 8.4MW 宜按 417 t/MW 主结构钢耗"
-
-  - id: kincardine_ph1
-    short_name: Kincardine Ph1
-    name_en: "Kincardine Ph1 (2021)"
-    region: international
-    status: commissioned
-    year: 2021
-    metrics:
-      capacity_mw: 2.0
-      steel_t_per_MW: null
-      steel_total_t: null
-      unit_cost_cny_per_MW: 7000
-      construction_years: 3.5
-      fatigue_life_years: 25
-    confidence:
-      unit_cost_cny_per_MW: estimated
-    sources:
-      unit_cost_cny_per_MW: "Kincardine 全场合计 £350M / ~50MW ≈ £7M/MW（NS Energy, Quest FWE）"
-      fatigue_life_years: "NS Energy：operational life 25 years"
+    notes: "覆盖 xlsx 中 6.2MW/390 t/MW 的简化均值口径"
 
   - id: kincardine_ph2
     short_name: Kincardine Ph2
@@ -135,7 +116,7 @@ projects:
     year: 2021
     metrics:
       capacity_mw: 5.5
-      steel_t_per_MW: 1000.0
+      steel_t_per_MW: 891.0
       steel_total_t: 4900
       unit_cost_cny_per_MW: 4436
       construction_years: 3.5
@@ -146,7 +127,7 @@ projects:
       unit_cost_cny_per_MW: verified
     sources:
       capacity_mw: "三峡集团 2021-12-07 并网；5.5MW 明阳抗台风半潜式"
-      steel_t_per_MW: "风电项目钢耗强度统计表.xlsx（4900 t / 5.5 MW）"
+      steel_t_per_MW: "4900 t / 5.5 MW ≈ 891 t/MW（xlsx 区间 4300–5500 取 4900 t）"
       unit_cost_cny_per_MW: "国金证券：总投资 2.44 亿元，44 元/W = 4436 万元/MW"
       construction_years: "2018 浮式研发立项—2021 并网（北极星/三峡上海院）"
       fatigue_life_years: "国内海上风电设计寿命常规 25 年"
@@ -276,29 +257,6 @@ projects:
       steel_t_per_MW: "xlsx + 国家重大专项 300 t/MW 目标线"
       unit_cost_cny_per_MW: "validation_rules.yaml tuqiang 参考"
 
-  - id: candidate_beso7
-    short_name: 本方案
-    name_en: "BESO7 candidate"
-    region: candidate
-    status: candidate
-    year: 2026
-    metrics:
-      capacity_mw: 20.0
-      steel_t_per_MW: 255.5
-      steel_total_t: 5110
-      unit_cost_cny_per_MW: 2500
-      construction_years: 2.8
-      fatigue_life_years: 27.5
-    confidence:
-      steel_t_per_MW: verified
-      unit_cost_cny_per_MW: estimated
-      construction_years: estimated
-      fatigue_life_years: estimated
-    sources:
-      steel_t_per_MW: "mixed_platform_steel_restruction4"
-      unit_cost_cny_per_MW: "钢耗—造价代理（255.5 t/MW × 2500/255.5）"
-      fatigue_life_years: "D/t、壁厚、变径代理 ± 修正"
-
   - id: hywind_scotland
     short_name: Hywind Scotland
     name_en: "Hywind Scotland (2017)"
@@ -350,18 +308,18 @@ projects:
     year: 2025
     metrics:
       capacity_mw: 16.5
-      steel_t_per_MW: 420
-      steel_total_t: 6930
+      steel_t_per_MW: null
+      steel_total_t: null
       unit_cost_cny_per_MW: 2088
       construction_years: 2.5
       fatigue_life_years: 25
     confidence:
       unit_cost_cny_per_MW: verified
-      steel_t_per_MW: estimated
+      steel_t_per_MW: missing
     sources:
       unit_cost_cny_per_MW: "中电建万宁一期 EPC 20.88 亿元 / 100 MW（世纪新能源）"
       capacity_mw: "6×16–18MW 样机工程"
-      steel_t_per_MW: "规模化半潜式工程估算"
+      steel_t_per_MW: "公开资料无可靠钢耗，表内留空"
 
   - id: longyuan_nanri
     short_name: 龙源南日岛
