@@ -256,6 +256,7 @@ def _estimate_ai_review_economics(
     dt_ratio: float | None,
     wall_thickness_m: float,
     leg_taper_ratio: float | None,
+    surrogate_prediction: Any | None = None,
 ) -> tuple[
     float | None,
     str,
@@ -313,10 +314,36 @@ def _estimate_ai_review_economics(
         fatigue_src = "proxy_dt_wall_taper"
         notes.append("疲劳寿命代理：设计寿命 25 年 ± D/t、壁厚与变径修正")
 
+    if surrogate_prediction is not None and getattr(surrogate_prediction, "enabled", False):
+        from backend.surrogate.blend import blend_economics, choose_alpha
+
+        alpha = choose_alpha(float(getattr(surrogate_prediction, "physics_residual", 0.0)))
+        if alpha > 0:
+            s_cost = getattr(surrogate_prediction, "unit_cost_cny_per_MW", None)
+            s_const = getattr(surrogate_prediction, "construction_years", None)
+            s_fat = getattr(surrogate_prediction, "fatigue_life_years", None)
+            blended = blend_economics(
+                (unit_cost, construction, fatigue),
+                (s_cost, s_const, s_fat),
+                alpha=alpha,
+                sources=(cost_src, const_src, fatigue_src),
+            )
+            unit_cost = blended.unit_cost_cny_per_MW
+            construction = blended.construction_years
+            fatigue = blended.fatigue_life_years
+            cost_src = blended.unit_cost_source
+            const_src = blended.construction_years_source
+            fatigue_src = blended.fatigue_life_source
+            notes.extend(blended.notes)
+
     return unit_cost, cost_src, construction, const_src, fatigue, fatigue_src, notes
 
 
-def extract_geometry_metrics(data: dict[str, Any]) -> GeometryMetrics:
+def extract_geometry_metrics(
+    data: dict[str, Any],
+    *,
+    surrogate_prediction: Any | None = None,
+) -> GeometryMetrics:
     opt = data.get("optimization_info") or {}
     target_power = float(opt.get("target_power_MW") or 20.0)
     draft_m = opt.get("draft_m")
@@ -397,8 +424,11 @@ def extract_geometry_metrics(data: dict[str, Any]) -> GeometryMetrics:
         dt_ratio=dt_ratio,
         wall_thickness_m=wall_thickness_m,
         leg_taper_ratio=taper,
+        surrogate_prediction=surrogate_prediction,
     )
     assumptions.extend(econ_notes)
+    if surrogate_prediction is not None and getattr(surrogate_prediction, "assumptions", None):
+        assumptions.extend(list(surrogate_prediction.assumptions))
 
     return GeometryMetrics(
         target_power_MW=target_power,

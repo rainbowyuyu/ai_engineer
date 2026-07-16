@@ -29,6 +29,13 @@ def main() -> int:
     print(f"OK validation_id={result['validation_id']}")
     print(f"   score={result['overall_score']} grade={result['grade']}")
     print(f"   report={result['report_md']}")
+    if result.get("report_docx"):
+        print(f"   docx={result['report_docx']}")
+    if result.get("report_docx_detailed"):
+        p = Path(result["report_docx_detailed"])
+        print(f"   docx_detailed={p} ({p.stat().st_size} bytes)")
+    if result.get("word_detailed_export_error"):
+        print(f"   word_detailed_export_error={result['word_detailed_export_error']}")
     for stem, paths in (result.get("figures") or {}).items():
         print(f"   figure {stem}: {paths[0]}")
     return 0

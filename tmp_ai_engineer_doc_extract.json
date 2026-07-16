@@ -1,0 +1,546 @@
+[
+  {
+    "style": "Heading 1",
+    "text": "Replacing human with AI Engineer for complex engineering design"
+  },
+  {
+    "style": "Normal",
+    "text": "Autonomous physical design via agentic closed-loop engineering"
+  },
+  {
+    "style": "Normal",
+    "text": "Towards End-to-End Automation of Physical Engineering Design"
+  },
+  {
+    "style": "Normal",
+    "text": "Nature-format manuscript · 2026-05-31"
+  },
+  {
+    "style": "Normal",
+    "text": "Author One¹*, Author Two², Author Three¹, Author Four³, Author Five⁴"
+  },
+  {
+    "style": "Normal",
+    "text": "¹ State Key Laboratory of Ocean Engineering, Zhejiang University, Hangzhou, China² China Classification Society (CCS), Beijing, China³ National Offshore Wind Power Engineering Research Center, Hangzhou, China⁴ State Power Investment Corporation (SPIC) Guangdong Offshore Wind Power Co., Ltd., Yangjiang, China* Correspondence: corresponding.author@zju.edu.cn"
+  },
+  {
+    "style": "Normal",
+    "text": "Keywords: agentic artificial intelligence; engineering design automation; floating offshore wind; topology optimization; structural certification; human–AI collaboration"
+  },
+  {
+    "style": "Heading 1",
+    "text": "Abstract"
+  },
+  {
+    "style": "样式1",
+    "text": "AI engineer has been boomed in the field of writing papers 1, coding 2, novel therapeutic candidate 3,4 to leverage its strength, however, leaving the gap in the field of complex engineering design."
+  },
+  {
+    "style": "样式1",
+    "text": "Here we introduce The AI Engineer, an agentic framework that orchestrates large language models with deterministic engineering backends in a closed loop: natural-language requirements are converted into design-domain geometry and mesh, topology is optimized with bi-directional evolutionary structural optimization (BESO) coupled to CalculiX solver, member dimensions and material layout are initially determined by parametric upscaling, and later refined with Sequential Quadratic Programming (SQP) "
+  },
+  {
+    "style": "样式1",
+    "text": "We demonstrate the system on an automatic alternative design of “TuQiang” floating offshore wind turbine (FOWT) foundation that is designed to accommodate the world's largest single-unit capacity of 20 MW."
+  },
+  {
+    "style": "样式1",
+    "text": "Without hand-authored templates for the final geometry as human engineer, The AI Engineer produced one candidate foundation that satisfied all criteria in Approval in Principle (AIP) review against China Classification Society, and outperforms the “TuQiang” foundation in the aspects of reducing the steel consumption and construction cost by 15% and 20%, respectively, which are pursued by the whole wind energy sector to support the China's 3060 Dual Carbon Goals."
+  },
+  {
+    "style": "样式1",
+    "text": "These results establish end-to-end automation of engineering design as a practical paradigm, with implications for rapid prototyping, design democratization, and certification-oriented AI workflows, while highlighting limits in detailed design and fabrication-hard constraints."
+  },
+  {
+    "style": "样式1",
+    "text": "1 Lu C, Lu C, Lange RT, Yamada Y, Hu S, Foerster J, Ha D, Clune J. Towards end-to-end automation of AI research. Nature. 2026 Mar 26;651(8107):914-9."
+  },
+  {
+    "style": "样式1",
+    "text": "2 Aygün E, Belyaeva A, Comanici G, Coram M, Cui H, Garrison J, Johnston R, Kast A, McLean CY, Norgaard P, Shamsi Z. An AI system to help scientists write expert-level empirical software. Nature. 2026 May 19:1-3."
+  },
+  {
+    "style": "样式1",
+    "text": "3 Ghareeb AE, Chang B, Mitchener L, Yiu A, Szostkiewicz CJ, Shved D, Gyimesi GJ, Laurent JM, Wright SM, Razzak MT, White AD. A multi-agent system for automating scientific discovery. Nature. 2026 May 19:1-3."
+  },
+  {
+    "style": "样式1",
+    "text": "4 Gottweis J, Weng WH, Daryin A, Tu T, Sirkovic P, Myaskovsky A, Glowaty G, Weissenberger F, Orlandi A, Popovici D, Palepu A. Accelerating scientific discovery with Co-Scientist. Nature. 2026 May 19:1-3."
+  },
+  {
+    "style": "Heading 1",
+    "text": "Introduction"
+  },
+  {
+    "style": "样式1",
+    "text": "Engineering design transforms performance requirements into manufactural physical artifacts. This process has long attracted AI researchers¹⁻³. Before large language models (LLMs), automation was confined to isolated tasks, such as, structural topology optimization⁴, aerodynamic shape optimization⁵, surrogate-assisted finite-element workflows⁶, and knowledge-based configuration of CAD features⁷. Each of these advances accelerated a single slice of the design lifecycle. None addressed orchestrati"
+  },
+  {
+    "style": "样式1",
+    "text": "We therefore asked whether an agentic system could overcome this barrier by automating not individual tasks, but the entire design workflow—from natural-language requirements to certifiable physical artifacts. Autonomous systems can, in principle, explore more candidates at lower marginal cost than human-driven processes, without changing the underlying physics or simulation fidelity. The Human Engineer (Fig. 1a) obeys the following design procedure from defining design fundamentals, to determin"
+  },
+  {
+    "style": "样式1",
+    "text": "开发此类系统面临的核心挑战之一，是如何大规模自动评估其科学产出的质量。为此，我们构建了一个自动评审器，并首先将其与真实的人类设计进行对比评估。结果表明，该自动评审器能够准确的给现有人类设计打分排序，其表现与人类工程师相当（详见补充信息A.3节）。随后，我们利用该自动评审器，将AI Engineer设计的一款20MW漂浮式风电基础与“图强号”基础进行了比较评估。研究发现，AI Engineer设计方案不仅在设计周期上显著缩短、在用钢量和造价方面也比图强号更好，且性能指标与图强号相当。需要指出的是，The ‘TuQiang’ —the world's first 20 MW floating wind demonstration unit—exemplifies the state of the art: it achieves 280 t MW⁻¹ in steel intensity and 19,800 RMB kW⁻¹ in unit cost, already among the most efficient floating foundations ever built. Ye"
+  },
+  {
+    "style": "样式1",
+    "text": "To further verify The AI Engineer's capability in complex engineering conceptual design, we submitted a 20 MW floating foundation concept generated by the system to the China Classification Society (CCS) for Approval in Principle (AIP). The CCS AIP is a widely recognized authoritative technical endorsement in the international maritime and offshore engineering community. Obtaining this certification signifies that the design concept has passed independent verification in terms of technical feasi"
+  },
+  {
+    "style": "样式1",
+    "text": "The proposed design successfully passed the review and was awarded an AIP certificate by CCS, confirming that it meets the relevant code requirements at the conceptual level and possesses the technical basis for progressing to detailed design. Naturally, this AIP certification does not replace the subsequent detailed design and final approval; the project will undergo more comprehensive technical scrutiny in the next phase."
+  },
+  {
+    "style": "样式1",
+    "text": "Human: Design fundamentals, Design iteration, Drawing and writing report, Expert review"
+  },
+  {
+    "style": "样式1",
+    "text": "AI:  Design fundamentals, automated design optimization, automated drawing and writing report, AI review"
+  },
+  {
+    "style": "样式1",
+    "text": "a, The Human Engineer versus The AI Engineer"
+  },
+  {
+    "style": "Normal",
+    "text": "Fig. 2 | The AI Engineer workflow. (a), (b),…(g)  (h)"
+  },
+  {
+    "style": "Normal",
+    "text": "Phase I（a）— 需求形式化。 步骤 (a) 将业主意图、海况约束与保留区要求整理为结构化需求文档（01_User_Requirements.md），作为后续各阶段的唯一任务规格。"
+  },
+  {
+    "style": "Normal",
+    "text": "Phase II（b–f）— 从参考几何到可制造拓扑。 步骤 (b) 由编排器（02_AI_Orchestrator_Workflow.yaml）按模式调用经 schema 校验的工具链。步骤 (c) 引入 OC4 类参考半潜平台（03_OC4_Reference_Model.step），提供尺度与布局先验。步骤 (d) 在 FreeCAD 中划分设计域与非设计域，导出可优化网格（04_Design_Space_Definition.step 及配套 INP 配置）。步骤 (e) 在 CalculiX–BESO 下以柔度最小化与质量分数约束迭代，得到密度场与拓扑历史（05_Topology_Optimization_Result.vtk）。步骤 (f) 按相似律与参数化规则将拓扑骨架映射为柱壳、加筋与顶盘等可重建构件（06_Dimension_Upscaling_Rules.json），生成 watertight 的 STEP/FCStd 实体。"
+  },
+  {
+    "style": "Normal",
+    "text": "Phase III（g）— 尺寸优化与极限工况校核。 步骤 (g) 在参数化模型上开展 SQP 尺寸搜索，并以 Zwind 脚本（07_Dimension_Optimized_Model.tcl）对运营/风暴等组合荷载进行响应与利用率检验，在钢量–安全裕度之间选取 Pareto 膝点方案。"
+  },
+  {
+    "style": "Normal",
+    "text": "Phase IV（h）— AI Review 多维评审。 步骤 (h) 对候选方案在五维指标为容量、钢耗、造价、工期、疲劳，在其上并行给出 AI Review 与法规口径打分，输出对照表、基准位置图与可导出报告（08_AI_Review_Report.pdf），为方案比选与入级前审查提供量化依据。"
+  },
+  {
+    "style": "样式1",
+    "text": "描述一下整个流程"
+  },
+  {
+    "style": "Heading 1",
+    "text": "Generating FOWT foundation 出一个设计方案（报告和图纸）"
+  },
+  {
+    "style": "样式1",
+    "text": "The AI Scientist sequentially completes four main phases (Fig. 1a). In the first phase, 设计目标、设计作用与设计准则首先被确定下来。"
+  },
+  {
+    "style": "样式1",
+    "text": "## 一、设计目标：工程定位、设计使用年限与关键性能指标"
+  },
+  {
+    "style": "样式1",
+    "text": "设计目标是整个漂浮式风电方案设计的出发点和归宿，在评审报告中需以定量化、可衡量的技术指标予以明确。首先应确定工程的设计使用年限，漂浮式风电机组的设计使用寿命通常为25年，浮式基础及系泊系统的设计疲劳寿命应不小于机组的设计寿命，结构安全等级一般按一级考虑。稳性是漂浮式基础设计的首要目标，必须保证其在服役各阶段（包括拖航、安装、正常运行及极端工况）均不发生倾覆，为此需在报告中明确完整稳性和破损稳性的具体衡准要求，并给出相应的校核结果。发电性能目标方面，应提出年等效满发小时数（如3500h）、风电场可利用率等量化指标，作为方案优劣的评判依据。此外，频率规避目标是漂浮式风电设计的关键约束之一，需明确整机转频（1P）及叶片通过频率（3P）与浮体—系泊系统固有频率之间的错频要求，确保在正常发电和停机工况下均不发生共振，这是保证结构安全与疲劳寿命的前提条件。"
+  },
+  {
+    "style": "样式1",
+    "text": "## 二、设计作用（荷载）与工况：外部条件与设计载荷工况（DLC）"
+  },
+  {
+    "style": "样式1",
+    "text": "设计荷载是漂浮式风电结构分析的核心输入。与陆上或固定式海上风电不同，漂浮式结构在设计时必须同时考虑风、浪、流三者的联合作用及其方向性，并采用一体化全耦合分析方法进行荷载计算。在外部环境条件方面，需系统评估场址的风条件（包括轮毂高度处的正常和极端风速、湍流强度及风切变）、波浪条件（有义波高Hs、谱峰周期Tp、波浪方向分布、涌浪特性）、海流条件（流速剖面及方向）、水深与海床地质条件，以及其他环境因素如冰荷载（适用时）、海生物附着和水位变化等。其中波浪方向分布是漂浮式风电机组特有的重要输入参数，IEC 61400-3-2:2025已将其列为必须考虑的因素。"
+  },
+  {
+    "style": "样式1",
+    "text": "在确定外部条件的基础上，须按IEC 61400-3-2或DNV GL-ST-0119规定的设计载荷工况体系进行全工况校核。主要工况包括：正常发电工况（DLC 1.x），即正常风浪流组合下的运行载荷；发电兼故障工况（DLC 2.x），涵盖电网故障、机组故障等异常情况；启动与正常停机工况（DLC 3.x）；紧急停机工况（DLC 4.x）；停机（静止）工况（DLC 5.x），对应极端环境条件下的停机状态；停机兼故障工况（DLC 6.x）；以及运输、安装与维护工况（DLC 8.x）。荷载组合方面，需明确采用局部系数法还是工作应力法，并给出不同极限状态（承载能力极限状态、疲劳极限状态、正常使用极限状态）下的荷载分项系数和安全系数取值依据。"
+  },
+  {
+    "style": "样式1",
+    "text": "## 三、设计准则：设计标准、极限状态与分析方法"
+  },
+  {
+    "style": "样式1",
+    "text": "设计准则是确保设计方案安全可靠的技术依据，评审报告中必须系统列出所采用的标准体系、极限状态校核方法及分析手段。在标准体系方面，应明确以下依据：核心国际标准IEC 61400-3-2:2025《风能发电系统 第3-2部分：漂浮式海上风力发电机组设计要求》（已由技术规范转为正式国际标准）；DNV GL-ST-0119漂浮式风机结构设计标准；DNV GL-RU-OU-0512漂浮式风机装置入级规范；即将实施的国家标准GB/T 47721-2026《海上风力发电机组支撑结构一体化设计规范》和GB/T 47558-2026《漂浮式海上风力发电机组一体化计算分析导则》；现行行业标准NB/T 11378-2023《漂浮式海上风电机组基础及系泊系统设计导则》；以及现行指导性技术文件GB/Z 44047—2024《漂浮式海上风力发电机组设计要求》。评审报告中应注明各标准的具体条款采用情况。"
+  },
+  {
+    "style": "样式1",
+    "text": "极限状态校核须覆盖以下三类：承载能力极限状态（ULS），包括整体强度、局部构件强度、屈曲稳定性及锚固承载能力；疲劳极限状态（FLS），要求疲劳寿命不小于25年，明确采用热点应力法或S-N曲线法进行疲劳累积损伤计算；正常使用极限状态（SLS），涵盖位移、变形、加速度及振动舒适度等服役性能指标。分析方法方面，需明确采用风电机组—塔架—浮体—系泊系统的全耦合时域分析方法进行一体化计算；稳性分析应同时涵盖完整稳性和破损稳性；系泊系统分析应包括锚链或缆绳的破断强度、疲劳寿命及瞬态条件响应；动态电缆分析则应关注动态海缆的疲劳寿命和与浮体/系泊系统的干涉分析。所有分析均应采用经校验的数值工具，并在报告中说明模型的建立方法和计算精度控制措施。"
+  },
+  {
+    "style": "样式1",
+    "text": "The second phase of The AI Engineer executes the design optimization and check, and then visualizes their results for the downstream drawing and write-up."
+  },
+  {
+    "style": "样式1",
+    "text": "**拓扑优化与尺度放大。** 设计输入确定后，系统以基准构型为起点构建初始设计域，划定塔筒连接区、设备布置区等非设计区域，其余空间设为可优化域。CAD内核通过自动布尔运算生成几何模型，网格划分工具将水密几何体离散成足够的四面体单元，供有限元求解器CalculiX进行双向渐进结构优化（BESO）。优化收敛后，系统将拓扑优化所得的材料布局曲面转换为参数化JSON格式并自动重建几何，完成向20 MW级工程尺度的放大。缩放采用各向异性恒定吃水策略——竖向尺寸保持不变以维持浮心与重心关系，水平尺度按目标排水量均匀放大。随后，系统根据模拟结果中的应力场分布，按预设规则自动识别以受压为主的子区域，并将这些区域的材料由钢材切换为混凝土。上述步骤完成后，即得到一个宏观尺度的结构构型，作为后续尺寸优化的初始输入。"
+  },
+  {
+    "style": "样式1",
+    "text": "**尺寸参数优化。** 拓扑优化给出了材料的空间布局，AI Engineer将其转化为可工程实施的具体结构，对倾斜柱体等管状构件进行精细的尺寸优化。优化采用粒子群算法（PSO），以各管状构件的截面直径和壁厚为设计变量，以结构钢质量最小为目标，同时满足强度极限状态、疲劳极限状态和使用极限状态的约束。每次迭代中，系统先调用Zwind进行一次完整时域仿真，获取极端工况下各构件的内力响应，随后基于虚功原理计算各设计变量对约束函数的灵敏度。这一策略使得每一轮迭代中仅需执行一次完整时域仿真，后续粒子群中所有个体的约束评估全部基于解析计算完成，显著降低了计算成本。"
+  },
+  {
+    "style": "样式1",
+    "text": "**独立高保真校核。** 尺寸优化完成后，系统对轻量化设计方案进行独立的校核，以确认其在极端海况下的动态安全性。校核在全耦合气动-水动-伺服-多体动力学模型Zwind 2.5中进行，在多种极端荷载工况下，设计出的漂浮式基础需满足整机频率、浮体运动、结构强度、构件疲劳、系泊张力的设计要求。"
+  },
+  {
+    "style": "Normal",
+    "text": "The third phase of The AI Scientist produces a concise write-up of its design in the style of a standard design drawing and design report. The AI Scientist is prompted to fill in a blank LaTeX report template section by section using its notes and plots (Methods). To construct the related work section throughout the technical report, the system queries the existing project reports as chain-of-thoughts over 20 rounds, which informs The AI Engineer on how to use the reference appropriately within "
+  },
+  {
+    "style": "Normal",
+    "text": "Finally, the foundation generated by The AI Engineer undergoes a review by The Automated Reviewer, which automatically evaluates the scientific quality of the conducted design."
+  },
+  {
+    "style": "Heading 1",
+    "text": "Automated evaluation of generated foundation 出一个AI review报告"
+  },
+  {
+    "style": "Normal",
+    "text": "天翼"
+  },
+  {
+    "style": "样式1",
+    "text": "AI reviewer将尺寸优化阶段输出的参数化几何信息以及设计校核阶段输出的结构响应和疲劳寿命等信息自动映射为一组可量化的工程指标，并在四个正交维度上分别给出0–100的分项得分及综合等级。第一维度为兆瓦数与单位兆瓦用钢量：以国内外已建成及规划中的漂浮式项目的兆瓦数和单位兆瓦用钢量为参照，量化候选方案在20 MW级风机基础中的相对位置，并单独追踪其相对于图强号基础的偏差。第二维度为造价：以样本项目的单位千瓦造价为基准，评估候选方案的经济竞争力。第三维度为建造难易程度：依据样本项目的建造周期（从开工到竣工天数），评估候选方案的施工可行性。第四维度为疲劳寿命：以现有风机设计寿命为基准，评估候选方案在同等服役周期内的疲劳性能。"
+  },
+  {
+    "style": "样式1",
+    "text": "四维得分通过显式权重聚合为综合验证指数S。记第c个维度内规则r的原始得分为s_r，规则权重为w_r，则维度得分S_c为所有规则得分的加权平均值；综合指数S为各维度S_c按兆瓦数与单位兆瓦用钢量35%、造价25%、建造难易程度20%、疲劳寿命20%的组合。等级A（S≥85）表示在代理指标层面具有较高的原则性认可就绪度；等级B至D则对应不同程度的修改需求。若候选方案在某一维度得分偏低而其他维度虚高，则提示可能存在计算偏差；此类方案将在进入正式送审前被自主流程降级，从而避免计算资源消耗于注定被否定的分支。需要特别强调的是，该指数不签发任何法定证书，亦不替代第三方审核；其功能在于自主设计循环内部提供与规范相对应的可追溯的量化语言，使得候选方案的保留或淘汰成为可复核的命题，而非黑箱式偏好。"
+  },
+  {
+    "style": "样式1",
+    "text": "行业基准库基于已公开的项目数据构建，样本覆盖葡萄牙的WindFloat系列、英国的Kincardine系列、日本的福岛希望系列，以及中国的三峡引领、海油观澜、明阳天成、国能共享等半潜式项目；对尚未投运或仍处于设计阶段的条目，横轴标注为“规划·年份”而非占位整数，以避免将未来项目误读为已建成事实。"
+  },
+  {
+    "style": "样式1",
+    "text": "表1汇总了以上基础在该体系下的验证结果（Human和AI 对比，规范 就用单位兆瓦用钢量）。兆瓦数与单位兆瓦用钢量维度得分最高（91.9），造价、建造难易程度与疲劳寿命维度均位于合理区间内（各100分），综合指数为92.0（等级A）。"
+  },
+  {
+    "style": "Heading 1",
+    "text": "Third party evaluation results 出一个认证报告"
+  },
+  {
+    "style": "样式1",
+    "text": "为验证The AI Engineer在复杂工程概念设计中的实际能力，我们将其生成的一种20MW漂浮式基础概念设计(Fig.2a)，向中国船级社（CCS）申请了原则性认证（Approval in Principle, AIP）。按照CCS对AIP认证的要求，我们在概念设计阶段提交了总体布置、关键系统原理、主要技术参数、设计计算书及适用规范清单等全套技术文件。CCS专家团队基于现行法规与核心安全要求，对设计的基本原理可行性、结构安全性及规范符合性进行了独立审查。在审查过程中，我们根据CCS的反馈意见对设计方案进行了多轮优化与技术澄清。最终，该设计方案顺利通过审查并获得CCS颁发的AIP证书，确认其在原理层面满足相关规范要求，具备进一步开展详细设计的技术基础。此次AIP认证的获得，不仅标志着该漂浮式风电概念方案的阶段性技术成熟度得到权威认可，同时也实证了AI Scientist能够有效辅助设计人员完成高复杂度、高安全标准的工程创新设计——其在方案生成、计算校核与规范匹配等方面展现出的效率和质量，已初步具备支撑真实工程审验流程的能力。当然，该AIP认证并不替代后续详细设计及最终批准，项目仍将在"
+  },
+  {
+    "style": "样式1",
+    "text": "图3：(a) AI foundation versus TuQiang foundation; (b) Key structural responses under extreme sea states."
+  },
+  {
+    "style": "Heading 1",
+    "text": "Discussion"
+  },
+  {
+    "style": "样式1",
+    "text": "Although The AI Engineer autonomously generated a foundation that passed CCS AIP and outperformed the human‑optimized TuQiang baseline in both steel efficiency and cost, important limitations remain before such systems can be deployed commercially."
+  },
+  {
+    "style": "样式1",
+    "text": "First, only one flagship candidate among several generated branches satisfied all certification criteria. The others failed at the stability or fabrication gates. The system’s generative success rate must improve for routine industrial application."
+  },
+  {
+    "style": "样式1",
+    "text": "Second, while the agent uses Zwind for high‑fidelity aero‑hydro‑servo‑elastic time‑domain simulation, resolving extreme localized hydrodynamics—breaking wave impacts, slamming forces, strongly non‑linear viscous drag, and complex failure mechanisms under wind‑wave misalignment—ultimately requires physical wave‑basin tests or prohibitive CFD campaigns. The current framework cannot autonomously orchestrate such experimental setups. Claims of typhoon survivability therefore require the same full‑sc"
+  },
+  {
+    "style": "样式1",
+    "text": "Third, fabrication constraints are currently prompt‑approximated rather than CAD‑CAM exact. The AI Engineer does not yet emit weld maps, non‑destructive examination schedules, or yard lift plans. Detailed design and construction—including TuQiang’s ‘static‑to‑dynamic’ installation innovation—remain entirely human responsibilities."
+  },
+  {
+    "style": "样式1",
+    "text": "Fourth, the inherent stochasticity of LLM orchestration introduces epistemic variance. For regulatory submissions, we recommend multi‑seed campaigns and strictly frozen tool schemas to guarantee reproducibility."
+  },
+  {
+    "style": "样式1",
+    "text": "Finally, TuQiang itself is a moving baseline. Continued national investment regularly compresses the frontier of cost and material efficiency. Claims of algorithmic superiority will therefore require periodic re‑benchmarking."
+  },
+  {
+    "style": "样式1",
+    "text": "Nevertheless, The AI Engineer establishes that agentic loops coupled with deterministic solvers can autonomously traverse the rigorous stages traditionally executed by expert consortia. By discovering at least one layout that cleared third‑party AIP and surpassed a state‑of‑the‑art human baseline, the system demonstrates genuine topological discovery. Its creative breakthrough lies in expanding the search space through BESO and language priors, strictly filtered by hard physics rather than unsup"
+  },
+  {
+    "style": "样式1",
+    "text": "Unlike text‑only generative AI, engineering design imposes immediate numerical penalties for inconsistent units, degenerate meshes, or violated load limits. This makes transparent audit trails—WebSocket logs and SHA‑256 integrity manifests—critical for establishing computational trust."
+  },
+  {
+    "style": "样式1",
+    "text": "Ethically, certification societies must confront transparent AI authorship disclosure. Our protocol—blinded peer review with pre‑registered withdrawal clauses if certificate issuance would obscure AI attribution—offers a preliminary template, though global norms remain unsettled."
+  },
+  {
+    "style": "样式1",
+    "text": "If developed responsibly, such agentic systems could broaden access to high‑quality design iteration. They allow smaller engineering teams to explore thousands of physics‑validated concepts before committing yard steel, while ensuring that accountable human engineers remain in charge of the final mile to type approval and offshore installation."
+  },
+  {
+    "style": "样式1",
+    "text": "The AI Engineer demonstrates that agentic loops with deterministic solvers can autonomously generate certifiable designs that outperform human‑optimized baselines, while making explicit the current boundaries of AI‑driven physical design. We envision that agentic frameworks such as The AI Engineer will not replace human engineers, but rather amplify their expertise through rigorous, physics‑grounded automation."
+  },
+  {
+    "style": "Heading 1",
+    "text": "Methods"
+  },
+  {
+    "style": "样式1",
+    "text": "The AI Engineer agentic system orchestrates the complete lifecycle of physical system design autonomously. It couples a large language model reasoning layer with schema-validated deterministic engineering backends in a closed-loop architecture, translating natural-language specifications into certifiable numerical artifacts. Unlike conventional copilots that assist isolated tasks such as mesh generation or input-deck drafting, this system maintains continuity of state across sequential design ph"
+  },
+  {
+    "style": "样式1",
+    "text": "The orchestrator may invoke only allowed engineering tools whose arguments are validated against formal schemas prior to execution, ensuring that language-model proposals cannot trigger arbitrary system commands or corrupt solver configurations. Each phasereturns a standardized feedback tuple : structured logs  (solver diagnostics, mesh inventories, convergence traces), quantitative metrics  (compliance, mass fraction, unity checks, hydrostatic margins), and a binary retry flag . The closed-loop"
+  },
+  {
+    "style": "样式1",
+    "text": "where  denotes the feedback tuple at phase ,  comprises tunable hyperparameters, and  denotes rule-augmented thresholds derived from classification-society design clauses. This mirrors the experiment–debug cycle of autonomous scientific discovery systems, but grounds every replanning decision in verifiable numerical experiments rather than textual self-critique alone. Deterministic backends span parametric solid modelling, continuum mesh generation, finite-element static and evolutionary solvers"
+  },
+  {
+    "style": "样式1",
+    "text": "Real-time observability is provided by streaming structured event logs to external observers, exposing tool invocations, parameter mutations, solver exit codes, and intermediate geometry fingerprints without requiring interactive terminal access. Artifacts at every stage are versioned under immutable content hashes, enabling third-party auditors to reconstruct the exact computational chain leading to a submitted design dossier. Tool-routing operates at low stochastic temperature to minimize epis"
+  },
+  {
+    "style": "样式1",
+    "text": "The agentic system converges at the workflow level when the final sizing phase emits a candidate satisfying all coupled limit-state constraints with zero maximum violation. The orchestrator then archives a complete auditable bundle that binds natural-language intent to the final numerical artifacts. The architecture thereby converts what would otherwise be a fragile chain of human-operated software handoffs into a reproducible, queryable engineering experiment—analogous to end-to-end automation "
+  },
+  {
+    "style": "样式1",
+    "text": "AI工程师代理系统能够自主协调物理系统设计的完整生命周期。该系统在闭环架构中将大型语言模型推理层与经过模式验证的确定性工程后端相结合，将自然语言规范转换为可认证的数值成果。与仅协助网格生成或输入集起草等孤立任务的传统辅助工具不同，该系统在连续的设计阶段中保持状态的连续性：它决定接下来应调用哪些计算，根据规则增强的阈值验证求解器输出，并在网格质量下降、单元集语义出现偏差或结构统一性裕度被违反时自主重新规划。自然语言需求 R 被解析为结构化任务描述符 ，其中 θ 表示特定于该阶段的超参数，“重试策略”则控制自主恢复操作。"
+  },
+  {
+    "style": "样式1",
+    "text": "协调器仅可调用允许的工程工具，这些工具的参数在执行前会根据形式化模式进行验证，从而确保语言模型生成的建议不会触发任意系统命令或破坏求解器配置。每个阶段  返回一个标准化的反馈元组, 其中：结构化日志 （求解器诊断信息、网格清单、收敛轨迹）、定量指标（合规性、质量分数、单位性检查、静水压裕度）以及二进制重试标志。闭环重规划规则表示为："
+  },
+  {
+    "style": "样式1",
+    "text": "其中 表示第 p 阶段的反馈元组，θ 包含可调超参数，τ 表示从分类学会设计条款推导出的规则增强型阈值。这反映了自主科学发现系统的实验-调试循环，但将每次重新规划决策建立在可验证的数值实验基础上，而非仅依赖文本形式的自我批判。确定性后端涵盖参数化实体建模、连续体网格生成、有限元静力与演化求解器、基于梯度的尺寸优化器，以及非线性时程结构验证器。协调层依次执行四个自主阶段：设计先决条件的自主制定、自主配置生成、自主尺寸优化，以及自动化评估与认证。系统强制执行有向无环依赖关系，因此只有当前一阶段满足收敛准则（即 ）时，后续阶段才能开始。高保真验证（Zwind 3.0）作为解耦的物理仲裁器集成到第三阶段中。"
+  },
+  {
+    "style": "样式1",
+    "text": "通过向外部观察者流式传输结构化事件日志，提供了实时可观测性，从而公开工具调用、参数变更、求解器退出代码以及中间几何指纹，而无需交互式终端访问。每个阶段的成果均通过不可变内容哈希进行版本控制，使第三方审计员能够重建导致提交设计文件的精确计算链。工具路由在低随机温度下运行，以最大限度地减少生产认证工作流中的认识论方差。除了各阶段的确定性“通过/失败”门槛外，辅助评估层还会根据公开的基准平台以及涵盖材料效率、可建造性、可检查性和结构冗余等多维标准，对候选概念进行评分。该层在耗费巨大的极限状态验证之前，便能筛除那些在语言上看似合理但物理性能较差的布局。"
+  },
+  {
+    "style": "样式1",
+    "text": "当最终尺寸确定阶段输出一个满足所有耦合极限状态约束且最大违背值为零的候选方案时，该代理系统便在工作流层面达成收敛。随后，协调器将自然语言意图与最终数值成果绑定，归档一个完整且可审计的文件包。该架构由此将原本脆弱的人工软件交接链转化为可重现、可查询的工程实验——这类似于机器学习研究中的端到端自动化，但对于单位不一致、退化网格或违反认证条款的情况，会立即施加数值惩罚。当连续三个尺寸优化步骤中主导目标的相对降幅低于严格的容差限值，且所有阶段级重试标志均保持未激活状态时，该迭代过程即达到工作流收敛。"
+  },
+  {
+    "style": "样式1",
+    "text": "The discovers optimal load-transfer pathways for the semi-submersible platform by minimizing global static compliance under a prescribed volume fraction constraint. The optimization is driven by a customized Python-based orchestration framework that couples the deterministic finite-element solver CalculiX with a Bi-directional Evolutionary Structural Optimization (BESO) algorithm. The optimization problem is formulated as:"
+  },
+  {
+    "style": "公式",
+    "text": "（1）"
+  },
+  {
+    "style": "公式",
+    "text": "（2）"
+  },
+  {
+    "style": "公式",
+    "text": "（3）"
+  },
+  {
+    "style": "样式1",
+    "text": "where  and  are the global displacement vector and stiffness matrix, respectively. The binary design variable  denotes the relative density of the -th element. A soft-kill approach is implemented, assigning a lower bound to \"void\" elements to prevent singularities in the global stiffness matrix while effectively removing their structural contribution.  is the elemental volume,  is the initial design domain volume, and the target mass retention fraction  dictates the final material usage. To eval"
+  },
+  {
+    "style": "公式",
+    "text": "（4）"
+  },
+  {
+    "style": "样式1",
+    "text": "where  is the center-to-center distance between elements e and, and  is the filter radius. The BESO algorithm simultaneously removes inefficient material from low-stress regions and restores material to highly stressed void regions, governed by the mass removal and addition ratios that cap the permissible material change per iteration. The orchestrator monitors auxiliary structural metrics, including maximum and mean Failure Indices, to prevent localized yielding. Convergence is reached when the"
+  },
+  {
+    "style": "Heading 2",
+    "text": "Parametric upscaling"
+  },
+  {
+    "style": "样式1",
+    "text": "The system parameterizes the conceptual geometry to accommodate the target rated capacity using an anisotropic, fixed-draft scaling paradigm. Vertical dimensions are strictly preserved, while horizontal dimensions (column , inter-column spacing, and planar coordinates) are uniformly scaled by a factor . The initial spatial approximation follows the rotor swept area scaling law, yielding a baseline horizontal multiplier , where  denotes the rated power."
+  },
+  {
+    "style": "样式1",
+    "text": "This multiplier is subsequently refined by a correction variable , such that , through a preliminary sizing optimization that minimizes the specific steel consumption (t/MW). The structural mass is computed assuming hollow cylindrical sections of uniform wall thickness. The optimization enforces a static pitch angle  under the maximum rated aerodynamic thrust:"
+  },
+  {
+    "style": "公式",
+    "text": "（5）"
+  },
+  {
+    "style": "公式",
+    "text": "（6）"
+  },
+  {
+    "style": "Normal",
+    "text": "where  is the total structural mass,  is the rated aerodynamic thrust, and  is the hub height. The hydrostatic restoring stiffness in pitch, , is analytically evaluated by integrating the waterplane area moment of inertia , the displaced volume , and the metacentric height driven by the respective vertical centers of buoyancy () and gravity ():"
+  },
+  {
+    "style": "公式",
+    "text": "（7）"
+  },
+  {
+    "style": "样式1",
+    "text": "The constrained nonlinear optimization is solved using the SLSQP algorithm. This step establishes a hydrostatically viable and material-efficient envelope that serves as the macroscopic foundation for subsequent micro-dimensioning and integrity checks."
+  },
+  {
+    "style": "样式1",
+    "text": "This study employs the Particle Swarm Optimization (PSO) algorithm, which has been extensively applied in structural optimization owing to its robust global search ability, straightforward implementation, and strong reliability, to yield the optimal design of the FOWT foundation. To transform the conceptual layout into specific engineering dimensions for a constructable FOWT foundation, size optimization is performed as the subsequent phase following topology optimization. Size optimization typi"
+  },
+  {
+    "style": "样式1",
+    "text": "where is the steel density, the length of the member, the cross-sectional area, DFF refers to the design fatigue factor."
+  },
+  {
+    "style": "样式1",
+    "text": "The system refines the tubular components, such as columns, braces and stiffeners, by solving a highly non-convex programming problem. The design vector  collects continuous cross-sectional parameters: shell thicknesses  and outer diameters . Because finite-element evaluations are computationally prohibitive within the heuristic loop, the system employs a gradient-free PSO algorithm, which iteratively updates candidate solutions using self-experience and swarm information. PSO does not require d"
+  },
+  {
+    "style": "样式1",
+    "text": "To avoid repeated full finite-element analyses for each candidate, the system applies the Principle of Virtual Work (PVW) to compute constraint sensitivities analytically. Virtual unit loads are applied at critical evaluation points, and the exact gradients of deflections and stresses with respect to  are obtained from a single linear static solution of the floating foundation under unit load conditions. These analytical sensitivities enable the PSO loop to evaluate three limit-state constraints"
+  },
+  {
+    "style": "样式1",
+    "text": "The optimization enforces three limit-state constraints within the PSO loop:"
+  },
+  {
+    "style": "样式1",
+    "text": "Serviceability Limit State (SLS): The maximum static pitch angle during power production is constrained to 5°, per IEC 61400-3-2."
+  },
+  {
+    "style": "样式1",
+    "text": "Ultimate Limit State (ULS): Member-level strength and buckling stability are enforced using the Unity Check per DNV-RP-C201, with the acceptance criterion UC ≤ 1.0."
+  },
+  {
+    "style": "样式1",
+    "text": "Fatigue Limit State (FLS): Fatigue damage is constrained over a 25-year design life with a Design Fatigue Factor DFF = 3.0 per DNV-ST-0119, requiring D ≤ 1/DFF."
+  },
+  {
+    "style": "样式1",
+    "text": "Accidental Limit State (ALS): Post-optimization verification per DNV-ST-0119. Environmental loads at a 1-year return period with load factors of 1.0. Local yielding permitted provided global collapse is prevented. Residual stability per DNVGL-OS-C301: inclination after flooding ≤17° with a positive residual stability range ≥7°."
+  },
+  {
+    "style": "样式1",
+    "text": "The sizing loop terminates when the maximum constraint violation reaches zero and the relative decrease in  falls below  over three consecutive steps."
+  },
+  {
+    "style": "Heading 2",
+    "text": "software"
+  },
+  {
+    "style": "样式1",
+    "text": "Zwind 3.0 is engineered to resolve the highly nonlinear, multi-physics coupling of utility-scale floating wind systems. Unlike conventional commercial codes that rely on simplified structural idealizations, the core of Zwind 3.0 is built upon Lagrange equations formulated for complex rigid-flexible coupled multibody systems. By utilizing generalized coordinates, the Lagrange formulation eliminates non-working constraint forces systematically, establishing a computationally efficient matrix gover"
+  },
+  {
+    "style": "公式",
+    "text": "（10）"
+  },
+  {
+    "style": "样式1",
+    "text": "where  represents the generalized mass matrix,  denotes the gyroscopic and Coriolis damping matrix,  signifies the internal structural force vector, and  is the external generalized force vector. This external vector encompasses unsteady aerodynamics derived via Blade Element Momentum (BEM) theory, second-order hydrodynamics, mooring restoration, and control actions acting on the coupled rotor-nacelle-tower-platform system."
+  },
+  {
+    "style": "Heading 2",
+    "text": "程兴"
+  },
+  {
+    "style": "样式1",
+    "text": "Within the agentic pipeline, an automated design review module serves as an internal verification gate before formal submission. The module maps each candidate design onto five quantifiable engineering metrics: rated capacity, steel intensity in tonnes per megawatt, unit capital cost in ten thousand RMB per megawatt, construction period in years, and fatigue design life in years.  For each metric, a sub-score is computed using piecewise linear scoring functions calibrated against industry benchm"
+  },
+  {
+    "style": "样式1",
+    "text": "with default weights of 0.15, 0.30, 0.25, 0.15, and 0.15 for the five dimensions, respectively. The composite score maps to letter grades: A (), B (), C (0), and D ()."
+  },
+  {
+    "style": "样式1",
+    "text": "A parallel regulatory review channel scores the same five dimensions using rule-based criteria derived from classification society requirements and national thresholds, specifically DNV-ST-0437, DNVGL-OS-C301, and DNVGL-RP-0286, rather than AI-optimized reference lines. This channel performs quantitative rule audits on approximately 26 observable indicators, producing rule-level scores, pass/warning/fail statuses, and traceable clause references. The regulatory composite score  adopts an identic"
+  },
+  {
+    "style": "样式1",
+    "text": "To validate the alignment between the AI Review and regulatory channels, we constructed a fleet benchmark comprising over 11 existing and planned floating offshore wind projects. For each project, both AI and regulatory scores were computed. Effectiveness was assessed through three statistics: (i) Spearman rank correlation"
+  },
+  {
+    "style": "样式1",
+    "text": "which quantifies the monotonic agreement between the AI Review and regulatory rankings, where  close to 1 indicates consistent ordering,  near 0 suggests no monotonic relationship, and negative values indicate inverse ranking, with the rank difference between the two channels for the k-th project; (ii) mean absolute error between AI and regulatory composite scores; and (iii) high-agreement proportion (both composite scores  with absolute difference ). Radar charts, plots showing each candidate's"
+  },
+  {
+    "style": "样式1",
+    "text": "The output includes the AI Review composite score and letter grade, five-dimensional sub-scores and raw physical values, regulatory review scores with clause mappings, fleet benchmark tables with effectiveness statistics, and exportable visualizations in Markdown, JSON, PNG or PDF, and Word formats."
+  },
+  {
+    "style": "样式1",
+    "text": "在智能体设计流程中，自动化设计评审模块承担正式提交前的内部验证关卡。该模块将每个候选设计方案映射为五项可量化工程指标：单机容量、单位兆瓦用钢量、单位造价、施工年限和疲劳设计寿命。对每项指标，依据经行业基准和船级社阈值校准的分段线性函数计算子得分 。综合分 S 定义为加权线性组合："
+  },
+  {
+    "style": "样式1",
+    "text": "五项维度默认权重分别为 0.15, 0.30, 0.25, 0.15, and 0.15。综合分对应等级：A 为 S≥85，B 为 70≤S<8，C 为 60≤S<7，D 为 S<60。"
+  },
+  {
+    "style": "样式1",
+    "text": "并行运行的法规评审通道在相同的五个维度上独立打分，但参考基准改用船级社规范和国家阈值，包括 DNV-ST-0437、DNVGL-OS-C301 和 DNVGL-RP-0286，而非 AI 优化参考线。该通道对约 26 项可观测指标进行定量规则审计，产生规则级得分、通过或警告或失败状态及可追溯的条款引用。法规综合分 Sreg​ 采用相同的加权方案，以便逐维对照。"
+  },
+  {
+    "style": "样式1",
+    "text": "为检验 AI Review 与法规评审通道之间的一致性，我们构建了包含 11 个以上国内外已建成及规划中漂浮式风电项目的机队基准。对每个项目同时计算 AI 得分和法规得分。有效性通过三项统计量评估：Spearman 秩相关系数该系数衡量AI Review与法规评审在排序上的一致性：ρS接近1表示两者排序高度一致，接近0表示无单调关联，负值则表明排序相反，其中dk为第k个项目两个通道综合分的秩差；AI 与法规综合分的平均绝对误差；以及高一致比例，即两通道综合分均不低于 60 且绝对差不超过 15 的项目比例。每个候选方案输出五维雷达图、基准定位图和通道对照表。"
+  },
+  {
+    "style": "样式1",
+    "text": "输出内容包括 AI Review 综合分与等级、五维子得分及原始物理量、法规评审得分与条款映射、基准定位表及有效性统计，以及可导出的 Markdown、JSON、PNG 或 PDF、Word 格式图表和完整报告。"
+  },
+  {
+    "style": "Heading 2",
+    "text": "I程兴"
+  },
+  {
+    "style": "Normal",
+    "text": "AIP is a key technical document issued by CCS that independently verifies the feasibility of a design at the concept or preliminary design stage. It is not a substitute for final classification or detailed design approval, but rather confirms regulatory compliance and fundamental safety, while explicitly requiring subsequent detailed design. The AIP serves as a critical milestone, providing a technical basis for transitioning a project from concept to engineering implementation."
+  },
+  {
+    "style": "Normal",
+    "text": "4I"
+  },
+  {
+    "style": "Normal",
+    "text": "AIP certification follows four sequential stages (Fig. 4). Preparation defines the intended use and application scenario, identifies applicable standards and requirements, and plans the certification pathway. Submission delivers the application to CCS with technical documentation and evidence of conformity to the relevant standards. CCS review and technical assessment convenes an expert panel to conduct design appraisal and safety assessment, raise clarification requests, and propose optimizatio"
+  },
+  {
+    "style": "样式1",
+    "text": "原则性认证（AIP） 是中国船级社签发的一项关键技术文件，用于在概念或初步设计阶段独立验证设计方案的可行性。它不能替代最终入级或详细设计批准，而是确认设计符合法规要求且具备基本安全性，同时明确要求后续开展详细设计。AIP作为关键里程碑，为项目从概念阶段向工程实施过渡提供技术基础。"
+  },
+  {
+    "style": "样式1",
+    "text": "AIP认证分为四个连续阶段（图4）。准备阶段需要确定预期用途和应用场景，明确适用的标准和需求，规划认证路径。提交阶段是将申请及技术文档、符合性证据等材料递交至CCS。审查与技术评估阶段由CCS召集专家小组进行设计评估和安全评定，提出质询要求，必要时给出优化建议。结论与发证阶段完成整个审查闭环：所有评估通过后，CCS颁发AIP证书，确认设计满足既定的技术和安全要求。"
+  },
+  {
+    "style": "Heading 2",
+    "text": "Statistics and reproducibility"
+  },
+  {
+    "style": "样式1",
+    "text": "Flagship metrics from single deterministic solver runs unless noted. Artifact bundle with SHA-256 manifest. Code: https://github.com/rainbowyuyu/beso_ai. Zenodo deposit upon publication."
+  },
+  {
+    "style": "Heading 2",
+    "text": "Reporting summary"
+  },
+  {
+    "style": "样式1",
+    "text": "Further information on research design is available in the Nature Portfolio Reporting Summary linked to this article."
+  },
+  {
+    "style": "Heading 2",
+    "text": "Data availability"
+  },
+  {
+    "style": "样式1",
+    "text": "Flagship run bundles (INP, VTK, logs, beso_conf.py, OpenSees models, Zwind reports) will be deposited in Zenodo with DOI upon publication. Anonymized artifacts available from the corresponding author on request."
+  },
+  {
+    "style": "Heading 2",
+    "text": "Code availability"
+  },
+  {
+    "style": "样式1",
+    "text": "The AI Engineer orchestration platform is available at https://github.com/rainbowyuyu/beso_ai. Third-party solvers (CalculiX 2.21, FreeCAD 0.21+, Gmsh 4.15, 3.0) follow their licenses."
+  },
+  {
+    "style": "样式1",
+    "text": "机队分位 单位兆瓦用钢量"
+  }
+]

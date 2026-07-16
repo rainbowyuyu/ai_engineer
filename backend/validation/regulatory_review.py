@@ -12,13 +12,13 @@ from typing import Any
 
 import yaml
 
-from backend.validation.ai_review import (
+from backend.validation.review_common import (
     DIMENSION_KEYS,
     DEFAULT_LABELS_ZH,
     DEFAULT_UNITS,
-    _score_capacity_mw,
-    _score_higher_better,
-    _score_lower_better,
+    score_capacity_mw,
+    score_higher_better,
+    score_lower_better,
 )
 from backend.validation.geometry_metrics import GeometryMetrics
 from backend.validation.rules_engine import RuleResult
@@ -99,7 +99,7 @@ def _weighted_rules(
 def _score_capacity_regulatory(metrics: GeometryMetrics, thresholds: dict[str, Any]) -> tuple[float, str]:
     target = float(thresholds.get("target_mw") or 20.0)
     tol = float(thresholds.get("tolerance_mw") or 2.0)
-    score = _score_capacity_mw(metrics.target_power_MW, target)
+    score = score_capacity_mw(metrics.target_power_MW, target)
     if abs(metrics.target_power_MW - target) <= tol:
         score = max(score, 92.0)
     return round(score, 2), str(thresholds.get("basis") or "DNV-ST-0437 20 MW 设计基点")
@@ -124,7 +124,7 @@ def _score_cost_regulatory(
         return 55.0, "missing"
     excellent = float(thresholds.get("excellent_cny_per_MW") or 3600.0)
     pass_cap = float(thresholds.get("pass_cap_cny_per_MW") or 4800.0)
-    score = _score_lower_better(
+    score = score_lower_better(
         metrics.unit_cost_cny_per_MW,
         pass_cap,
         excellent_ratio=excellent / pass_cap if pass_cap > 0 else 0.75,
@@ -141,7 +141,7 @@ def _score_construction_regulatory(
         return 55.0, "missing"
     excellent = float(thresholds.get("excellent_years") or 2.5)
     pass_cap = float(thresholds.get("pass_cap_years") or 3.5)
-    score = _score_lower_better(
+    score = score_lower_better(
         metrics.construction_years,
         pass_cap,
         excellent_ratio=excellent / pass_cap if pass_cap > 0 else 0.72,
@@ -158,7 +158,7 @@ def _score_fatigue_regulatory(
     min_life = float(thresholds.get("min_design_years") or 25.0)
     life_score = 55.0
     if metrics.fatigue_life_years is not None:
-        life_score = _score_higher_better(metrics.fatigue_life_years, min_life)
+        life_score = score_higher_better(metrics.fatigue_life_years, min_life)
 
     proxy_score, _ = _weighted_rules(
         rule_results,

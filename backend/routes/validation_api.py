@@ -37,6 +37,7 @@ _MEDIA_TYPES = {
 
 class ValidationOptions(BaseModel):
     use_llm_rationale: bool = False
+    use_surrogate: bool = False
     candidate_label: str = "Candidate"
 
 
@@ -72,6 +73,7 @@ def validation_run(body: ValidationRunRequest) -> dict[str, Any]:
             geometry,
             out_dir=out_dir,
             use_llm_rationale=body.options.use_llm_rationale,
+            use_surrogate=body.options.use_surrogate,
             candidate_label=body.options.candidate_label,
         )
     except Exception as e:
@@ -152,6 +154,33 @@ def validation_export_word(validation_id: str) -> FileResponse:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Word export failed: {e}") from e
     filename = f"validation_report_{validation_id[:8]}.docx"
+    return FileResponse(
+        docx,
+        media_type=_MEDIA_TYPES[".docx"],
+        filename=filename,
+    )
+
+
+@router.get("/{validation_id}/export/word/detailed")
+def validation_export_word_detailed(validation_id: str) -> FileResponse:
+    """Download detailed design-basis-style validation report as Word."""
+    out_dir = find_validation_dir(validation_id)
+    if out_dir is None:
+        raise HTTPException(status_code=404, detail="Validation run not found")
+    docx = out_dir / "validation_report_detailed.docx"
+    if not docx.is_file():
+        try:
+            from backend.validation.word_export_detailed import build_validation_docx_detailed
+
+            build_validation_docx_detailed(out_dir, validation_id=validation_id)
+        except ImportError as e:
+            raise HTTPException(
+                status_code=503,
+                detail="Word export requires python-docx (pip install -r backend/requirements-validation.txt)",
+            ) from e
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Detailed Word export failed: {e}") from e
+    filename = f"validation_report_detailed_{validation_id[:8]}.docx"
     return FileResponse(
         docx,
         media_type=_MEDIA_TYPES[".docx"],

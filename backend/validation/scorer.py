@@ -28,6 +28,7 @@ class ValidationScore:
     assumptions: list[str] = field(default_factory=list)
     calibration_notes: list[str] = field(default_factory=list)
     scoring_config: dict[str, Any] = field(default_factory=dict)
+    surrogate_context: dict[str, Any] = field(default_factory=dict)
 
 def _grade(score: float) -> str:
     if score >= 85:

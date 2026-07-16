@@ -16,6 +16,7 @@ if mpl.get_backend().lower() != "agg":
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
+from matplotlib.patches import Rectangle
 
 from backend.validation.ai_review import DIMENSION_KEYS
 from backend.validation.benchmark_loader import BenchmarkRecord, load_benchmark_records
@@ -61,30 +62,21 @@ CHART_LABEL_MAP = {
 
 PROJECT_NAME_EN = {
     "图强": "Tuqiang",
-    "三峡引领": "Three Gorges Yinling",
-    "三峡领航": "Three Gorges Linghang",
-    "海装扶瑶": "Haizhuang Fuyao",
-    "海油观澜": "Haiyou Guanlan",
-    "明阳天成": "Mingyang Tiancheng",
-    "万宁一期": "Wanning Phase 1",
-    "GHN 共享": "GHN Shared",
+    "三峡引领": "TG Yinling",
+    "三峡领航": "TG Linghang",
+    "海装扶瑶": "HZ Fuyao",
+    "海油观澜": "HY Guanlan",
+    "明阳天成": "Mingyang TC",
+    "万宁一期": "Wanning Ph1",
+    "GHN": "GHN Gongxiang",
+    "gongxiang": "GHN Gongxiang",
     "龙源南日岛": "Longyuan Nanri",
-    "福岛示范": "Fukushima demo",
+    "福岛": "Fukushima",
+    "Fukushima": "Fukushima",
+    "WindFloat Atlantic": "WF Atlantic",
+    "WindFloat": "WindFloat",
+    "Kincardine": "Kincardine Ph2",
 }
-
-RADAR_HIGHLIGHT = (
-    "图强",
-    "三峡引领",
-    "海装扶瑶",
-    "海油观澜",
-    "三峡领航",
-    "明阳天成",
-    "Kincardine Ph2",
-    "WindFloat Atlantic",
-)
-
-# Radar overlay: proposed design is drawn separately — do not include its alias "AI"
-RADAR_ON_CHART = ("图强", "海油观澜", "明阳天成", "Kincardine Ph2")
 
 # Industry benchmark charts: five metrics + quadratic trend vs. commissioning year
 BENCHMARK_METRIC_CONFIGS: tuple[dict[str, Any], ...] = (
@@ -163,27 +155,28 @@ FLEET_SCHEME_STYLE: dict[str, dict[str, str]] = {
     "海油观澜": {"color": "#4DBBD5", "marker": "v", "ls": "--"},
     "三峡领航": {"color": "#DC0000", "marker": "p", "ls": "--"},
     "明阳天成": {"color": "#91D1C2", "marker": "h", "ls": "-"},
+    "Mingyang": {"color": "#91D1C2", "marker": "h", "ls": "-"},
     "万宁一期": {"color": "#7E6148", "marker": "X", "ls": "--"},
     "Hywind Scotland": {"color": "#B09C85", "marker": "8", "ls": "-"},
-    "Kincardine Ph2": {"color": "#E15759", "marker": "P", "ls": "-"},
     "WindFloat Atlantic": {"color": "#76B7B2", "marker": "o", "ls": "-"},
-    "GHN 共享": {"color": "#59A14F", "marker": "d", "ls": "-"},
+    "WindFloat": {"color": "#9D7660", "marker": "^", "ls": "-"},
+    "Kincardine Ph2": {"color": "#E15759", "marker": "P", "ls": "-"},
+    "GHN": {"color": "#59A14F", "marker": "d", "ls": "-"},
+    "gongxiang": {"color": "#59A14F", "marker": "d", "ls": "-"},
+    "Fukushima": {"color": "#B07AA1", "marker": "*", "ls": "--"},
 }
 
 
 def _scheme_style(short_name: str) -> dict[str, str]:
-    for key, style in FLEET_SCHEME_STYLE.items():
+    # Match longer / more specific keys first (e.g. WindFloat Atlantic before WindFloat).
+    for key in sorted(FLEET_SCHEME_STYLE, key=len, reverse=True):
         if key in short_name:
-            return style
+            return FLEET_SCHEME_STYLE[key]
     return {"color": "#8491B4", "marker": "o", "ls": "--"}
 
 
-def _is_highlight(pt: FleetReviewPoint) -> bool:
-    return any(h in pt.short_name for h in RADAR_HIGHLIGHT)
-
-
-def _on_chart(pt: FleetReviewPoint) -> bool:
-    return any(k in pt.short_name for k in RADAR_ON_CHART)
+def _radar_fleet_order(fleet_points: list[FleetReviewPoint]) -> list[FleetReviewPoint]:
+    return sorted(fleet_points, key=lambda p: (-p.overall, p.short_name))
 
 
 def _style_nature_radar(ax: plt.Axes, angles: list[float], labels: list[str]) -> None:
@@ -280,15 +273,13 @@ def _radar_score_table(
     fleet_points: list[FleetReviewPoint],
     cats: list[str],
 ) -> None:
-    """Bottom panel: fleet five-dimension scores (no proposed / candidate row)."""
+    """Bottom panel: full fleet five-dimension scores."""
     ax_tbl.axis("off")
     dim_headers = ["Cap.", "Steel", "Cost", "Sched.", "Life"]
     header = ["", "Project", "Overall", *dim_headers]
     rows: list[list[str]] = []
 
-    highlights = [p for p in fleet_points if _is_highlight(p)]
-    highlights.sort(key=lambda p: p.overall, reverse=True)
-    for pt in highlights:
+    for pt in _radar_fleet_order(fleet_points):
         style = _scheme_style(pt.short_name)
         rows.append(
             [style["color"], _chart_project_name(pt.short_name), _score_cell(pt.overall)]
@@ -300,16 +291,16 @@ def _radar_score_table(
         colLabels=header,
         loc="center",
         cellLoc="center",
-        colWidths=[0.04, 0.16, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
+        colWidths=[0.032, 0.19, 0.075, 0.075, 0.075, 0.075, 0.075, 0.075],
     )
     table.auto_set_font_size(False)
-    table.set_fontsize(7.5)
-    table.scale(1.0, 1.45)
+    table.set_fontsize(7)
+    table.scale(1.0, 1.35)
 
     for (r, c), cell in table.get_celld().items():
         if r == 0:
             cell.set_facecolor("#EEF2F7")
-            cell.set_text_props(fontweight="bold", fontsize=7)
+            cell.set_text_props(fontweight="bold", fontsize=6.8)
             continue
         if c == 0 and r > 0:
             color = rows[r - 1][0]
@@ -317,7 +308,8 @@ def _radar_score_table(
                 cell.set_facecolor(color)
             cell.get_text().set_text("")
         elif c == 1:
-            cell.set_text_props(ha="left", fontsize=7.5)
+            cell.set_text_props(ha="left", fontsize=6.8)
+            cell.PAD = 0.04
 
 
 def configure_nature_style() -> None:
@@ -367,10 +359,10 @@ def _chart_label(label: str) -> str:
 
 
 def _chart_project_name(name: str) -> str:
-    for zh, en in PROJECT_NAME_EN.items():
-        if zh in name:
+    for zh, en in sorted(PROJECT_NAME_EN.items(), key=lambda kv: len(kv[0]), reverse=True):
+        if zh in name or name == zh:
             return en
-    return name
+    return name if len(name) <= 16 else f"{name[:14]}…"
 
 
 def _chart_year_label(record: BenchmarkRecord) -> str:
@@ -575,39 +567,30 @@ def plot_score_radar(
     angles = np.linspace(0, 2 * np.pi, len(cats), endpoint=False).tolist()
     angles_c = angles + [angles[0]]
 
-    fig = plt.figure(figsize=(10.2, 9.4))
-    gs = fig.add_gridspec(2, 1, height_ratios=[1.12, 0.88], hspace=0.42)
+    fig = plt.figure(figsize=(11.0, 10.8))
+    gs = fig.add_gridspec(2, 1, height_ratios=[1.15, 1.0], hspace=0.38)
     ax = fig.add_subplot(gs[0], projection="polar")
     ax_tbl = fig.add_subplot(gs[1])
     ax.set_theta_offset(np.pi / 2)
     ax.set_theta_direction(-1)
 
-    for pt in fleet_points:
-        if _on_chart(pt) or _is_highlight(pt):
-            continue
-        vals = [pt.scores.get(c, 0) for c in cats]
-        vals_c = vals + [vals[0]]
-        ax.plot(angles_c, vals_c, color="#C8CED8", linewidth=0.45, alpha=0.18, zorder=1)
-
     compare_handles: list[Line2D] = []
-    for pt in fleet_points:
-        if not _on_chart(pt):
-            continue
-        vals = [float(pt.scores.get(c, 0)) for c in cats]
+    for pt in _radar_fleet_order(fleet_points):
+        vals = [float(pt.scores.get(c, 0) or 0) for c in cats]
         vals_c = vals + [vals[0]]
         style = _scheme_style(pt.short_name)
-        ls = style["ls"] if pt.year_status != "planned" else "--"
+        ls = "--" if pt.year_status == "planned" else style["ls"]
         color = style["color"]
-        ax.fill(angles_c, vals_c, color=color, alpha=0.12, zorder=2)
+        ax.fill(angles_c, vals_c, color=color, alpha=0.08, zorder=2)
         ax.plot(
             angles_c,
             vals_c,
             ls=ls,
-            linewidth=1.8,
+            linewidth=1.5,
             color=color,
             marker=style["marker"],
-            markersize=4.5,
-            alpha=0.92,
+            markersize=4.0,
+            alpha=0.9,
             zorder=3,
         )
         compare_handles.append(
@@ -615,10 +598,10 @@ def plot_score_radar(
                 [0],
                 [0],
                 color=color,
-                lw=1.8,
+                lw=1.5,
                 ls=ls,
                 marker=style["marker"],
-                markersize=4,
+                markersize=3.5,
                 label=_chart_project_name(pt.short_name),
             )
         )
@@ -639,26 +622,29 @@ def plot_score_radar(
     )
     ax.legend(
         handles=compare_handles,
-        loc="upper right",
-        bbox_to_anchor=(1.28, 1.12),
-        fontsize=7,
+        loc="upper left",
+        bbox_to_anchor=(1.02, 1.05),
+        fontsize=6,
         frameon=True,
         fancybox=False,
         edgecolor="#DDDDDD",
-        title="Benchmarks",
-        title_fontsize=7,
+        ncol=2,
+        title="Fleet (n={})".format(len(fleet_points)),
+        title_fontsize=6.5,
+        columnspacing=0.8,
+        handletextpad=0.4,
     )
 
     _radar_score_table(ax_tbl, fleet_points, cats)
     fig.text(
         0.5,
-        0.02,
-        "Fleet benchmark overlay (four highlighted projects); background traces show full roster. Scores 0–100.",
+        0.01,
+        "Full fleet overlay on five AI Review metrics (0–100). Dashed = planned projects.",
         ha="center",
         fontsize=7,
         color="#666666",
     )
-    fig.subplots_adjust(top=0.92, bottom=0.08, right=0.82)
+    fig.subplots_adjust(top=0.92, bottom=0.06, right=0.78)
     return _save(fig, out_dir, "fig_score_radar")
 
 
@@ -754,7 +740,8 @@ def plot_fleet_metrics_bars(
     vs = validity_table.get("validity_summary") or {}
     note = (
         f"Fleet n={vs.get('n', len(cohort))}; overall Spearman={vs.get('overall_spearman', '—')}; "
-        f"mean |AI−reg|={vs.get('overall_mean_abs_diff', '—')} pts. "
+        f"mean |AI−reg|={vs.get('overall_mean_abs_diff', '—')} pts; "
+        f"high agreement={vs.get('high_agreement_pct', '—')}%. "
         "Dashed curves: nonlinear trend of scores vs. raw performance index."
     )
     fig.suptitle("AI Review validity — raw metrics vs. scores", fontsize=10, fontweight="bold", y=0.98)
@@ -962,6 +949,191 @@ def plot_validity_table(validity: dict[str, Any], out_dir: Path) -> list[str]:
     return _save(fig, out_dir, "fig_ai_review_validity")
 
 
+STATIC_TARGET_LABELS = {
+    "steel_mass_t": "Steel mass (t)",
+    "max_uc_static": "Max UC (static)",
+    "pitch_proxy_deg": "Pitch (deg)",
+    "compliance_static": "Compliance proxy",
+}
+
+PHYSICS_PENALTY_LABELS = {
+    "mass": "Mass anchor",
+    "pitch": "Pitch limit",
+    "mono": "Monotonicity",
+    "bound": "Bounds",
+}
+
+ECON_LABELS = {
+    "unit_cost_cny_per_MW": "Unit cost (kCNY/MW)",
+    "construction_years": "Construction (yr)",
+    "fatigue_life_years": "Fatigue life (yr)",
+}
+
+
+def _plot_pinn_workflow_schematic(ax, *, active: bool) -> None:
+    ax.set_xlim(0, 10)
+    ax.set_ylim(0, 6)
+    ax.axis("off")
+    boxes = [
+        (0.4, 3.8, "Geometry\nJSON"),
+        (2.6, 3.8, "Feature\nextract"),
+        (4.8, 3.8, "MLP\nsurrogate"),
+        (7.0, 3.8, "Physics\nloss check"),
+        (8.8, 3.8, "Blend\nα·PINN+(1−α)·H"),
+    ]
+    color = NATURE_COLORS["candidate"] if active else NATURE_COLORS["trend"]
+    for i, (x, y, txt) in enumerate(boxes):
+        ax.add_patch(Rectangle((x, y), 1.5, 1.2, fc="#f8fafc", ec=color, lw=1.4, zorder=2))
+        ax.text(x + 0.75, y + 0.6, txt, ha="center", va="center", fontsize=8, color=NATURE_COLORS["text"])
+        if i < len(boxes) - 1:
+            ax.annotate(
+                "",
+                xy=(boxes[i + 1][0] - 0.08, y + 0.6),
+                xytext=(x + 1.58, y + 0.6),
+                arrowprops=dict(arrowstyle="->", color="#94a3b8", lw=1.1),
+            )
+    ax.text(
+        5.0,
+        2.2,
+        "Phase 1: static PINN proxy (CalculiX / analytical labels)\nDoes not replace Zwind time-domain or CCS review",
+        ha="center",
+        va="top",
+        fontsize=9,
+        color="#64748b",
+    )
+    title = "Physics-informed neural surrogate — active" if active else "Physics-informed neural surrogate — not engaged"
+    ax.set_title(title, fontsize=11, fontweight="600", color=NATURE_COLORS["text"], pad=8)
+
+
+def plot_surrogate_pinn(score: ValidationScore, out_dir: Path) -> list[str]:
+    """Visualize PINN static predictions, physics residuals, and economics blend."""
+    ctx = score.surrogate_context or {}
+    enabled = bool(ctx.get("enabled"))
+    static = ctx.get("static_predictions") or {}
+    penalties = ctx.get("physics_penalties") or {}
+    alpha = float(ctx.get("blend_alpha") or 0.0)
+    phys_res = float(ctx.get("physics_residual") or 0.0)
+    requested = bool(ctx.get("requested"))
+
+    fig = plt.figure(figsize=(12.5, 8.5))
+    gs = fig.add_gridspec(2, 2, hspace=0.38, wspace=0.32)
+
+    ax_flow = fig.add_subplot(gs[0, 0])
+    _plot_pinn_workflow_schematic(ax_flow, active=enabled)
+
+    ax_static = fig.add_subplot(gs[0, 1])
+    if static:
+        keys = [k for k in STATIC_TARGET_LABELS if k in static]
+        if not keys:
+            keys = list(static.keys())
+        labels = [STATIC_TARGET_LABELS.get(k, k) for k in keys]
+        vals = [float(static[k]) for k in keys]
+        ypos = np.arange(len(keys))
+        bars = ax_static.barh(ypos, vals, color=NATURE_COLORS["candidate"], height=0.55, alpha=0.88)
+        ax_static.set_yticks(ypos)
+        ax_static.set_yticklabels(labels, fontsize=9)
+        ax_static.set_xlabel("Predicted value")
+        ax_static.set_title("Static channel outputs", fontsize=11, fontweight="600")
+        if "max_uc_static" in static:
+            ax_static.axvline(1.0, color="#ef4444", ls="--", lw=1, alpha=0.75)
+        if "pitch_proxy_deg" in static:
+            ax_static.axvline(5.0, color="#f59e0b", ls=":", lw=1, alpha=0.75)
+        for bar, v in zip(bars, vals):
+            ax_static.text(bar.get_width(), bar.get_y() + bar.get_height() / 2, f" {v:.2g}", va="center", fontsize=8)
+    else:
+        ax_static.text(
+            0.5,
+            0.55,
+            "Enable surrogate in AI Review\nto populate static predictions",
+            ha="center",
+            va="center",
+            transform=ax_static.transAxes,
+            fontsize=10,
+            color="#64748b",
+        )
+        ax_static.set_axis_off()
+
+    ax_phys = fig.add_subplot(gs[1, 0])
+    if penalties:
+        pkeys = [k for k in PHYSICS_PENALTY_LABELS if k in penalties]
+        plabels = [PHYSICS_PENALTY_LABELS[k] for k in pkeys]
+        pvals = [float(penalties[k]) for k in pkeys]
+        xpos = np.arange(len(pkeys))
+        ax_phys.bar(xpos, pvals, color=NATURE_COLORS["international"], width=0.62, alpha=0.9)
+        ax_phys.set_xticks(xpos)
+        ax_phys.set_xticklabels(plabels, rotation=18, ha="right", fontsize=8)
+        ax_phys.set_ylabel("Penalty term")
+        ax_phys.set_title(f"Physics residual terms (Σ={phys_res:.3f})", fontsize=11, fontweight="600")
+        ax_phys.axhline(0.35, color="#ef4444", ls="--", lw=1, label="fallback threshold")
+        ax_phys.legend(fontsize=7, frameon=False, loc="upper right")
+    else:
+        ax_phys.text(
+            0.5,
+            0.5,
+            "Physics penalties appear\nwhen surrogate is active",
+            ha="center",
+            va="center",
+            transform=ax_phys.transAxes,
+            fontsize=10,
+            color="#64748b",
+        )
+        ax_phys.set_axis_off()
+
+    ax_blend = fig.add_subplot(gs[1, 1])
+    h_der = ctx.get("heuristic_derived") or {}
+    s_der = ctx.get("derived") or {}
+    b_der = ctx.get("blended_derived") or {}
+    econ_keys = list(ECON_LABELS.keys())
+    if enabled and h_der and s_der:
+        xpos = np.arange(len(econ_keys))
+        width = 0.26
+        hvals = [float(h_der.get(k) or 0) for k in econ_keys]
+        svals = [float(s_der.get(k) or 0) for k in econ_keys]
+        bvals = [float(b_der.get(k) or 0) for k in econ_keys]
+        ax_blend.bar(xpos - width, hvals, width, label="Heuristic", color=NATURE_COLORS["trend"], alpha=0.85)
+        ax_blend.bar(xpos, svals, width, label="PINN", color=NATURE_COLORS["candidate"], alpha=0.9)
+        ax_blend.bar(xpos + width, bvals, width, label=f"Blended (α={alpha:.2f})", color=NATURE_COLORS["international"], alpha=0.9)
+        ax_blend.set_xticks(xpos)
+        ax_blend.set_xticklabels([ECON_LABELS[k].split(" (")[0] for k in econ_keys], fontsize=8)
+        ax_blend.set_title("Economics: heuristic vs PINN vs blend", fontsize=11, fontweight="600")
+        ax_blend.legend(fontsize=7, frameon=False, loc="upper right")
+    elif enabled:
+        ax_blend.text(
+            0.5,
+            0.62,
+            f"Blend weight α = {alpha:.2f}\nsource = {ctx.get('source', '—')}",
+            ha="center",
+            va="center",
+            transform=ax_blend.transAxes,
+            fontsize=10,
+            color=NATURE_COLORS["text"],
+        )
+        ax_blend.set_axis_off()
+    else:
+        msg = "Surrogate not requested" if not requested else "Surrogate requested but inactive (see assumptions)"
+        ax_blend.text(
+            0.5,
+            0.5,
+            msg,
+            ha="center",
+            va="center",
+            transform=ax_blend.transAxes,
+            fontsize=10,
+            color="#64748b",
+        )
+        ax_blend.set_axis_off()
+
+    fig.suptitle(
+        "Physics-informed neural surrogate (PINN) · AI Review assist",
+        fontsize=13,
+        fontweight="700",
+        color=NATURE_COLORS["text"],
+        y=0.98,
+    )
+    fig.subplots_adjust(top=0.91, bottom=0.08, left=0.08, right=0.97)
+    return _save(fig, out_dir, "fig_surrogate_pinn")
+
+
 def generate_all_plots(
     score: ValidationScore,
     out_dir: Path,
@@ -995,6 +1167,7 @@ def generate_all_plots(
     ]
     if validity_table:
         plotters.append(lambda: plot_validity_table(validity_table, out_dir))
+    plotters.append(lambda: plot_surrogate_pinn(score, out_dir))
     for fn in plotters:
         paths = fn()
         if paths:

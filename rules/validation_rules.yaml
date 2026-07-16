@@ -46,6 +46,15 @@ ai_review:
       unit_cost_cny_per_MW: 2720
       construction_years: 3.0
       fatigue_life_years: 25
+  # 双通道对照：法规锚定 + AI 原生评价（机队分位/本方案目标）按维混合，保留合理差异
+  regulatory_alignment:
+    enabled: true
+    innovation_bonus_max: 6.0
+    blend_weights:
+      steel_per_mw: 0.52
+      unit_cost: 0.58
+      construction_years: 0.48
+      fatigue_life: 0.42
 
 # 法规五维：与 AI Review 相同指标，按 DNV/行业阈值与规则合成分维（供有效性对照）
 regulatory_review:

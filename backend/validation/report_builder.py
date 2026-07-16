@@ -261,6 +261,7 @@ def score_to_json(
         "assumptions": score.assumptions,
         "calibration_notes": score.calibration_notes,
         "scoring_config": score.scoring_config,
+        "surrogate_context": score.surrogate_context,
         "rules": [
             {
                 "id": r.id,
@@ -329,7 +330,9 @@ def write_reports(
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     docx_path: str | None = None
+    docx_detailed_path: str | None = None
     word_export_error: str | None = None
+    word_detailed_export_error: str | None = None
     try:
         from backend.validation.word_export import build_validation_docx
 
@@ -349,9 +352,37 @@ def write_reports(
     except Exception as e:
         word_export_error = str(e)
 
+    try:
+        from backend.validation.word_export_detailed import build_validation_docx_detailed
+
+        docx_detailed_file = build_validation_docx_detailed(
+            out_dir,
+            score=score,
+            validation_id=validation_id,
+            geometry_title=geometry_title,
+            llm_rationales=llm_rationales,
+        )
+        docx_detailed_path = str(docx_detailed_file)
+        art["report_docx_detailed"] = (
+            f"/api/validation/{validation_id}/files/validation_report_detailed.docx"
+        )
+        art["export_word_detailed"] = f"/api/validation/{validation_id}/export/word/detailed"
+        payload["artifacts"] = art
+        json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except ImportError:
+        word_detailed_export_error = (
+            "python-docx 未安装（pip install -r backend/requirements-validation.txt）"
+        )
+    except Exception as e:
+        word_detailed_export_error = str(e)
+
     result = {"report_md": str(md_path), "score_json": str(json_path)}
     if docx_path:
         result["report_docx"] = docx_path
+    if docx_detailed_path:
+        result["report_docx_detailed"] = docx_detailed_path
     if word_export_error:
         result["word_export_error"] = word_export_error
+    if word_detailed_export_error:
+        result["word_detailed_export_error"] = word_detailed_export_error
     return result

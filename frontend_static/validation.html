@@ -48,6 +48,10 @@
             />
             <div class="valToolbar">
               <label class="valCheck">
+                <input type="checkbox" id="useSurrogate" />
+                启用物理代理估算（需已训练 surrogate 模型）
+              </label>
+              <label class="valCheck">
                 <input type="checkbox" id="useLlm" />
                 LLM 条款解释（需 QWEN_API_KEY，不参与打分）
               </label>
@@ -94,6 +98,9 @@
                 <button type="button" class="btn valDocxBtn" id="valDocxBtn" disabled title="下载含图表的完整 Word 报告">
                   导出 Word 报告
                 </button>
+                <button type="button" class="btn valDocxBtn" id="valDocxDetailedBtn" disabled title="下载设计基础风格详细 Word 报告（封面、目录、四章结构）">
+                  详细设计基础报告
+                </button>
                 <a id="valReportLink" href="#" target="_blank" rel="noopener">下载 Markdown 报告</a>
                 <a id="valJsonLink" href="#" target="_blank" rel="noopener">validation_score.json</a>
               </div>
@@ -101,6 +108,7 @@
 
             <nav class="valTabs" role="tablist" aria-label="报告视图">
               <button type="button" class="valTab is-active" data-tab="Overview" role="tab" aria-selected="true">总览</button>
+              <button type="button" class="valTab" data-tab="Pinn" role="tab" aria-selected="false">物理代理 PINN</button>
               <button type="button" class="valTab" data-tab="Charts" role="tab" aria-selected="false">图表</button>
               <button type="button" class="valTab" data-tab="Rules" role="tab" aria-selected="false">规则明细</button>
               <button type="button" class="valTab" data-tab="Report" role="tab" aria-selected="false">完整报告</button>
@@ -111,6 +119,12 @@
               <p class="fieldLabel" style="margin-bottom:10px">预览 · 基准位置与五维对比</p>
               <div class="valFigGrid" id="valFigGridPreview" style="grid-template-columns:1fr 1fr"></div>
               <div id="valValidityBlock"></div>
+            </div>
+
+            <div id="valPanelPinn" class="valTabPanel" role="tabpanel">
+              <div id="valSurrogateBlock" class="valSurrogateBlock"></div>
+              <p class="fieldLabel" style="margin:16px 0 10px">PINN 可视化 · 静力通道 / 物理残差 / 混合策略</p>
+              <div class="valFigGrid valFigGrid--pinn" id="valFigGridPinn"></div>
             </div>
 
             <div id="valPanelCharts" class="valTabPanel" role="tabpanel">
@@ -178,6 +192,6 @@
       </div>
     </div>
 
-    <script src="./flow_main.validation.js?v=20260704"></script>
+    <script src="./flow_main.validation.js?v=20260713"></script>
   </body>
 </html>

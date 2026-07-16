@@ -1,0 +1,44 @@
+# Physics-informed neural surrogate (Phase 1: CalculiX static proxy)
+
+enabled: false
+min_training_samples: 30
+model_dir: runs/_surrogate_models
+model_version: static_v1
+
+blend:
+  alpha_default: 0.7
+  physics_residual_threshold: 0.35
+
+physics_loss_weights:
+  mass: 0.15
+  pitch: 0.10
+  mono: 0.05
+  bound: 0.05
+
+training:
+  hidden_dims: [64, 32]
+  epochs: 200
+  learning_rate: 0.001
+  batch_size: 16
+  val_fraction: 0.2
+  seed: 42
+
+features:
+  - target_power_MW
+  - wall_thickness_m
+  - leg_mean_diameter_m
+  - leg_mean_length_m
+  - leg_slenderness_L_over_D
+  - dt_ratio
+  - column_spacing_m
+  - scale_factor
+  - leg_taper_ratio
+  - design_domain_span_m
+  - top_plate_diameter_m
+  - plate_to_leg_diameter_ratio
+
+static_targets:
+  - max_uc_static
+  - compliance_static
+  - steel_mass_t
+  - pitch_proxy_deg

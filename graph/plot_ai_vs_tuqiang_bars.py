@@ -21,25 +21,44 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA_YAML = ROOT / "rules" / "ai_vs_tuqiang_comparison.yaml"
 OUT_DIR = Path(__file__).resolve().parent / "output"
 
+FONT = {
+    "title": 13.0,
+    "subtitle": 10.5,
+    "axis": 11.0,
+    "tick": 11.0,
+    "value": 11.5,
+    "badge": 10.0,
+    "roman": 13.0,
+    "legend": 9.5,
+}
+
 NATURE = {
     "text": "#1A1A1A",
     "grid": "#E8E8E8",
-    "panel_bg": "#FAFAFA",
+    "panel_bg": "white",
     "improve": "#00A087",
     "worse": "#E64B35",
     "neutral": "#8491B4",
 }
 
-ICON_GLYPH = {
-    "steel": "S",
-    "intensity": "I",
-    "cost": "C",
-    "frequency": "f",
-    "motion": "M",
-    "strength": "U",
-    "fatigue": "D",
-    "mooring": "T",
-}
+_ROMAN = (
+    "I",
+    "II",
+    "III",
+    "IV",
+    "V",
+    "VI",
+    "VII",
+    "VIII",
+    "IX",
+    "X",
+)
+
+
+def _roman(index: int) -> str:
+    if 0 <= index < len(_ROMAN):
+        return _ROMAN[index]
+    return str(index + 1)
 
 
 def _pick_font() -> str:
@@ -60,9 +79,9 @@ def _configure_style() -> None:
         {
             "font.family": "sans-serif",
             "font.sans-serif": [font_family, "Arial", "Helvetica", "DejaVu Sans"],
-            "font.size": 8,
-            "axes.titlesize": 9,
-            "axes.labelsize": 8,
+            "font.size": FONT["tick"],
+            "axes.titlesize": FONT["title"],
+            "axes.labelsize": FONT["axis"],
             "figure.dpi": 150,
             "savefig.dpi": 600,
             "savefig.bbox": "tight",
@@ -107,15 +126,33 @@ def _metric_label(metric: dict[str, Any]) -> str:
     return str(metric.get("label") or metric.get("label_en") or metric.get("id") or "")
 
 
-def _panel_title(ax: plt.Axes, letter: str, metric: dict[str, Any]) -> None:
-    icon = ICON_GLYPH.get(str(metric.get("icon") or ""), "")
+def _panel_title(ax: plt.Axes, roman: str, metric: dict[str, Any]) -> None:
     label = _metric_label(metric)
-    head = f"{letter}   [{icon}]  {label}" if icon else f"{letter}   {label}"
+    head = f"{roman}   {label}"
     subtitle = metric.get("subtitle") or metric.get("subtitle_en")
+    ax.text(
+        0.0,
+        1.14,
+        head,
+        transform=ax.transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=FONT["title"],
+        fontweight="bold",
+        clip_on=False,
+    )
     if subtitle:
-        ax.set_title(f"{head}\n{subtitle}", loc="left", fontsize=9, fontweight="bold", pad=20, linespacing=1.1)
-    else:
-        ax.set_title(head, loc="left", fontsize=9, fontweight="bold", pad=10)
+        ax.text(
+            0.0,
+            1.02,
+            subtitle,
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=FONT["subtitle"],
+            color="#555555",
+            clip_on=False,
+        )
 
 
 def _draw_delta_badge(
@@ -124,50 +161,51 @@ def _draw_delta_badge(
     tuq_val: float,
     *,
     lower_is_better: bool,
-    ymax: float,
-    ymin: float,
+    show_vs_label: bool,
+    ref_line: float | None = None,
 ) -> None:
     _, pct_text, tag = _delta_pct(ai_val, tuq_val, lower_is_better=lower_is_better)
     badge_color = NATURE[tag]
-    y = ymax - (ymax - ymin) * 0.04
+    label = f"AI vs Tuqiang  {pct_text}" if show_vs_label else pct_text
     ax.text(
         0.5,
-        y,
-        f"AI vs Tuqiang  {pct_text}",
+        0.90,
+        label,
+        transform=ax.transAxes,
         ha="center",
         va="top",
-        fontsize=6.5,
+        fontsize=FONT["badge"],
         color=badge_color,
         fontweight="bold",
         bbox={
-            "boxstyle": "round,pad=0.3",
+            "boxstyle": "round,pad=0.35",
             "facecolor": "white",
             "edgecolor": badge_color,
-            "linewidth": 0.85,
+            "linewidth": 0.9,
             "alpha": 0.96,
         },
-        zorder=6,
+        zorder=8,
         clip_on=True,
     )
 
 
-def _draw_status_badge(ax: plt.Axes, text: str, *, ok: bool, y: float = 0.92) -> None:
+def _draw_status_badge(ax: plt.Axes, text: str, *, ok: bool) -> None:
     badge_color = NATURE["improve"] if ok else NATURE["worse"]
     ax.text(
         0.5,
-        y,
+        0.90,
         text,
         transform=ax.transAxes,
         ha="center",
         va="top",
-        fontsize=6.5,
+        fontsize=FONT["badge"],
         color=badge_color,
         fontweight="bold",
         bbox={
-            "boxstyle": "round,pad=0.3",
+            "boxstyle": "round,pad=0.35",
             "facecolor": "white",
             "edgecolor": badge_color,
-            "linewidth": 0.85,
+            "linewidth": 0.9,
             "alpha": 0.96,
         },
         zorder=6,
@@ -183,6 +221,7 @@ def _style_panel(ax: plt.Axes) -> None:
     ax.spines["bottom"].set_color("#CCCCCC")
     ax.grid(True, axis="y", color=NATURE["grid"], linewidth=0.55, zorder=0)
     ax.set_axisbelow(True)
+    ax.tick_params(axis="both", labelsize=FONT["tick"])
 
 
 def _draw_hatched_band(
@@ -224,9 +263,9 @@ def _draw_frequency_avoidance_panel(
     metric: dict[str, Any],
     platforms: dict[str, Any],
     *,
-    letter: str,
+    roman: str,
+    show_vs_label: bool,
 ) -> None:
-    """1P / 3P excitation bands vs structural mode lines (no overlap)."""
     x_max = float(metric.get("x_max") or 0.5)
     bands: list[dict[str, Any]] = list(metric.get("excitation_bands") or [])
     ai_color = platforms["ai"]["color"]
@@ -245,71 +284,61 @@ def _draw_frequency_avoidance_panel(
             color=str(band.get("color") or "#8491B4"),
         )
 
-    legend_handles: list[Any] = []
-    for band in bands:
-        legend_handles.append(
-            patches.Patch(
-                facecolor=str(band.get("color") or "#8491B4"),
-                edgecolor=str(band.get("color") or "#8491B4"),
-                hatch="////",
-                alpha=0.45,
-                label=str(band.get("label") or "Band"),
-            )
-        )
+    mode_entries: list[tuple[float, str, str]] = []
+    for mode in list(metric.get("ai_modes") or []):
+        mode_entries.append((float(mode["hz"]), ai_color, str(mode.get("ls") or "-")))
+    for mode in list(metric.get("tuqiang_modes") or []):
+        mode_entries.append((float(mode["hz"]), tuq_color, str(mode.get("ls") or "-")))
+    mode_entries.sort(key=lambda item: item[0])
 
-    def _plot_modes(modes: list[dict[str, Any]], color: str, prefix: str) -> None:
-        mode_label_trans = blended_transform_factory(ax.transData, ax.transAxes)
-        for mode in modes:
-            hz = float(mode["hz"])
-            ls = str(mode.get("ls") or "-")
-            ax.axvline(hz, color=color, linestyle=ls, linewidth=1.8, zorder=4)
-            ax.text(
-                hz,
-                0.93,
-                f"{hz:.2f}",
-                transform=mode_label_trans,
-                ha="center",
-                va="bottom",
-                fontsize=6.5,
-                color=color,
-                fontweight="bold",
-                clip_on=True,
-            )
-            legend_handles.append(
-                Line2D([0], [0], color=color, lw=1.8, ls=ls, label=f"{prefix} {mode.get('label', 'mode')}")
-            )
+    for hz, color, ls in mode_entries:
+        ax.axvline(hz, color=color, linestyle=ls, linewidth=2.0, zorder=4)
 
-    _plot_modes(list(metric.get("ai_modes") or []), ai_color, ai_label)
-    _plot_modes(list(metric.get("tuqiang_modes") or []), tuq_color, tuq_label)
-
-    ax.set_xlabel("Frequency (Hz)", fontsize=7.5, color="#555555")
-    ax.set_ylabel("Normalized spectrum", fontsize=7.5, color="#555555")
+    ax.set_xlabel("Frequency (Hz)", fontsize=FONT["axis"], color="#444444", labelpad=10)
+    ax.set_ylabel("Normalized spectrum", fontsize=FONT["axis"], color="#444444")
     ax.set_yticks([0.0, 0.5, 1.0])
-    ax.tick_params(axis="both", labelsize=7)
     ax.spines["top"].set_visible(True)
     ax.spines["right"].set_visible(True)
     for spine in ax.spines.values():
         spine.set_color("#333333")
         spine.set_linewidth(0.6)
 
-    _panel_title(ax, letter, metric)
+    _panel_title(ax, roman, metric)
 
     all_modes = list(metric.get("ai_modes") or []) + list(metric.get("tuqiang_modes") or [])
     all_clear = all(_mode_clear_of_bands(float(m["hz"]), bands) for m in all_modes)
-    _draw_status_badge(
-        ax,
-        "No overlap with 1P / 3P" if all_clear else "Check band clearance",
-        ok=all_clear,
-        y=0.90,
-    )
+    if show_vs_label:
+        _draw_status_badge(
+            ax,
+            "No overlap with 1P / 3P" if all_clear else "Check band clearance",
+            ok=all_clear,
+        )
 
+    band_patches = [
+        patches.Patch(
+            facecolor=str(b.get("color") or "#8491B4"),
+            edgecolor=str(b.get("color") or "#8491B4"),
+            hatch="////",
+            alpha=0.45,
+            label=str(b.get("label") or "Band"),
+        )
+        for b in bands
+    ]
+    mode_handles = [
+        Line2D([0], [0], color=ai_color, lw=2, ls=":", label=f"{ai_label} 1st SS"),
+        Line2D([0], [0], color=ai_color, lw=2, ls="-", label=f"{ai_label} 1st FA"),
+        Line2D([0], [0], color=tuq_color, lw=2, ls=":", label=f"{tuq_label} 1st SS"),
+        Line2D([0], [0], color=tuq_color, lw=2, ls="-", label=f"{tuq_label} 1st FA"),
+    ]
     ax.legend(
-        handles=legend_handles,
-        loc="center left",
-        bbox_to_anchor=(1.02, 0.5),
-        fontsize=5.8,
+        handles=band_patches + mode_handles,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.21),
+        ncol=2,
+        fontsize=FONT["legend"],
         frameon=False,
-        handlelength=1.6,
+        handlelength=1.4,
+        borderaxespad=0.0,
     )
 
 
@@ -318,7 +347,8 @@ def _draw_metric_panel(
     metric: dict[str, Any],
     platforms: dict[str, Any],
     *,
-    letter: str,
+    roman: str,
+    show_vs_label: bool,
 ) -> None:
     ai_val = float(metric["ai"])
     tuq_val = float(metric["tuqiang"])
@@ -331,150 +361,137 @@ def _draw_metric_panel(
 
     x = np.array([0, 1])
     heights = np.array([ai_val, tuq_val])
-    colors = [ai_color, tuq_color]
     bars = ax.bar(
         x,
         heights,
         width=0.62,
-        color=colors,
+        color=[ai_color, tuq_color],
         edgecolor="white",
         linewidth=1.2,
         zorder=3,
     )
 
-    ymax = max(heights) * 1.28 if max(heights) > 0 else 1.0
+    ymax = max(heights) * 1.38 if max(heights) > 0 else 1.0
     ref_line = metric.get("reference_line")
     if ref_line is not None:
-        ymax = max(ymax, float(ref_line) * 1.22)
+        ref_val = float(ref_line)
+        ymax = max(ymax, ref_val * 1.20, max(heights) * 1.48)
     ymin = 0.0
-    if min(heights) > 0 and min(heights) / max(heights) < 0.55:
-        ymin = max(0.0, min(heights) * 0.82)
     ax.set_ylim(ymin, ymax)
 
     if ref_line is not None:
         ref_val = float(ref_line)
-        ax.axhline(
-            ref_val,
-            color="#666666",
-            linestyle=":",
-            linewidth=1.0,
-            zorder=2,
-        )
+        ax.axhline(ref_val, color="#666666", linestyle=":", linewidth=1.1, zorder=2)
         ref_trans = blended_transform_factory(ax.transAxes, ax.transData)
+        span = ymax - ymin
         ax.text(
-            0.03,
-            ref_val + (ymax - ymin) * 0.015,
+            0.02,
+            ref_val + span * 0.012,
             str(metric.get("reference_label") or f"{ref_val:g} target"),
             transform=ref_trans,
             ha="left",
             va="bottom",
-            fontsize=6.5,
-            color="#666666",
-            clip_on=False,
+            fontsize=FONT["tick"],
+            color="#555555",
+            clip_on=True,
+            zorder=7,
         )
+
     ax.set_xticks(x)
-    ax.set_xticklabels([ai_label, tuq_label], fontsize=8, fontweight="bold")
-    ax.set_ylabel(unit, fontsize=7.5, color="#555555")
+    ax.set_xticklabels([ai_label, tuq_label], fontsize=FONT["tick"], fontweight="bold")
+    ax.set_ylabel(unit, fontsize=FONT["axis"], color="#444444")
 
-    _panel_title(ax, letter, metric)
+    _panel_title(ax, roman, metric)
 
+    span = ymax - ymin
+    label_pad = span * 0.018
+    text_height = span * 0.040
+    ref_val_opt = float(ref_line) if ref_line is not None else None
+    ref_gap = span * 0.022
     for bar, val in zip(bars, heights):
+        bar_top = float(val)
+        label_y = bar_top + label_pad
+        if ref_val_opt is not None:
+            ceiling = ref_val_opt - ref_gap - text_height
+            label_y = min(label_y, ceiling)
+            label_y = max(label_y, bar_top + span * 0.010)
         ax.text(
             bar.get_x() + bar.get_width() / 2,
-            bar.get_height() + (ymax - ymin) * 0.025,
-            _fmt_value(float(val), unit),
+            label_y,
+            _fmt_value(bar_top, unit),
             ha="center",
             va="bottom",
-            fontsize=8,
+            fontsize=FONT["value"],
             fontweight="bold",
             color=NATURE["text"],
-            zorder=4,
+            zorder=6,
+            clip_on=True,
         )
 
-    _draw_delta_badge(ax, ai_val, tuq_val, lower_is_better=lower, ymax=ymax, ymin=ymin)
+    ref_for_badge = float(ref_line) if ref_line is not None else None
+    if show_vs_label:
+        _draw_delta_badge(
+            ax, ai_val, tuq_val, lower_is_better=lower, show_vs_label=True, ref_line=ref_for_badge
+        )
+    else:
+        _draw_delta_badge(
+            ax, ai_val, tuq_val, lower_is_better=lower, show_vs_label=False, ref_line=ref_for_badge
+        )
+
     _style_panel(ax)
 
 
-def plot_comparison(data: dict[str, Any] | None = None, out_dir: Path | None = None) -> list[Path]:
+def plot_comparison(
+    data: dict[str, Any] | None = None,
+    out_dir: Path | None = None,
+    *,
+    stem: str = "fig_ai_vs_tuqiang_bars",
+    show_vs_label: bool = True,
+    include_normalized: bool = True,
+) -> list[Path]:
     _configure_style()
     data = data or _load_data()
     out_dir = out_dir or OUT_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    meta = data.get("meta") or {}
     platforms = data.get("platforms") or {}
     metrics: list[dict[str, Any]] = list(data.get("metrics") or [])
-    n_metrics = len(metrics)
-    if n_metrics < 1:
+    if not metrics:
         raise ValueError("no metrics defined in ai_vs_tuqiang_comparison.yaml")
 
     ncols = 4
-    nrows = int(np.ceil(n_metrics / ncols))
-    fig = plt.figure(figsize=(13.8, 4.2 * nrows))
-    gs = fig.add_gridspec(nrows, ncols, hspace=0.72, wspace=0.42)
+    nrows = int(np.ceil(len(metrics) / ncols))
+    fig = plt.figure(figsize=(14.2, 4.5 * nrows), facecolor="white")
+    gs = fig.add_gridspec(nrows, ncols, hspace=0.88, wspace=0.48)
 
-    letters = "abcdefghijklmnopqrstuvwxyz"
     for i, metric in enumerate(metrics):
         row, col = divmod(i, ncols)
         ax = fig.add_subplot(gs[row, col])
+        roman = _roman(i)
         if metric.get("chart") == "avoidance":
-            _draw_frequency_avoidance_panel(ax, metric, platforms, letter=letters[i])
+            _draw_frequency_avoidance_panel(ax, metric, platforms, roman=roman, show_vs_label=show_vs_label)
         else:
-            _draw_metric_panel(ax, metric, platforms, letter=letters[i])
+            _draw_metric_panel(ax, metric, platforms, roman=roman, show_vs_label=show_vs_label)
 
-    for j in range(n_metrics, nrows * ncols):
+    for j in range(len(metrics), nrows * ncols):
         row, col = divmod(j, ncols)
         fig.add_subplot(gs[row, col]).axis("off")
 
-    title = meta.get("title") or meta.get("title_en") or "AI vs Tuqiang — key performance comparison"
-    fig.suptitle(title, fontsize=13, fontweight="bold", y=0.995)
-
-    footnote = str(meta.get("footnote") or meta.get("footnote_en") or "").strip()
-    if footnote:
-        fig.text(0.02, 0.01, footnote, fontsize=6.5, color="#666666", va="bottom", wrap=True)
-
-    legend_handles = [
-        patches.Patch(facecolor=platforms["ai"]["color"], edgecolor="white", label=_platform_label(platforms, "ai")),
-        patches.Patch(
-            facecolor=platforms["tuqiang"]["color"],
-            edgecolor="white",
-            label=_platform_label(platforms, "tuqiang"),
-        ),
-        Line2D(
-            [0],
-            [0],
-            color=NATURE["improve"],
-            lw=0,
-            marker="s",
-            markersize=0,
-            label="Favorable change (green badge)",
-        ),
-    ]
-    fig.legend(
-        handles=legend_handles,
-        loc="lower right",
-        bbox_to_anchor=(0.98, 0.02),
-        fontsize=7,
-        frameon=True,
-        fancybox=False,
-        edgecolor="#DDDDDD",
-        facecolor="white",
-    )
-
-    fig.subplots_adjust(top=0.91, bottom=0.10, left=0.07, right=0.94)
+    fig.subplots_adjust(top=0.86, bottom=0.16, left=0.08, right=0.97)
 
     paths: list[Path] = []
-    stem = "fig_ai_vs_tuqiang_bars"
     for ext in (".png", ".pdf"):
         p = out_dir / f"{stem}{ext}"
         fig.savefig(p, facecolor="white")
         paths.append(p)
     plt.close(fig)
 
-    fig2, ax2 = plt.subplots(figsize=(14.2, 4.2))
+    if not include_normalized:
+        return paths
+
+    fig2, ax2 = plt.subplots(figsize=(14.2, 4.2), facecolor="white")
     bar_metrics = [m for m in metrics if m.get("chart") != "avoidance" and m.get("ai") is not None]
-    n = len(bar_metrics)
-    group_x = np.arange(n)
+    group_x = np.arange(len(bar_metrics))
     bar_w = 0.34
     norm_ai: list[float] = []
     norm_tuq: list[float] = []
@@ -509,26 +526,19 @@ def plot_comparison(data: dict[str, Any] | None = None, out_dir: Path | None = N
         edgecolor="white",
         linewidth=1.0,
     )
-    labels = [
-        f"[{ICON_GLYPH.get(str(m.get('icon') or ''), '')}] {_metric_label(m)}".strip()
-        for m in bar_metrics
-    ]
+    labels = [_metric_label(m) for m in bar_metrics]
     ax2.set_xticks(group_x)
-    ax2.set_xticklabels(labels, fontsize=8)
-    ax2.set_ylabel("Normalized performance index (0–100)", fontsize=8)
+    ax2.set_xticklabels(labels, fontsize=FONT["tick"])
+    ax2.set_ylabel("Normalized performance index (0–100)", fontsize=FONT["axis"])
     ax2.set_ylim(0, 115)
-    ax2.set_title(
-        "AI vs Tuqiang — normalized comparison (higher = better within each metric)",
-        loc="left",
-        fontweight="bold",
-        fontsize=10,
-    )
     _style_panel(ax2)
-    ax2.legend(loc="upper right", fontsize=7, frameon=False)
-    fig2.subplots_adjust(top=0.82, bottom=0.18)
-    stem2 = "fig_ai_vs_tuqiang_normalized"
+    ax2.legend(loc="upper right", fontsize=FONT["legend"], frameon=False)
+    fig2.subplots_adjust(top=0.90, bottom=0.22)
+    norm_stem = stem.replace("_bars", "_normalized")
+    if norm_stem == stem:
+        norm_stem = f"{stem}_normalized"
     for ext in (".png", ".pdf"):
-        p = out_dir / f"{stem2}{ext}"
+        p = out_dir / f"{norm_stem}{ext}"
         fig2.savefig(p, facecolor="white")
         paths.append(p)
     plt.close(fig2)
@@ -537,7 +547,15 @@ def plot_comparison(data: dict[str, Any] | None = None, out_dir: Path | None = N
 
 
 def main() -> None:
-    paths = plot_comparison()
+    paths: list[Path] = []
+    paths.extend(plot_comparison(stem="fig_ai_vs_tuqiang_bars", show_vs_label=True))
+    paths.extend(
+        plot_comparison(
+            stem="fig_ai_vs_tuqiang_bars_noprefix",
+            show_vs_label=False,
+            include_normalized=False,
+        )
+    )
     print(f"Wrote {len(paths)} files to {OUT_DIR}:")
     for p in paths:
         print(f"  {p}")

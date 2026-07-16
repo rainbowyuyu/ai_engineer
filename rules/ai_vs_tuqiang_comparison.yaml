@@ -55,7 +55,7 @@ metrics:
     chart: avoidance
     unit: "Hz"
     x_max: 0.5
-    subtitle: "Modes outside 1P / 3P excitation bands (Zwind modal)"
+    subtitle: "Modes outside 1P / 3P excitation bands"
     excitation_bands:
       - label: "1P range"
         hz_min: 0.08

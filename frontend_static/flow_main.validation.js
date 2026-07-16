@@ -15,6 +15,7 @@
     fig_rule_heatmap: "规则得分分解（补充）",
     fig_capacity_intensity: "容量–钢耗强度散点",
     fig_ai_review_validity: "AI/法规 同一五维得分对照",
+    fig_surrogate_pinn: "物理信息神经代理 PINN · 静力/物理残差/混合",
   };
 
   /** Display order — keep in sync with backend.validation.paths.FIGURE_STEMS */
@@ -28,6 +29,7 @@
     { id: "steel", label: "restruction4 混合平台用钢量计算" },
     { id: "rules", label: "DNV 规则引擎 · 26+ 条合规检查" },
     { id: "ai", label: "AI Review 五维加权打分" },
+    { id: "pinn", label: "物理信息神经代理（PINN）静力通道与混合" },
     { id: "charts", label: "生成 Nature 风格图表与报告" },
   ];
 
@@ -266,7 +268,7 @@
     document.querySelectorAll(".valTabPanel").forEach((panel) => {
       panel.classList.toggle("is-active", panel.id === `valPanel${tabId}`);
     });
-    if (tabId === "Charts" || tabId === "Report") {
+    if (tabId === "Charts" || tabId === "Report" || tabId === "Pinn") {
       requestAnimationFrame(() => kickFigureLoads());
     }
   }
@@ -423,6 +425,127 @@
     host.innerHTML = html;
   }
 
+  const STATIC_LABELS_ZH = {
+    steel_mass_t: "结构用钢量",
+    max_uc_static: "静力最大 UC",
+    compliance_static: "柔度代理",
+    pitch_proxy_deg: "静倾角",
+  };
+
+  const PENALTY_LABELS_ZH = {
+    mass: "质量锚定 L_mass",
+    pitch: "静倾约束 L_pitch",
+    mono: "单调性 L_mono",
+    bound: "物理边界 L_bound",
+  };
+
+  function renderSurrogatePanel(ctx) {
+    const host = $("#valSurrogateBlock");
+    if (!host) return;
+    ctx = ctx || {};
+    const requested = !!ctx.requested;
+    const enabled = !!ctx.enabled;
+    const source = ctx.source || "heuristic";
+    const alpha = Number(ctx.blend_alpha || 0);
+    const phys = Number(ctx.physics_residual || 0);
+    const staticPred = ctx.static_predictions || {};
+    const penalties = ctx.physics_penalties || {};
+    const assumptions = ctx.assumptions || [];
+
+    let badgeCls = "valSurBadge--off";
+    let badgeText = "未启用";
+    if (requested && enabled) {
+      badgeCls = source === "blend" ? "valSurBadge--blend" : "valSurBadge--on";
+      badgeText = source === "blend" ? `混合 α=${alpha.toFixed(2)}` : "PINN 主导";
+    } else if (requested && !enabled) {
+      badgeCls = "valSurBadge--warn";
+      badgeText = "已请求 · 回退 heuristic";
+    }
+
+    const flowSteps = [
+      { n: "1", t: "几何 JSON", d: "设计变量与尺度" },
+      { n: "2", t: "特征提取", d: "柱径/壁厚/D/t 等" },
+      { n: "3", t: "MLP 推理", d: ctx.model_version || "static_v1" },
+      { n: "4", t: "物理校验", d: `残差 ${phys.toFixed(3)}` },
+      { n: "5", t: "混合评分", d: `α·PINN + (1−α)·H` },
+    ];
+
+    let html = `<div class="valSurHead">
+      <div>
+        <h3 class="valSurTitle">物理信息神经代理（PINN）</h3>
+        <p class="valSurSub">Phase 1 静力通道 · 辅助造价/工期/疲劳估算 · 不替代 Zwind / CCS</p>
+      </div>
+      <span class="valSurBadge ${badgeCls}">${badgeText}</span>
+    </div>`;
+
+    html += `<div class="valSurFlow">${flowSteps
+      .map(
+        (s) =>
+          `<div class="valSurFlowStep${enabled && requested ? " is-active" : ""}">
+            <span class="valSurFlowNum">${s.n}</span>
+            <strong>${s.t}</strong>
+            <span>${s.d}</span>
+          </div>`,
+      )
+      .join("")}</div>`;
+
+    if (Object.keys(staticPred).length) {
+      html += `<div class="valSurGrid">`;
+      for (const [k, v] of Object.entries(staticPred)) {
+        html += `<div class="valSurMetric">
+          <span class="valSurMetricLabel">${STATIC_LABELS_ZH[k] || k}</span>
+          <span class="valSurMetricVal mono">${Number(v).toFixed(3)}</span>
+        </div>`;
+      }
+      html += `</div>`;
+    } else if (requested) {
+      html += `<p class="valSurNote">静力预测未生成 — 请确认已训练模型并安装 <code>requirements-surrogate.txt</code> 依赖。</p>`;
+    } else {
+      html += `<p class="valSurNote">勾选「启用物理代理估算」并运行验证，即可在此查看 PINN 静力预测与物理残差。</p>`;
+    }
+
+    if (Object.keys(penalties).length) {
+      html += `<p class="fieldLabel" style="margin:14px 0 8px">物理损失分项（越低越好 · 阈值 0.35）</p>`;
+      html += `<div class="valSurPenalties">`;
+      const maxP = Math.max(0.35, ...Object.values(penalties).map(Number));
+      for (const [k, v] of Object.entries(penalties)) {
+        const pct = Math.min(100, (Number(v) / maxP) * 100);
+        html += `<div class="valSurPenRow">
+          <span>${PENALTY_LABELS_ZH[k] || k}</span>
+          <div class="valSurPenBar"><div class="valSurPenFill" style="width:${pct}%"></div></div>
+          <span class="mono">${Number(v).toFixed(3)}</span>
+        </div>`;
+      }
+      html += `</div>`;
+    }
+
+    const h = ctx.heuristic_derived || {};
+    const s = ctx.derived || {};
+    const b = ctx.blended_derived || {};
+    if (enabled && h.unit_cost_cny_per_MW != null) {
+      html += `<p class="fieldLabel" style="margin:14px 0 8px">经济性混合（万元/MW · 年）</p>`;
+      html += `<div class="valSurBlendTable"><table class="valRulesTable">
+        <thead><tr><th>指标</th><th>Heuristic</th><th>PINN</th><th>混合结果</th></tr></thead><tbody>`;
+      const rows = [
+        ["单位造价", h.unit_cost_cny_per_MW, s.unit_cost_cny_per_MW, b.unit_cost_cny_per_MW],
+        ["施工年限", h.construction_years, s.construction_years, b.construction_years],
+        ["疲劳寿命", h.fatigue_life_years, s.fatigue_life_years, b.fatigue_life_years],
+      ];
+      for (const [lab, hv, sv, bv] of rows) {
+        html += `<tr><td>${lab}</td><td class="mono">${hv != null ? Number(hv).toFixed(2) : "—"}</td>
+          <td class="mono">${sv != null ? Number(sv).toFixed(2) : "—"}</td>
+          <td class="mono"><strong>${bv != null ? Number(bv).toFixed(2) : "—"}</strong></td></tr>`;
+      }
+      html += `</tbody></table></div>`;
+    }
+
+    if (assumptions.length) {
+      html += `<ul class="valSurAssump">${assumptions.map((a) => `<li>${a}</li>`).join("")}</ul>`;
+    }
+
+    host.innerHTML = html;
+  }
+
   function resolveFigurePng(name, paths) {
     const list = paths || figureUrls[name] || [];
     const fromApi = list.find((p) => typeof p === "string" && p.endsWith(".png") && p.startsWith("/"));
@@ -488,14 +611,20 @@
     lastValidationId = validationId || lastData?.validation_id || "";
     const grid = $("#valFigGrid");
     const preview = $("#valFigGridPreview");
+    const pinnGrid = $("#valFigGridPinn");
     const strip = $("#valReportFigStrip");
     if (grid) grid.innerHTML = "";
     if (preview) preview.innerHTML = "";
+    if (pinnGrid) pinnGrid.innerHTML = "";
     if (strip) strip.innerHTML = "";
 
     for (const name of FIG_STEMS) {
       const pngPath = resolveFigurePng(name, figureUrls[name]);
       if (!pngPath) continue;
+      if (name === "fig_surrogate_pinn") {
+        pinnGrid?.appendChild(buildFigCard(name, pngPath));
+        continue;
+      }
       grid?.appendChild(buildFigCard(name, pngPath));
       if (name === "fig_benchmark_position" && preview) {
         preview.appendChild(buildFigCard(name, pngPath));
@@ -776,11 +905,57 @@
     }
   }
 
+  async function downloadWordReportDetailed() {
+    const btn = $("#valDocxDetailedBtn");
+    const vid = lastData?.validation_id;
+    if (!vid) {
+      setStatus("请先运行验证后再导出详细 Word", "err");
+      return;
+    }
+    const urls = lastData?.artifact_urls || {};
+    const exportPath = urls.export_word_detailed || `/api/validation/${vid}/export/word/detailed`;
+    const url = assetUrl(exportPath);
+    btn?.setAttribute("disabled", "true");
+    setStatus("正在生成详细 Word 报告…", "busy");
+    try {
+      const r = await fetch(url);
+      if (!r.ok) {
+        let detail = r.statusText;
+        try {
+          const err = await r.json();
+          if (typeof err.detail === "string") detail = err.detail;
+        } catch (_) {
+          /* non-JSON error body */
+        }
+        throw new Error(detail);
+      }
+      const blob = await r.blob();
+      const fallback = `validation_report_detailed_${String(vid).slice(0, 8)}.docx`;
+      const filename = parseDownloadFilename(r.headers.get("Content-Disposition"), fallback);
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+      setStatus("详细 Word 报告已下载", "ok");
+    } catch (e) {
+      setStatus(`详细 Word 导出失败：${friendlyFetchError(e)}`, "err");
+    } finally {
+      btn?.removeAttribute("disabled");
+    }
+  }
+
   function updateDownloadLinks(urls, validationId) {
     if (urls.report_md) $("#valReportLink").href = assetUrl(urls.report_md);
     if (urls.score_json) $("#valJsonLink").href = assetUrl(urls.score_json);
     const docxBtn = $("#valDocxBtn");
+    const docxDetailedBtn = $("#valDocxDetailedBtn");
     if (docxBtn && validationId) docxBtn.removeAttribute("disabled");
+    if (docxDetailedBtn && validationId) docxDetailedBtn.removeAttribute("disabled");
   }
 
   async function runValidation() {
@@ -805,6 +980,7 @@
           geometry_path: path,
           options: {
             use_llm_rationale: $("#useLlm")?.checked || false,
+            use_surrogate: $("#useSurrogate")?.checked || false,
             candidate_label: "本方案",
           },
         }),
@@ -824,10 +1000,12 @@
       );
       renderBenchStrip(data.benchmark_context);
       renderValidityTable(data.validity_table);
+      renderSurrogatePanel(data.surrogate_context);
 
       updateDownloadLinks(urls, data.validation_id);
-      if (data.word_export_error) {
-        setStatus(`验证完成，Word 预生成失败：${data.word_export_error}`, "err");
+      const wordErrors = [data.word_export_error, data.word_detailed_export_error].filter(Boolean);
+      if (wordErrors.length) {
+        setStatus(`验证完成，Word 预生成部分失败：${wordErrors.join("；")}`, "err");
       }
 
       renderFigures(urls.figures, urls, data.validation_id);
@@ -843,9 +1021,16 @@
 
       hideLoadingOverlay(true);
       showResults();
-      switchTab("Overview");
-      if (!data.word_export_error) {
-        setStatus(`验证完成 · ID ${data.validation_id.slice(0, 8)}…`, "ok");
+      const wantSur = $("#useSurrogate")?.checked;
+      switchTab(wantSur ? "Pinn" : "Overview");
+      if (!wordErrors.length) {
+        const ctx = data.surrogate_context || {};
+        const wantSur = $("#useSurrogate")?.checked;
+        if (wantSur && !ctx.enabled && ctx.assumptions?.length) {
+          setStatus(`验证完成（代理回退 heuristic：${ctx.assumptions[0]}）`, "err");
+        } else {
+          setStatus(`验证完成 · ID ${data.validation_id.slice(0, 8)}…`, "ok");
+        }
       }
     } catch (e) {
       hideLoadingOverlay(false);
@@ -873,6 +1058,7 @@
     }
     $("#valConnRetry")?.addEventListener("click", () => void checkBackendHealth());
     $("#valDocxBtn")?.addEventListener("click", downloadWordReport);
+    $("#valDocxDetailedBtn")?.addEventListener("click", downloadWordReportDetailed);
     $("#valRunBtn")?.addEventListener("click", runValidation);
     $("#geomPath")?.addEventListener("keydown", (e) => {
       if (e.key === "Enter") runValidation();
