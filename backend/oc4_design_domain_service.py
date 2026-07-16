@@ -462,6 +462,7 @@ def run_loads(
     cload_mag: float = -5.0e6,
     load_case: dict[str, Any] | None = None,
     loads_natural_language: str | None = None,
+    design_checklist_id: str | None = None,
 ) -> dict[str, Any]:
     from backend.tools.inp_oc4_design_nondesign import partition_oc4_mesh_inp
     from backend.tools.oc4_nl_loads import parse_loads_natural_language
@@ -472,6 +473,7 @@ def run_loads(
     if not mesh.is_file():
         raise FileNotFoundError("缺少 02_mesh_body.inp，请先执行网格")
 
+    # band_scale / z_fix_band / cload_mag 由调用方解析（含 design_checklist 默认）
     merged: dict[str, Any] = {
         "band_scale": float(band_scale),
         "z_fix_band": float(z_fix_band),
@@ -498,15 +500,15 @@ def run_loads(
         cload_mag=float(merged.get("cload_mag", cload_mag)),
         load_case=merged,
     )
-    merge_session_meta(
-        sdir,
-        {
-            "final_inp": "03_for_beso.inp",
-            "partition_stats": stats,
-            "last_load_case": merged,
-            "last_nl_load_reply": nl_reply,
-        },
-    )
+    meta_patch: dict[str, Any] = {
+        "final_inp": "03_for_beso.inp",
+        "partition_stats": stats,
+        "last_load_case": merged,
+        "last_nl_load_reply": nl_reply,
+    }
+    if design_checklist_id:
+        meta_patch["design_checklist_id"] = design_checklist_id
+    merge_session_meta(sdir, meta_patch)
     out: dict[str, Any] = {
         "stats": stats,
         "final_inp": str(out_inp),

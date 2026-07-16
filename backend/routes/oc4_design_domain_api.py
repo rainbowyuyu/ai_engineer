@@ -130,9 +130,13 @@ class MeshIn(BaseModel):
 
 class LoadsIn(BaseModel):
     session_id: str
-    band_scale: float = Field(default=1.22, ge=1.0, le=3.0)
-    z_fix_band: float = Field(default=800.0, ge=10.0)
-    cload_mag: float = Field(default=-5.0e6)
+    band_scale: float | None = Field(default=None, ge=1.0, le=3.0)
+    z_fix_band: float | None = Field(default=None, ge=10.0)
+    cload_mag: float | None = Field(default=None)
+    design_checklist_id: str | None = Field(
+        default=None,
+        description="可选：Phase I 设计清单 ID；无 NL 载荷时用作 oc4_loads 默认参数。",
+    )
     load_case: dict[str, Any] | None = Field(
         default=None,
         description="可选：结构化载荷参数（cload_mode、top_node_count 等），与数值字段合并后写入 INP。",
@@ -487,14 +491,36 @@ def oc4_dd_mesh(body: MeshIn):
 @router.post("/loads")
 def oc4_dd_loads(body: LoadsIn):
     sdir = _get_session(body.session_id)
+    meta = read_session_meta(sdir)
+    checklist_id = body.design_checklist_id or meta.get("design_checklist_id")
+    if body.design_checklist_id:
+        merge_session_meta(sdir, {"design_checklist_id": body.design_checklist_id})
+
+    band_scale = body.band_scale
+    z_fix_band = body.z_fix_band
+    cload_mag = body.cload_mag
+    if checklist_id and not (body.loads_natural_language or "").strip():
+        from backend.design_requirements.paths import load_checklist
+
+        cl = load_checklist(str(checklist_id))
+        if cl is not None:
+            oc4 = cl.job_descriptor.theta.oc4_loads
+            if band_scale is None:
+                band_scale = oc4.band_scale
+            if z_fix_band is None:
+                z_fix_band = oc4.z_fix_band
+            if cload_mag is None:
+                cload_mag = oc4.cload_mag
+
     try:
         out = run_loads(
             sdir,
-            band_scale=body.band_scale,
-            z_fix_band=body.z_fix_band,
-            cload_mag=body.cload_mag,
+            band_scale=float(band_scale if band_scale is not None else 1.22),
+            z_fix_band=float(z_fix_band if z_fix_band is not None else 800.0),
+            cload_mag=float(cload_mag if cload_mag is not None else -5.0e6),
             load_case=body.load_case,
             loads_natural_language=body.loads_natural_language,
+            design_checklist_id=str(checklist_id) if checklist_id else None,
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"载荷/分区失败: {e}") from e

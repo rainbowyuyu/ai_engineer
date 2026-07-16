@@ -430,6 +430,16 @@ def extract_geometry_metrics(
     if surrogate_prediction is not None and getattr(surrogate_prediction, "assumptions", None):
         assumptions.extend(list(surrogate_prediction.assumptions))
 
+    dc_raw = data.get("design_checklist")
+    if isinstance(dc_raw, dict) and dc_raw:
+        from backend.design_requirements.geometry_bridge import checklist_assumption_notes
+        from backend.design_requirements.models import DesignChecklist
+
+        try:
+            assumptions.extend(checklist_assumption_notes(DesignChecklist.model_validate(dc_raw)))
+        except Exception:
+            assumptions.append("Phase I 设计清单约束（快照解析失败，已跳过明细）")
+
     return GeometryMetrics(
         target_power_MW=target_power,
         draft_m=draft_m,

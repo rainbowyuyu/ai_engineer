@@ -38,24 +38,7 @@ SYSTEM_PROMPT = """你是「AI Engineer」产品的参数解析模块；角色�
 """
 
 
-def _parse_json_from_llm(content: str) -> Dict[str, Any]:
-    """解析模型输出：支持纯 JSON 或 ```json ... ``` 围栏及前文后语中的首个对象。"""
-    t = (content or "").strip()
-    for block in re.findall(r"```(?:json)?\s*([\s\S]*?)\s*```", t, flags=re.IGNORECASE):
-        b = block.strip()
-        if b.startswith("{"):
-            t = b
-            break
-    dec = json.JSONDecoder()
-    for i, ch in enumerate(t):
-        if ch == "{":
-            obj, _ = dec.raw_decode(t[i:])
-            if isinstance(obj, dict):
-                return obj
-            break
-    return json.loads(t)
-
-
+from backend.design_requirements.json_utils import parse_json_object as _parse_json_from_llm
 def decide_params(
     user_message: str,
     qwen: Optional[QwenClient] = None,

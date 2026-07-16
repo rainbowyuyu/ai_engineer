@@ -57,6 +57,7 @@ from backend.tools.cad_iges_to_inp import (
 from backend.oc4_design_domain_service import session_dir as oc4_design_domain_session_dir
 from backend.routes.oc4_design_domain_api import router as oc4_design_domain_router
 from backend.routes.validation_api import router as validation_router
+from backend.routes.design_requirements_api import router as design_requirements_router
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +133,7 @@ _cad_convert_registry_lock = threading.Lock()
 app = FastAPI(title="AI Engineer Web")
 app.include_router(oc4_design_domain_router, prefix="/api/oc4/design-domain")
 app.include_router(validation_router, prefix="/api/validation")
+app.include_router(design_requirements_router, prefix="/api/design-requirements")
 
 app.add_middleware(
     CORSMiddleware,
@@ -755,12 +757,39 @@ def chat(req: ChatRequest):
             eff_inp = inp_path
     parsed = decide_params(req.message, effective_inp_path=eff_inp, scan_dir=req.scan_dir)
 
-    mass_goal_ratio = req.mass_goal_ratio if req.mass_goal_ratio is not None else parsed.mass_goal_ratio
+    checklist_beso = None
+    if req.design_checklist_id:
+        from backend.design_requirements.paths import load_checklist
+
+        cl = load_checklist(req.design_checklist_id)
+        if cl is not None:
+            checklist_beso = cl.job_descriptor.theta.beso
+
+    mass_goal_ratio = req.mass_goal_ratio
+    if mass_goal_ratio is None and checklist_beso is not None:
+        mass_goal_ratio = checklist_beso.mass_goal_ratio
+    if mass_goal_ratio is None:
+        mass_goal_ratio = parsed.mass_goal_ratio
     mass_goal_ratio = max(0.05, min(0.99, float(mass_goal_ratio)))
-    filter_radius = req.filter_radius if req.filter_radius is not None else parsed.filter_radius
-    optimization_base_raw = req.optimization_base if req.optimization_base is not None else parsed.optimization_base
+
+    filter_radius = req.filter_radius
+    if filter_radius is None and checklist_beso is not None:
+        filter_radius = checklist_beso.filter_radius
+    if filter_radius is None:
+        filter_radius = parsed.filter_radius
+
+    optimization_base_raw = req.optimization_base
+    if optimization_base_raw is None and checklist_beso is not None:
+        optimization_base_raw = checklist_beso.optimization_base
+    if optimization_base_raw is None:
+        optimization_base_raw = parsed.optimization_base
     optimization_base = _sanitize_optimization_base(optimization_base_raw)
-    save_every = req.save_every if req.save_every is not None else parsed.save_every
+
+    save_every = req.save_every
+    if save_every is None and checklist_beso is not None:
+        save_every = checklist_beso.save_every
+    if save_every is None:
+        save_every = parsed.save_every
     save_every = max(1, int(save_every))
 
     generated_bundle = None

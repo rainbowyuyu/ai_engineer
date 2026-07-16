@@ -69,6 +69,10 @@ class ChatRequest(BaseModel):
     optimization_base: str | None = None  # failure_index or stiffness
     save_every: int | None = None
     auto_start: bool = True
+    design_checklist_id: str | None = Field(
+        default=None,
+        description="Phase I 设计清单 ID；若提供则以其 BESO 初值覆盖默认参数",
+    )
 
 
 class ChatResponse(BaseModel):

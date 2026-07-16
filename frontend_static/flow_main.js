@@ -13,6 +13,18 @@ import { pathWantsRichPreview } from "./flow_codePreviewHl.js";
 import { mountResultsViewer } from "./flow_main.resultsViewer.js";
 import { mountRuntimeConsole } from "./flow_main.runtimeConsole.js";
 import { diffLineStrings, diffHasStructuralChange, diffSummaryCounts, stableSortKeysDeep } from "./flow_main.ddNlUi.js";
+import {
+  buildChecklistCardPayload,
+  clarifyDesignChecklist,
+  clearChecklistPendingState,
+  detectDesignChecklistIntent,
+  getActiveDesignChecklistId,
+  getChecklistPendingState,
+  isChecklistClarificationReply,
+  parseDesignChecklistFromChat,
+  setActiveDesignChecklistId,
+  setChecklistPendingState,
+} from "./flow_main.design_brief.js";
 
 const $ = (id) => document.getElementById(id);
 const refs = {
@@ -313,7 +325,14 @@ const state = {
   landingWebSearch: false,
   /** 开启后 POST /api/assistant/chat 携带 tools_enabled，走服务端工具循环 */
   landingAssistantTools: false,
+  /** Phase I 设计清单待澄清状态（与 localStorage 同步） */
+  designChecklistPending: null,
 };
+try {
+  state.designChecklistPending = getChecklistPendingState();
+} catch {
+  state.designChecklistPending = null;
+}
 try {
   state.ddPreviewFollowLock = localStorage.getItem("beso.dd.previewFollowLock") === "1";
 } catch {
@@ -870,12 +889,42 @@ function commitAgentTurnForTask(taskId, msg) {
   const tid = String(taskId || "").trim();
   if (!tid || !msg) return;
   if (String(state.currentTaskId || "").trim() === tid) {
-    const fmt = msg.format === "md" ? "md" : "plain";
-    layout.addLandingBubble("agent", String(msg.content || ""), { format: fmt });
+    if (msg.format === "checklist" && msg.checklist_payload?.html) {
+      layout.addLandingChecklistCard(msg.checklist_payload, { plainSummary: msg.content });
+    } else {
+      const fmt = msg.format === "md" ? "md" : "plain";
+      layout.addLandingBubble("agent", String(msg.content || ""), { format: fmt });
+    }
     state.assistantThread.push(msg);
     return;
   }
   mergeAssistantMsgIntoBackgroundTask(tid, msg);
+}
+
+function commitChecklistTurnForTask(taskId, data, baseUrl) {
+  const card = buildChecklistCardPayload(data, baseUrl);
+  const complete = card.complete;
+  if (complete && card.checklistId) {
+    setActiveDesignChecklistId(card.checklistId);
+    clearChecklistPendingState();
+    state.designChecklistPending = null;
+  } else if (card.checklistId) {
+    state.designChecklistPending = {
+      checklistId: card.checklistId,
+      finalized: false,
+      pendingCount: (card.pending || []).length,
+    };
+    setChecklistPendingState(state.designChecklistPending);
+  }
+  commitAgentTurnForTask(taskId, {
+    role: "assistant",
+    content: card.plainSummary,
+    format: "checklist",
+    checklist_payload: card,
+    design_checklist_id: card.checklistId || null,
+    kind: "design_checklist",
+    clarification_complete: complete,
+  });
 }
 
 function persistLandingAssistantThread(forTaskId) {
@@ -1514,13 +1563,17 @@ function renderLandingChatFromThread() {
       userTurnIdx += 1;
     }
     else if (m.role === "assistant") {
-      const fmt =
-        m.format === "md" ||
-        (!m.format &&
-          /(\*\*|#{1,4}\s|\n[-*]\s|\n\d+\.\s|\x60{3}|^[-=*_]{3,}\s*$|\n\|[^\n]+\|[^\n]*\n\|)/m.test(String(m.content || "")))
-          ? "md"
-          : "plain";
-      layout.addLandingBubble("agent", m.content, { format: fmt });
+      if (m.format === "checklist" && m.checklist_payload?.html) {
+        layout.addLandingChecklistCard(m.checklist_payload, { plainSummary: m.content });
+      } else {
+        const fmt =
+          m.format === "md" ||
+          (!m.format &&
+            /(\*\*|#{1,4}\s|\n[-*]\s|\n\d+\.\s|\x60{3}|^[-=*_]{3,}\s*$|\n\|[^\n]+\|[^\n]*\n\|)/m.test(String(m.content || "")))
+            ? "md"
+            : "plain";
+        layout.addLandingBubble("agent", m.content, { format: fmt });
+      }
     } else if (m.role === "card" && m.kind === "tool_trace") {
       layout.addLandingToolTraceCard(m.trace || []);
     } else if (m.role === "card") {
@@ -2576,6 +2629,52 @@ async function sendLandingAssistantChat() {
   syncLandingPendingAttachBar();
   refs.msgLanding.value = "";
   persistMyTaskIfViewing();
+
+  const pendingCl = state.designChecklistPending || getChecklistPendingState();
+  if (isChecklistClarificationReply(text, pendingCl)) {
+    const thinkingEl = layout.addLandingThinking();
+    try {
+      const data = await clarifyDesignChecklist(pendingCl.checklistId, text, normalizedBaseUrl());
+      thinkingEl?.remove();
+      commitChecklistTurnForTask(myTaskId, data, normalizedBaseUrl());
+      persistMyTaskIfViewing();
+    } catch (e) {
+      thinkingEl?.remove();
+      commitAgentTurnForTask(myTaskId, {
+        role: "assistant",
+        content: `澄清失败：${e?.message || e}。请按「水深 50 m，风速 11 m/s」格式回复，或发送「用默认」。`,
+        format: "plain",
+      });
+      persistMyTaskIfViewing();
+    } finally {
+      state.landingAssistantPending = false;
+      syncLandingSendButtonState();
+    }
+    return;
+  }
+
+  if (detectDesignChecklistIntent(text)) {
+    const thinkingEl = layout.addLandingThinking();
+    try {
+      const data = await parseDesignChecklistFromChat(text, normalizedBaseUrl());
+      thinkingEl?.remove();
+      commitChecklistTurnForTask(myTaskId, data, normalizedBaseUrl());
+      persistMyTaskIfViewing();
+    } catch (e) {
+      thinkingEl?.remove();
+      commitAgentTurnForTask(myTaskId, {
+        role: "assistant",
+        content: `设计清单解析失败：${e?.message || e}`,
+        format: "plain",
+      });
+      persistMyTaskIfViewing();
+    } finally {
+      state.landingAssistantPending = false;
+      syncLandingSendButtonState();
+    }
+    return;
+  }
+
   const intent = detectLandingWorkflowIntent(text);
 
   try {
@@ -3656,7 +3755,9 @@ function applyDdNlSuggestions() {
 
 function buildOc4LoadsRequestBody() {
   const sid = state.oc4DesignDomainSessionId;
-  const out = { session_id: sid, band_scale: 1.22, z_fix_band: 800.0, cload_mag: -5e6 };
+  const out = { session_id: sid };
+  const cid = getActiveDesignChecklistId();
+  if (cid) out.design_checklist_id = cid;
   const o = state.oc4PendingLoads;
   if (o && typeof o === "object") {
     const bs = Number(o.band_scale);
@@ -5461,6 +5562,8 @@ async function createAndRun() {
   body.mass_goal_ratio = topo.mass_goal_ratio;
   body.save_every = topo.save_every;
   if (topo.filter_radius != null) body.filter_radius = topo.filter_radius;
+  const checklistId = getActiveDesignChecklistId();
+  if (checklistId) body.design_checklist_id = checklistId;
   const resp = await fetch(`${normalizedBaseUrl()}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const rawText = await resp.text();
   let data = {};

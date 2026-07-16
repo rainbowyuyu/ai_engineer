@@ -1,0 +1,77 @@
+# Phase I design checklist defaults — aligned with AI designer-r2 / optimized_geometry
+
+project:
+  title: "20 MW 漂浮式风电基础概念设计"
+  owner_intent_zh: "在满足入级与极限工况前提下，降低单位兆瓦用钢量与造价"
+  target_capacity_mw: 20.0
+  platform_type: semi_submersible
+
+site:
+  location_name: "阳江三山 III 示范场址（参考）"
+  water_depth_m: 45.0
+  Hs_m: 12.0
+  Tp_s: 14.0
+  wind_ref_m_s: 11.4
+  sea_state_envelope:
+    reference: "Yangjiang Sanshan III 50-yr H1–H6"
+    labels: [H1, H2, H3, H4, H5, H6]
+    zwind_envelope_check: true
+
+regulatory:
+  certification_path: CCS_AIP
+  standards:
+    - DNV-ST-0437:2024
+    - DNVGL-OS-C301:2018
+    - DNVGL-RP-0286:2019
+  clause_ids:
+    - tuqiang_target
+    - c301_draft_general
+    - c301_watertight_envelope
+    - st0437_layout_spacing
+    - st0437_column_sizing
+    - rp0286_dt_ratio
+  reviewer_threshold:
+    S_min: 85
+    subscore_min: 60
+
+performance_targets:
+  steel_intensity_t_per_MW: 300.0
+  unit_cost_cny_per_MW: 2500.0
+  pitch_limit_deg: 5.0
+  fatigue_design_life_years: 25.0
+  excitation_bands_hz:
+    one_p: {hz_min: 0.08, hz_max: 0.12}
+    three_p: {hz_min: 0.24, hz_max: 0.35}
+
+structural_assumptions:
+  draft_m: 20.0
+  wall_thickness_m: 0.06
+  scale_factor: 1.0
+
+job_descriptor:
+  phase: "I"
+  theta:
+    beso:
+      mass_goal_ratio: 0.15
+      filter_radius: 2.0
+      optimization_base: stiffness
+      save_every: 1
+    oc4_loads:
+      band_scale: 1.22
+      z_fix_band: 800.0
+      cload_mag: -5000000.0
+    sizing:
+      optimizer: SLSQP
+  retry_policy:
+    max_retries: 3
+    on_mesh_fail: refine_mesh
+    on_solver_fail: relax_increment
+
+clause_keyword_map:
+  稳性: [c301_draft_general]
+  水密: [c301_watertight_envelope, c301_watertight_closure]
+  柱间距: [st0437_layout_spacing]
+  柱径: [st0437_column_sizing]
+  疲劳: [rp0286_dt_ratio, rp0286_thickness_floor]
+  钢耗: [tuqiang_target, fleet_benchmark]
+  图强: [tuqiang_target]

@@ -20,6 +20,8 @@ from backend.validation.paths import (
 )
 from backend.validation.pipeline import run_validation
 from backend.validation.rules_engine import load_rules
+from backend.design_requirements.geometry_bridge import apply_checklist_to_geometry
+from backend.design_requirements.paths import load_checklist
 
 router = APIRouter(tags=["validation"])
 
@@ -39,6 +41,7 @@ class ValidationOptions(BaseModel):
     use_llm_rationale: bool = False
     use_surrogate: bool = False
     candidate_label: str = "Candidate"
+    design_checklist_id: str | None = None
 
 
 class ValidationRunRequest(BaseModel):
@@ -66,6 +69,13 @@ def validation_run(body: ValidationRunRequest) -> dict[str, Any]:
             raise HTTPException(status_code=404, detail=f"Geometry JSON not found: {geom_path}")
         geometry = json.loads(geom_path.read_text(encoding="utf-8"))
         src = str(geom_path.relative_to(root)).replace("\\", "/")
+
+    cid = body.options.design_checklist_id
+    if cid:
+        cl = load_checklist(cid)
+        if cl is None:
+            raise HTTPException(status_code=404, detail=f"设计清单不存在: {cid}")
+        geometry = apply_checklist_to_geometry(geometry, cl)
 
     out_dir = validation_runs_root() / uuid.uuid4().hex
     try:

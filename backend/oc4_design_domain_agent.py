@@ -452,15 +452,32 @@ def _run_tool(
             url = runs_file_url(workspace_root, Path(out["mesh_inp"]))
             return True, "体网格已生成 02_mesh_body.inp", {"mesh_inp_url": url, **out}
         if name == "run_loads":
+            meta = read_session_meta(sdir)
+            checklist_id = args.get("design_checklist_id") or meta.get("design_checklist_id")
+            band_scale = args.get("band_scale")
+            z_fix_band = args.get("z_fix_band")
+            cload_mag = args.get("cload_mag")
+            nl = str(args.get("loads_natural_language")).strip() if args.get("loads_natural_language") else None
+            if checklist_id and not nl:
+                from backend.design_requirements.paths import load_checklist
+
+                cl = load_checklist(str(checklist_id))
+                if cl is not None:
+                    oc4 = cl.job_descriptor.theta.oc4_loads
+                    if band_scale is None:
+                        band_scale = oc4.band_scale
+                    if z_fix_band is None:
+                        z_fix_band = oc4.z_fix_band
+                    if cload_mag is None:
+                        cload_mag = oc4.cload_mag
             out = run_loads(
                 sdir,
-                band_scale=float(args.get("band_scale", 1.22)),
-                z_fix_band=float(args.get("z_fix_band", 800.0)),
-                cload_mag=float(args.get("cload_mag", -5.0e6)),
+                band_scale=float(band_scale if band_scale is not None else 1.22),
+                z_fix_band=float(z_fix_band if z_fix_band is not None else 800.0),
+                cload_mag=float(cload_mag if cload_mag is not None else -5.0e6),
                 load_case=args.get("load_case") if isinstance(args.get("load_case"), dict) else None,
-                loads_natural_language=(
-                    str(args.get("loads_natural_language")).strip() if args.get("loads_natural_language") else None
-                ),
+                loads_natural_language=nl,
+                design_checklist_id=str(checklist_id) if checklist_id else None,
             )
             url = runs_file_url(workspace_root, Path(out["final_inp"]))
             return True, "载荷划分完成 03_for_beso.inp", {"final_inp_url": url, **{k: v for k, v in out.items() if k != "stats"}}

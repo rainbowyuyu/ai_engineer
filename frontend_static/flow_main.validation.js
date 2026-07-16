@@ -982,6 +982,13 @@
             use_llm_rationale: $("#useLlm")?.checked || false,
             use_surrogate: $("#useSurrogate")?.checked || false,
             candidate_label: "本方案",
+            design_checklist_id: (() => {
+              try {
+                return localStorage.getItem("beso.design_checklist_id") || null;
+              } catch (_) {
+                return null;
+              }
+            })(),
           },
         }),
       });

@@ -3930,9 +3930,219 @@ textarea{ height: 120px; resize: vertical; }
   font-size: 12.5px;
 }
 #landingMain .bubbleText--md .mdTable tbody tr:nth-child(even) td{
-  background: rgba(255,255,255,.72);
+  background: rgba(248,250,252,.55);
 }
+
+/* Phase I design checklist card in chat */
+#landingMain .landingTurn--checklist .bubble.agent{
+  max-width: min(720px, 96%);
+  padding: 0;
+  overflow: hidden;
+  background: linear-gradient(165deg, rgba(255,255,255,.98), rgba(248,250,252,.96));
+  border: 1px solid rgba(37,99,235,.18);
+  box-shadow: 0 12px 36px rgba(15,23,42,.08);
+}
+#landingMain .bubbleText--checklist{
+  padding: 0 !important;
+}
+#landingMain .dcCard{
+  font-size: 13px;
+  line-height: 1.45;
+  color: #0f172a;
+}
+#landingMain .dcCardHd{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid rgba(15,23,42,.08);
+  background:
+    radial-gradient(420px 120px at 0% 0%, rgba(37,99,235,.12), transparent 70%),
+    radial-gradient(360px 100px at 100% 0%, rgba(16,185,129,.1), transparent 65%);
+}
+#landingMain .dcCardTitle{
+  font-size: 15px;
+  font-weight: 750;
+  letter-spacing: -.02em;
+}
+#landingMain .dcCardChips{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+#landingMain .dcChip{
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(15,23,42,.1);
+  background: rgba(255,255,255,.9);
+  color: #475569;
+}
+#landingMain .dcChip--ok{
+  color: #047857;
+  border-color: rgba(16,185,129,.35);
+  background: rgba(16,185,129,.1);
+}
+#landingMain .dcChip--warn{
+  color: #b45309;
+  border-color: rgba(245,158,11,.4);
+  background: rgba(245,158,11,.12);
+}
+#landingMain .dcChip--id{
+  font-family: var(--mono);
+  color: #334155;
+}
+#landingMain .dcBanner{
+  margin: 10px 16px 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+#landingMain .dcBanner--warn{
+  background: rgba(245,158,11,.1);
+  border: 1px solid rgba(245,158,11,.35);
+  color: #92400e;
+}
+#landingMain .dcGrid{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+  padding: 12px 16px;
+}
+#landingMain .dcSec{
+  border: 1px solid rgba(15,23,42,.08);
+  border-radius: 12px;
+  padding: 10px 11px;
+  background: rgba(255,255,255,.88);
+}
+#landingMain .dcSecTitle{
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e40af;
+  margin-bottom: 6px;
+}
+#landingMain .dcKv{
+  margin: 0;
+}
+#landingMain .dcKvRow{
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 6px;
+  padding: 3px 0;
+  border-bottom: 1px dashed rgba(15,23,42,.06);
+}
+#landingMain .dcKvRow:last-child{
+  border-bottom: none;
+}
+#landingMain .dcKvRow dt{
+  margin: 0;
+  color: #64748b;
+  font-size: 11.5px;
+}
+#landingMain .dcKvRow dd{
+  margin: 0;
+  color: #0f172a;
+  font-size: 12.5px;
+  word-break: break-word;
+}
+#landingMain .dcClarify{
+  margin: 0 16px 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(245,158,11,.35);
+  background: linear-gradient(180deg, rgba(255,251,235,.95), rgba(255,247,237,.9));
+}
+#landingMain .dcClarifyTitle{
+  font-weight: 750;
+  font-size: 13px;
+  color: #92400e;
+  margin-bottom: 4px;
+}
+#landingMain .dcClarifyHint{
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #a16207;
+  line-height: 1.5;
+}
+#landingMain .dcClarifyList{
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: 12.5px;
+}
+#landingMain .dcClarifyList li{
+  margin: 6px 0;
+}
+#landingMain .dcClarifyDef{
+  display: block;
+  margin-top: 2px;
+  color: #78716c;
+  font-size: 11.5px;
+}
+#landingMain .dcAssumptions{
+  margin: 0 16px 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(241,245,249,.9);
+  border: 1px solid rgba(15,23,42,.08);
+}
+#landingMain .dcAssumptions ul{
+  margin: 6px 0 0;
+  padding-left: 1.2em;
+  font-size: 12px;
+  color: #475569;
+}
+#landingMain .dcCardFt{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px 14px;
+  border-top: 1px solid rgba(15,23,42,.08);
+  background: rgba(248,250,252,.7);
+}
+#landingMain .dcStatus{
+  font-size: 12px;
+  flex: 1 1 220px;
+}
+#landingMain .dcStatus--ok{
+  color: #047857;
+}
+#landingMain .dcStatus--pending{
+  color: #b45309;
+}
+#landingMain .dcDlBtn{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 650;
+  text-decoration: none;
+  color: #fff;
+  background: linear-gradient(120deg, #2563eb, #1d4ed8);
+  border: 1px solid transparent;
+  box-shadow: 0 6px 16px rgba(37,99,235,.28);
+  cursor: pointer;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+#landingMain .dcDlBtn:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(37,99,235,.35);
+  color: #fff;
+}
+#landingMain .dcDlBtn:active{
+  transform: translateY(0);
+}
+
 #landingMain .landingTurn--streaming .landingStreamBody{
+  background: rgba(255,255,255,.72);
   opacity: 0.96;
   contain: content;
   content-visibility: auto;

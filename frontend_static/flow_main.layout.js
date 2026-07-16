@@ -90,7 +90,8 @@ export function createLayoutManager(deps) {
     const inline = (text) =>
       escapeHtml(text)
         .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-        .replace(/`([^`]+)`/g, "<code>$1</code>");
+        .replace(/`([^`]+)`/g, "<code>$1</code>")
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
     const bulletItem = (line) => line.startsWith("- ") || line.startsWith("* ");
     const bulletBody = (line) => (line.startsWith("- ") ? line.slice(2) : line.slice(2));
     const orderedMatch = (line) => line.match(/^(\d+)\.\s(.*)$/);
@@ -427,7 +428,7 @@ export function createLayoutManager(deps) {
   /**
    * @param {"user"|"agent"} role
    * @param {string} text
-   * @param {{ format?: "plain"|"md"; withToolbar?: boolean; debut?: boolean }} [opts]
+   * @param {{ format?: "plain"|"md"|"checklist"; withToolbar?: boolean; debut?: boolean; checklistHtml?: string }} [opts]
    */
   function addLandingBubble(role, text, opts = {}) {
     if (!refs.chatLanding) return;
@@ -440,9 +441,12 @@ export function createLayoutManager(deps) {
     const bubble = document.createElement("div");
     bubble.className = `bubble ${role}`;
     const inner = document.createElement("div");
+    const useChecklist = role === "agent" && opts.format === "checklist" && opts.checklistHtml;
     const useMd = role === "agent" && opts.format === "md";
-    inner.className = useMd ? "bubbleText bubbleText--md" : "bubbleText";
-    if (useMd) {
+    inner.className = useChecklist ? "bubbleText bubbleText--checklist" : useMd ? "bubbleText bubbleText--md" : "bubbleText";
+    if (useChecklist) {
+      inner.innerHTML = String(opts.checklistHtml || "");
+    } else if (useMd) {
       inner.innerHTML = renderMd(raw);
     } else {
       inner.textContent = raw;
@@ -859,10 +863,29 @@ export function createLayoutManager(deps) {
     } catch {}
   }
 
+  function addLandingChecklistCard(payload, opts = {}) {
+    if (!refs.chatLanding) return;
+    wireLandingBubbleActionsOnce();
+    const wrap = document.createElement("div");
+    wrap.className = "landingTurn landingTurn--agent landingTurn--checklist";
+    wrap.dataset.rawText = String(opts.plainSummary || "Phase I 设计清单");
+    if (payload.checklistId) wrap.dataset.checklistId = payload.checklistId;
+    const bubble = document.createElement("div");
+    bubble.className = "bubble agent";
+    const inner = document.createElement("div");
+    inner.className = "bubbleText bubbleText--checklist";
+    inner.innerHTML = String(payload.html || "");
+    bubble.appendChild(inner);
+    wrap.appendChild(bubble);
+    refs.chatLanding.appendChild(wrap);
+    refs.chatLanding.scrollTop = refs.chatLanding.scrollHeight;
+  }
+
   return {
     setStep,
     addBubble,
     addLandingBubble,
+    addLandingChecklistCard,
     addLandingThinking,
     removeLandingThinking,
     addLandingTyping,
