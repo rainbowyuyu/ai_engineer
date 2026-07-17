@@ -1,0 +1,35 @@
+# Failure-driven replanning thresholds τ (AI designer-r2 Table S.1)
+
+mesh:
+  quality_min_threshold: 0.30
+  quality_min_relaxed: 0.20
+  error_code_inverted: -5
+  default_element_size_m: 2.5
+  refined_element_size_m: 1.8
+  local_refinement_factor: 1.4
+
+solver:
+  residual_tol: 1.0e-6
+  residual_plateau: 1.2e-3
+  plateau_iters: 15
+  default_max_iterations: 100
+  increased_max_iterations: 300
+  default_load_increment: 0.05
+  relaxed_load_increment: 0.02
+  restart_increment: 30
+
+zwind:
+  pitch_limit_deg: 18.0
+  pitch_abort_example_deg: 25.3
+  pitch_success_example_deg: 16.8
+  default_dt_s: 0.0125
+  refined_dt_s: 0.005
+  extreme_wave_t_start_s: 150.0
+  extreme_wave_t_end_s: 250.0
+  mooring_stiffness_scale: 1.05
+
+retry:
+  max_retries: 3
+  on_mesh_fail: refine_mesh
+  on_solver_fail: relax_increment
+  on_zwind_fail: reduce_timestep

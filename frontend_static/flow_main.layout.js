@@ -864,7 +864,7 @@ export function createLayoutManager(deps) {
   }
 
   function addLandingChecklistCard(payload, opts = {}) {
-    if (!refs.chatLanding) return;
+    if (!refs.chatLanding) return null;
     wireLandingBubbleActionsOnce();
     const wrap = document.createElement("div");
     wrap.className = "landingTurn landingTurn--agent landingTurn--checklist";
@@ -879,6 +879,29 @@ export function createLayoutManager(deps) {
     wrap.appendChild(bubble);
     refs.chatLanding.appendChild(wrap);
     refs.chatLanding.scrollTop = refs.chatLanding.scrollHeight;
+    return wrap;
+  }
+
+  /** Soft guided replan journey card; returns wrap for playReplanJourney */
+  function addLandingReplanJourney(payload, opts = {}) {
+    if (!refs.chatLanding) return null;
+    wireLandingBubbleActionsOnce();
+    const wrap = document.createElement("div");
+    wrap.className = "landingTurn landingTurn--agent landingTurn--replanJourney rpJourneyHost";
+    wrap.dataset.rawText = String(opts.plainSummary || "失败驱动重规划");
+    if (payload.caseId || payload.journeyData?.case_id) {
+      wrap.dataset.caseId = String(payload.caseId || payload.journeyData.case_id);
+    }
+    const bubble = document.createElement("div");
+    bubble.className = "bubble agent";
+    const inner = document.createElement("div");
+    inner.className = "bubbleText bubbleText--replanJourney";
+    inner.innerHTML = String(payload.html || "");
+    bubble.appendChild(inner);
+    wrap.appendChild(bubble);
+    refs.chatLanding.appendChild(wrap);
+    refs.chatLanding.scrollTop = refs.chatLanding.scrollHeight;
+    return wrap;
   }
 
   return {
@@ -886,6 +909,7 @@ export function createLayoutManager(deps) {
     addBubble,
     addLandingBubble,
     addLandingChecklistCard,
+    addLandingReplanJourney,
     addLandingThinking,
     removeLandingThinking,
     addLandingTyping,

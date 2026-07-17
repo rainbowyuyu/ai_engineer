@@ -58,6 +58,7 @@ from backend.oc4_design_domain_service import session_dir as oc4_design_domain_s
 from backend.routes.oc4_design_domain_api import router as oc4_design_domain_router
 from backend.routes.validation_api import router as validation_router
 from backend.routes.design_requirements_api import router as design_requirements_router
+from backend.routes.replan_api import router as replan_router
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +135,7 @@ app = FastAPI(title="AI Engineer Web")
 app.include_router(oc4_design_domain_router, prefix="/api/oc4/design-domain")
 app.include_router(validation_router, prefix="/api/validation")
 app.include_router(design_requirements_router, prefix="/api/design-requirements")
+app.include_router(replan_router, prefix="/api/replan")
 
 app.add_middleware(
     CORSMiddleware,

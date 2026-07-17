@@ -18,13 +18,20 @@ import {
   clarifyDesignChecklist,
   clearChecklistPendingState,
   detectDesignChecklistIntent,
+  detectReplanDemoIntent,
   getActiveDesignChecklistId,
   getChecklistPendingState,
   isChecklistClarificationReply,
   parseDesignChecklistFromChat,
+  runReplanCaseDemo,
   setActiveDesignChecklistId,
   setChecklistPendingState,
 } from "./flow_main.design_brief.js";
+import {
+  normalizeReplanJourneyData,
+  playReplanJourney,
+  replanDataToJourneyPayload,
+} from "./flow_main.replan_journey.js";
 
 const $ = (id) => document.getElementById(id);
 const refs = {
@@ -279,6 +286,8 @@ const state = {
   oc4LastSuggestedLoads: null,
   oc4PendingMesh: null,
   oc4LastSuggestedMesh: null,
+  /** 最近一次失败驱动重规划建议 θ */
+  lastReplanSuggestion: null,
   oc4PendingExport: null,
   oc4LastSuggestedExport: null,
   /** 设计域 build：由 AI「应用」或默认初始化，不再使用底部手动勾选 */
@@ -887,18 +896,161 @@ function createOffDomLandingStreamCtrl() {
 /** 助手回合写入：若正查看该任务则更新 DOM + 内存，否则仅写入后台任务存储 */
 function commitAgentTurnForTask(taskId, msg) {
   const tid = String(taskId || "").trim();
-  if (!tid || !msg) return;
+  if (!tid || !msg) return { done: Promise.resolve() };
   if (String(state.currentTaskId || "").trim() === tid) {
-    if (msg.format === "checklist" && msg.checklist_payload?.html) {
+    let done = Promise.resolve();
+    if (msg.format === "checklist" && msg.checklist_payload?.isJourney && msg.checklist_payload?.html) {
+      const wrap = layout.addLandingReplanJourney(msg.checklist_payload, { plainSummary: msg.content });
+      if (wrap && msg.checklist_payload.journeyData) {
+        done = playReplanJourney(wrap, msg.checklist_payload.journeyData, {
+          baseUrl: normalizedBaseUrl(),
+          instant: Boolean(msg.journey_complete),
+          onResume: (resume, data) => handleReplanResume(resume, data),
+        }).done;
+      }
+    } else if (msg.format === "checklist" && msg.checklist_payload?.html) {
       layout.addLandingChecklistCard(msg.checklist_payload, { plainSummary: msg.content });
     } else {
       const fmt = msg.format === "md" ? "md" : "plain";
       layout.addLandingBubble("agent", String(msg.content || ""), { format: fmt });
     }
     state.assistantThread.push(msg);
-    return;
+    return { done };
   }
   mergeAssistantMsgIntoBackgroundTask(tid, msg);
+  return { done: Promise.resolve() };
+}
+
+function persistReplanSuggestion(data) {
+  const theta = data?.theta_after || data?.result?.theta_after || null;
+  if (!theta || typeof theta !== "object") return;
+  state.lastReplanSuggestion = { theta, at: Date.now(), case_id: data.case_id || null };
+  try {
+    localStorage.setItem("beso.replan_theta", JSON.stringify(state.lastReplanSuggestion));
+  } catch {
+    /* ignore */
+  }
+}
+
+function handleReplanResume(resume, data) {
+  const target = String(resume?.target || "home");
+  persistReplanSuggestion(data);
+  if (target === "mesh") {
+    const cl = Number(
+      data?.theta_after?.characteristic_length_max || data?.result?.theta_after?.characteristic_length_max,
+    );
+    if (Number.isFinite(cl) && cl > 0) {
+      state.oc4PendingMesh = { ...(state.oc4PendingMesh || {}), characteristic_length_max: cl };
+    }
+    if (isOc4IgesFilename(state.currentFileName)) {
+      void openDesignDomainFromLanding({
+        softResume: true,
+        resumeHint: "重规划已就绪：可按更新后的特征尺寸继续体网格。",
+      });
+    } else {
+      layout.addLandingBubble(
+        "agent",
+        "网格恢复路径已就绪。上传 IGES 并进入设计域后，体网格失败时将自动「检测 → 思考 → 重规划 → 重试」。",
+        { format: "plain" },
+      );
+    }
+    return;
+  }
+  if (target === "beso") {
+    const theta = data?.theta_after || data?.result?.theta_after || {};
+    const mg = Number(theta.mass_goal_ratio);
+    const fr = Number(theta.filter_radius);
+    if (Number.isFinite(mg) && mg > 0 && mg < 1 && refs.massGoal) refs.massGoal.value = String(mg);
+    if (Number.isFinite(fr) && fr > 0 && refs.filterR) refs.filterR.value = String(fr);
+    layout.showStage("orchestrate");
+    const note = `已应用重规划建议（max_iter=${theta.max_iterations ?? "—"}，load_increment=${theta.load_increment ?? "—"}，restart=${theta.restart_increment ?? "—"}）。可在编排页重新启动作业。`;
+    try {
+      layout.addBubble?.("agent", note);
+    } catch {
+      layout.addLandingBubble("agent", note, { format: "plain" });
+    }
+    return;
+  }
+  if (target === "zwind") {
+    layout.addLandingBubble("agent", "时域校核参数已更新。真实 Zwind 子进程就绪后可直接重跑该阶段。", {
+      format: "plain",
+    });
+    return;
+  }
+  try {
+    layout.goHome?.();
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Present guided replan journey in landing (and optionally design-domain host).
+ * @param {object} raw
+ * @param {{ animate?: boolean, persist?: boolean, host?: "landing"|"design_domain" }} [opts]
+ * @returns {{ data: object, done: Promise<void> } | null}
+ */
+function presentReplanJourney(raw, opts = {}) {
+  const data = normalizeReplanJourneyData(raw);
+  if (!data) return null;
+  persistReplanSuggestion(data);
+  const card = replanDataToJourneyPayload(data);
+  const animate = opts.animate !== false;
+  const host = opts.host || "landing";
+  const tid = String(state.currentTaskId || "").trim();
+  /** @type {Promise<void>} */
+  let done = Promise.resolve();
+
+  if (host === "design_domain" && refs.ddAgentRunLog) {
+    const row = document.createElement("div");
+    row.className = "ddAgentLine ddAgentLine--replan rpJourneyHost ddAgentReplanHost";
+    row.innerHTML = card.html;
+    refs.ddAgentRunLog.appendChild(row);
+    done = playReplanJourney(row, data, {
+      baseUrl: normalizedBaseUrl(),
+      instant: !animate,
+      onResume: (resume, d) => handleReplanResume(resume, d),
+    }).done;
+  }
+
+  if (opts.persist !== false && tid) {
+    const msg = {
+      role: "assistant",
+      content: card.plainSummary,
+      format: "checklist",
+      checklist_payload: card,
+      kind: "replan_journey",
+      journey_complete: !animate,
+      case_id: data.case_id || null,
+    };
+    if (host === "landing" || String(state.currentTaskId || "").trim() === tid) {
+      if (host === "landing") {
+        done = commitAgentTurnForTask(tid, msg).done;
+      } else {
+        // design-domain already animated locally; persist for thread history as completed
+        const hist = { ...msg, journey_complete: true };
+        if (String(state.currentTaskId || "").trim() === tid) {
+          state.assistantThread.push(hist);
+        } else {
+          mergeAssistantMsgIntoBackgroundTask(tid, hist);
+        }
+        persistLandingAssistantThread(tid);
+      }
+    } else {
+      mergeAssistantMsgIntoBackgroundTask(tid, { ...msg, journey_complete: true });
+    }
+    persistLandingAssistantThread(tid);
+  } else if (host === "landing") {
+    const wrap = layout.addLandingReplanJourney(card, { plainSummary: card.plainSummary });
+    if (wrap) {
+      done = playReplanJourney(wrap, data, {
+        baseUrl: normalizedBaseUrl(),
+        instant: !animate,
+        onResume: (resume, d) => handleReplanResume(resume, d),
+      }).done;
+    }
+  }
+  return { data, done };
 }
 
 function commitChecklistTurnForTask(taskId, data, baseUrl) {
@@ -1563,7 +1715,16 @@ function renderLandingChatFromThread() {
       userTurnIdx += 1;
     }
     else if (m.role === "assistant") {
-      if (m.format === "checklist" && m.checklist_payload?.html) {
+      if (m.format === "checklist" && m.checklist_payload?.isJourney && m.checklist_payload?.html) {
+        const wrap = layout.addLandingReplanJourney(m.checklist_payload, { plainSummary: m.content });
+        if (wrap && m.checklist_payload.journeyData) {
+          playReplanJourney(wrap, m.checklist_payload.journeyData, {
+            baseUrl: normalizedBaseUrl(),
+            instant: true,
+            onResume: (resume, data) => handleReplanResume(resume, data),
+          });
+        }
+      } else if (m.format === "checklist" && m.checklist_payload?.html) {
         layout.addLandingChecklistCard(m.checklist_payload, { plainSummary: m.content });
       } else {
         const fmt =
@@ -2630,6 +2791,35 @@ async function sendLandingAssistantChat() {
   refs.msgLanding.value = "";
   persistMyTaskIfViewing();
 
+  const replanCase = detectReplanDemoIntent(text);
+  if (replanCase) {
+    const thinkingEl = layout.addLandingThinking();
+    try {
+      const cases = replanCase === "all" ? ["case1", "case2", "case3"] : [replanCase];
+      thinkingEl?.remove();
+      for (let i = 0; i < cases.length; i++) {
+        const cid = cases[i];
+        if (i > 0) await new Promise((r) => setTimeout(r, 500));
+        const data = await runReplanCaseDemo(cid, normalizedBaseUrl());
+        const presented = presentReplanJourney(data, { animate: true, persist: true, host: "landing" });
+        if (presented?.done) await presented.done;
+      }
+      persistLandingAssistantThread(myTaskId);
+    } catch (e) {
+      thinkingEl?.remove();
+      commitAgentTurnForTask(myTaskId, {
+        role: "assistant",
+        content: `重规划演示失败：${e?.message || e}`,
+        format: "plain",
+      });
+      persistLandingAssistantThread(myTaskId);
+    } finally {
+      state.landingAssistantPending = false;
+      syncLandingSendButtonState();
+    }
+    return;
+  }
+
   const pendingCl = state.designChecklistPending || getChecklistPendingState();
   if (isChecklistClarificationReply(text, pendingCl)) {
     const thinkingEl = layout.addLandingThinking();
@@ -3167,6 +3357,13 @@ function ensureDesignDomainIde() {
       onRefreshTree: () => {
         void syncDesignDomainSessionProgress().catch(() => {});
         refreshDesignDomainIdeFiles();
+      },
+      onReplanGuided: (guided) => {
+        presentReplanJourney(guided, {
+          animate: true,
+          persist: true,
+          host: "design_domain",
+        });
       },
       appendFlowLog: (role, text) => appendDesignDomainChat(role, text),
     });
@@ -5542,6 +5739,24 @@ function connectWs() {
         viewer.upsertImage(msg.name, msg.url);
       }
       if (msg.kind === "code" || msg.kind === "manifest") enqueueCodeStream(msg.name, msg.url, (msg.meta && msg.meta.group) || msg.kind);
+    }
+    if (msg.type === "replan") {
+      const onLanding = !refs.landingMain?.classList.contains("hidden");
+      presentReplanJourney(msg, {
+        animate: onLanding,
+        persist: true,
+        host: "landing",
+      });
+      if (!onLanding) {
+        try {
+          layout.addBubble?.(
+            "agent",
+            "检测到求解失败并已生成重规划建议：返回主页对话可查看逐步恢复时间线，并一键用建议参数继续。",
+          );
+        } catch {
+          /* ignore */
+        }
+      }
     }
     refreshLogSummaryViews();
   };

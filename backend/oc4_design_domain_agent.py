@@ -131,6 +131,8 @@ def _tool_result_payload(name: str, ok: bool, targs: dict[str, Any], summary: st
         ws = extra.get("written_snippet")
         if isinstance(ws, str) and ws.strip():
             tr["written_snippet"] = ws[:8000]
+    if ok and name == "run_mesh" and isinstance(extra.get("replan_guided"), dict):
+        tr["replan_guided"] = extra["replan_guided"]
     return tr
 
 

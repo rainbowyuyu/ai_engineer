@@ -4141,6 +4141,206 @@ textarea{ height: 120px; resize: vertical; }
   transform: translateY(0);
 }
 
+/* Guided replan journey — soft step timeline (landing + design-domain host) */
+#landingMain .landingTurn--replanJourney .bubble.agent,
+.rpJourneyHost.ddAgentReplanHost{
+  max-width: min(680px, 96%);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(37,99,235,.14);
+  background: linear-gradient(165deg, rgba(255,255,255,.99), rgba(248,250,252,.96));
+  box-shadow: 0 16px 40px rgba(15,23,42,.07);
+  border-radius: 14px;
+}
+#landingMain .bubbleText--replanJourney{ padding: 0 !important; }
+.rpJourneyHost .rpJourney,
+#landingMain .rpJourney{ font-size: 13px; color: #0f172a; }
+.rpJourneyHost .rpJourneyHd,
+#landingMain .rpJourneyHd{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding: 14px 16px 10px;
+  background:
+    radial-gradient(400px 100px at 0% 0%, rgba(245,158,11,.12), transparent 70%),
+    radial-gradient(360px 90px at 100% 0%, rgba(37,99,235,.1), transparent 65%);
+  border-bottom: 1px solid rgba(15,23,42,.06);
+}
+.rpJourneyHost .rpJourneyTitle,
+#landingMain .rpJourneyTitle{ font-size: 15px; font-weight: 750; letter-spacing: -.02em; }
+.rpJourneyHost .rpJourneyPulse,
+#landingMain .rpJourneyPulse{ display:flex; gap:5px; align-items:center; }
+.rpJourneyHost .rpJourneyPulse i,
+#landingMain .rpJourneyPulse i{
+  width:6px; height:6px; border-radius:50%; background:#2563eb; opacity:.35;
+  animation: rpPulse 1.2s ease-in-out infinite;
+}
+.rpJourneyHost .rpJourneyPulse i:nth-child(2),
+#landingMain .rpJourneyPulse i:nth-child(2){ animation-delay:.15s; }
+.rpJourneyHost .rpJourneyPulse i:nth-child(3),
+#landingMain .rpJourneyPulse i:nth-child(3){ animation-delay:.3s; }
+@keyframes rpPulse{
+  0%,100%{ transform:scale(.85); opacity:.3; }
+  50%{ transform:scale(1.15); opacity:1; }
+}
+.rpJourneyHost .rpTimeline,
+#landingMain .rpTimeline{ list-style:none; margin:0; padding: 12px 16px 8px; }
+.rpJourneyHost .rpStep,
+#landingMain .rpStep{
+  display:grid; grid-template-columns: 22px 1fr; gap:10px;
+  opacity: 0; transform: translateY(10px);
+  transition: opacity .5s ease, transform .5s ease;
+}
+.rpJourneyHost .rpStep + .rpStep,
+#landingMain .rpStep + .rpStep{ margin-top: 4px; }
+.rpJourneyHost .rpStep--active,
+.rpJourneyHost .rpStep--done,
+#landingMain .rpStep--active,
+#landingMain .rpStep--done{
+  opacity: 1; transform: translateY(0);
+}
+.rpJourneyHost .rpStepRail,
+#landingMain .rpStepRail{ position:relative; display:flex; flex-direction:column; align-items:center; }
+.rpJourneyHost .rpStepDot,
+#landingMain .rpStepDot{
+  width:12px; height:12px; border-radius:50%;
+  border: 2px solid rgba(148,163,184,.8); background:#fff;
+  transition: background .35s ease, border-color .35s ease, box-shadow .35s ease;
+  z-index:1;
+}
+.rpJourneyHost .rpStep--active .rpStepDot,
+#landingMain .rpStep--active .rpStepDot{
+  border-color:#2563eb; background:#2563eb;
+  box-shadow: 0 0 0 4px rgba(37,99,235,.18);
+}
+.rpJourneyHost .rpStep--done .rpStepDot,
+#landingMain .rpStep--done .rpStepDot{
+  border-color:#10b981; background:#10b981;
+}
+.rpJourneyHost .rpStepLine,
+#landingMain .rpStepLine{
+  flex:1; width:2px; min-height: 28px; margin: 4px 0 0;
+  background: linear-gradient(180deg, rgba(148,163,184,.5), rgba(148,163,184,.15));
+}
+.rpJourneyHost .rpStep--done .rpStepLine,
+#landingMain .rpStep--done .rpStepLine{
+  background: linear-gradient(180deg, rgba(16,185,129,.55), rgba(16,185,129,.12));
+}
+.rpJourneyHost .rpStepCard,
+#landingMain .rpStepCard{
+  border: 1px solid rgba(15,23,42,.07);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,.92);
+  margin-bottom: 8px;
+}
+.rpJourneyHost .rpStep--active .rpStepCard,
+#landingMain .rpStep--active .rpStepCard{
+  border-color: rgba(37,99,235,.28);
+  box-shadow: 0 8px 22px rgba(37,99,235,.08);
+}
+.rpJourneyHost .rpStep--warn .rpStepCard,
+#landingMain .rpStep--warn .rpStepCard{ background: linear-gradient(180deg, rgba(255,251,235,.95), #fff); }
+.rpJourneyHost .rpStep--think .rpStepCard,
+#landingMain .rpStep--think .rpStepCard{ background: linear-gradient(180deg, rgba(239,246,255,.95), #fff); }
+.rpJourneyHost .rpStep--ok .rpStepCard,
+#landingMain .rpStep--ok .rpStepCard{ background: linear-gradient(180deg, rgba(236,253,245,.95), #fff); }
+.rpJourneyHost .rpStepMeta,
+#landingMain .rpStepMeta{ display:flex; gap:8px; align-items:center; margin-bottom:4px; }
+.rpJourneyHost .rpStepIdx,
+#landingMain .rpStepIdx{
+  font-size:10px; font-weight:700; color:#64748b;
+  padding:2px 7px; border-radius:999px; background:rgba(148,163,184,.15);
+}
+.rpJourneyHost .rpStepSub,
+#landingMain .rpStepSub{ font-size:11px; color:#94a3b8; }
+.rpJourneyHost .rpStepTitle,
+#landingMain .rpStepTitle{ font-weight:700; font-size:13.5px; margin-bottom:4px; }
+.rpJourneyHost .rpStepBody,
+#landingMain .rpStepBody{ font-size:12.5px; line-height:1.55; color:#334155; }
+.rpJourneyHost .rpMetrics,
+#landingMain .rpMetrics{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.rpJourneyHost .rpMetric,
+#landingMain .rpMetric{
+  font-size:11px; padding:3px 8px; border-radius:8px;
+  background:rgba(15,23,42,.04); border:1px solid rgba(15,23,42,.06); color:#475569;
+}
+.rpJourneyHost .rpMetric em,
+#landingMain .rpMetric em{ font-style:normal; color:#94a3b8; margin-right:4px; }
+.rpJourneyHost .rpTheta,
+#landingMain .rpTheta{ margin:8px 0 0; padding-left:1.1em; font-size:12px; color:#1e293b; }
+.rpJourneyHost .rpJourneyFt,
+#landingMain .rpJourneyFt{
+  display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px;
+  padding: 12px 16px 14px; border-top:1px solid rgba(15,23,42,.06);
+  background: rgba(248,250,252,.75);
+  animation: rpFtIn .4s ease;
+}
+@keyframes rpFtIn{ from{ opacity:0; transform:translateY(6px);} to{ opacity:1; transform:none;} }
+.rpJourneyHost .rpJourneyHint,
+#landingMain .rpJourneyHint{ margin:0; flex:1 1 200px; font-size:12px; color:#64748b; }
+.rpJourneyHost .rpJourneyActions,
+#landingMain .rpJourneyActions{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.rpJourneyHost .rpCta,
+#landingMain .rpCta{
+  border:none; cursor:pointer; border-radius:999px; padding:8px 16px;
+  font-size:12.5px; font-weight:650; color:#fff;
+  background: linear-gradient(120deg, #059669, #047857);
+  box-shadow: 0 6px 16px rgba(4,120,87,.25);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.rpJourneyHost .rpCta:hover,
+#landingMain .rpCta:hover{ transform:translateY(-1px); box-shadow: 0 8px 20px rgba(4,120,87,.32); }
+.rpJourneyHost .rpLink,
+#landingMain .rpLink{
+  font-size:12px; color:#2563eb; text-decoration:none; padding:6px 10px;
+  border-radius:999px; border:1px solid rgba(37,99,235,.25); background:#fff;
+}
+.rpJourneyHost .rpLink:hover,
+#landingMain .rpLink:hover{ background:rgba(37,99,235,.06); }
+.rpJourneyHost .rpJourney--complete .rpJourneyHd,
+#landingMain .rpJourney--complete .rpJourneyHd{
+  background:
+    radial-gradient(400px 100px at 0% 0%, rgba(16,185,129,.14), transparent 70%),
+    radial-gradient(360px 90px at 100% 0%, rgba(37,99,235,.08), transparent 65%);
+}
+
+/* In-card typewriter */
+.rpJourneyHost .rpStreamCaret,
+#landingMain .rpStreamCaret{
+  position: relative;
+}
+.rpJourneyHost .rpStreamCaret::after,
+#landingMain .rpStreamCaret::after{
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 0.95em;
+  margin-left: 2px;
+  vertical-align: -0.1em;
+  background: #2563eb;
+  border-radius: 1px;
+  animation: rpCaretBlink 0.85s step-end infinite;
+}
+@keyframes rpCaretBlink{
+  0%,100%{ opacity: 1; }
+  50%{ opacity: 0; }
+}
+.rpJourneyHost .rpMetric--in,
+#landingMain .rpMetric--in{
+  animation: rpMetricIn .35s ease;
+}
+.rpJourneyHost .rpThetaItem--in,
+#landingMain .rpThetaItem--in{
+  animation: rpMetricIn .35s ease;
+}
+@keyframes rpMetricIn{
+  from{ opacity: 0; transform: translateY(4px); }
+  to{ opacity: 1; transform: none; }
+}
+.rpJourneyHost .rpStep--active .rpStepCard,
+#landingMain .rpStep--active .rpStepCard{
+  transition: border-color .35s ease, box-shadow .35s ease, background .35s ease;
+}
+
 #landingMain .landingTurn--streaming .landingStreamBody{
   background: rgba(255,255,255,.72);
   opacity: 0.96;

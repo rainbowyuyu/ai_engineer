@@ -45,6 +45,7 @@ function scrollAgentStreamToEnd(traceEl) {
  * @param {() => string} opts.normalizedBaseUrl
  * @param {(rel: string) => void} [opts.onOpenFile]
  * @param {() => void} [opts.onRefreshTree]
+ * @param {(guided: object) => void} [opts.onReplanGuided]
  * @param {(role: string, text: string) => void} [opts.appendFlowLog]
  * @param {(role: string, text: string, oc4ChatIdx?: number) => void} [opts.renderDesignDomainChatRow]
  * @param {() => { ts?: number; role: string; text: string }[]} [opts.getChatActivityLog]
@@ -78,6 +79,7 @@ export function mountDesignDomainAgentUi(opts) {
     normalizedBaseUrl,
     onOpenFile,
     onRefreshTree,
+    onReplanGuided,
     appendFlowLog,
     renderDesignDomainChatRow,
     getChatActivityLog,
@@ -1167,6 +1169,13 @@ export function mountDesignDomainAgentUi(opts) {
     }
     if (snip && rpth) appendReadSnippetCard(rpth, snip);
     scrollAgentStreamToEnd(traceEl);
+    if (ev.replan_guided && typeof ev.replan_guided === "object") {
+      try {
+        onReplanGuided?.(ev.replan_guided);
+      } catch {
+        /* ignore */
+      }
+    }
     requestAnimationFrame(() => {
       card.classList.add("ddAgentToolResCard--popDone");
     });

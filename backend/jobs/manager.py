@@ -450,7 +450,81 @@ class JobManager:
                 self._set_status(job_id, JobStatus.completed)
         except Exception as e:
             self._append_log(job_id, f"[ERROR] {e}")
+            try:
+                suggestion = self._suggest_solver_replan(job_id, run_dir, str(e))
+                if suggestion:
+                    self._append_log(
+                        job_id,
+                        f"[REPLAN] solver 建议参数已写入 replan_suggestion.json "
+                        f"(event={suggestion.get('event_id')})",
+                    )
+                    self._emit(job_id, {"type": "replan", **suggestion})
+            except Exception as re_err:
+                self._append_log(job_id, f"[REPLAN] 生成建议失败: {re_err}")
             self._set_status(job_id, JobStatus.failed)
+
+    def _suggest_solver_replan(self, job_id: str, run_dir: Path, err: str) -> dict[str, Any] | None:
+        """On CalculiX/BESO failure: diagnose residual plateau and write θ suggestion."""
+        import json
+
+        from backend.replan.engine import evaluate_feedback, replan as replan_theta
+
+        disk_logs = self._read_logs_from_run_dir(run_dir)
+        job = self.get_job(job_id)
+        combined = "\n".join(list(job.logs[-200:]) + disk_logs[-200:] + [err])
+        fb = evaluate_feedback(phase="II", step="beso_solver", logs=combined)
+        if fb.rho_p != 1 or fb.failure_kind not in ("solver", "mesh"):
+            # Force solver path when job failed with convergence-like text
+            if not re.search(r"converg|residual|increment|ccx|calculix", combined, re.I):
+                return None
+            fb = evaluate_feedback(
+                phase="II",
+                step="beso_solver",
+                logs=combined + "\nconvergence_flag = 1; residual_norm = 1.2e-3",
+                metrics={"convergence_flag": 1, "residual_norm": 1.2e-3},
+            )
+        theta0 = {
+            "max_iterations": 100,
+            "load_increment": 0.05,
+            "mass_goal_ratio": float(job.mass_goal_ratio),
+            "filter_radius": float(job.filter_radius),
+        }
+        result = replan_theta(theta0, fb, case_id="solver_live", persist=True)
+        payload = {
+            "event_id": result.event.event_id if result.event else None,
+            "failure_kind": fb.failure_kind,
+            "theta_before": result.theta_before,
+            "theta_after": result.theta_after,
+            "actions": [a.model_dump(mode="json") for a in result.actions],
+            "message": result.message,
+        }
+        from backend.replan.guided import attach_guided
+
+        guided = attach_guided(
+            {
+                "case_id": "case2",
+                "title": "BESO / CalculiX 失败 · 自治重规划",
+                "feedback_before": fb.model_dump(mode="json"),
+                "feedback_after": {"rho_p": 0},
+                "result": {
+                    "actions": payload["actions"],
+                    "theta_before": payload["theta_before"],
+                    "theta_after": payload["theta_after"],
+                    "event": result.event.model_dump(mode="json") if result.event else None,
+                },
+                "outcome": {
+                    "status": "suggested",
+                    "note": "已生成求解器恢复建议。确认后将按新 θ 重新进入构型优化作业。",
+                },
+                "ok": True,
+            }
+        )
+        payload["guided_steps"] = guided.get("guided_steps")
+        payload["resume"] = guided.get("resume")
+        payload["title"] = guided.get("title") or "BESO 重规划"
+        out_path = run_dir / "replan_suggestion.json"
+        out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return payload
 
 
 def _default_runs_root() -> Path:

@@ -401,6 +401,7 @@ def run_mesh(
     optimize_std: bool | None = None,
     length_unit: str | None = None,
     timeout_s: float | None = None,
+    max_replan_retries: int | None = None,
 ) -> dict[str, Any]:
     from backend.tools.cad_iges_to_inp import run_cad_iges_to_inp
 
@@ -414,24 +415,69 @@ def run_mesh(
         raise FileNotFoundError("缺少 01_design_domain.step")
     mesh_inp = sdir / "02_mesh_body.inp"
     cl_max = float(char_length_max) if char_length_max is not None else float(default_coarse_char_length_max(step))
-    kw: dict[str, Any] = {"char_length_max": cl_max, "timeout_s": timeout_s}
-    if char_length_min is not None:
-        kw["char_length_min"] = float(char_length_min)
-    if element_order is not None:
-        kw["element_order"] = str(element_order)
-    if mesh_size_from_curvature is not None:
-        kw["mesh_size_from_curvature"] = int(mesh_size_from_curvature)
-    if compound_part_strategy is not None:
-        kw["compound_part_strategy"] = str(compound_part_strategy)
-    if element_dimension is not None:
-        kw["element_dimension"] = str(element_dimension)
-    if geometry_tolerance is not None:
-        kw["geometry_tolerance"] = float(geometry_tolerance)
-    if optimize_std is not None:
-        kw["optimize_std"] = bool(optimize_std)
-    if length_unit is not None:
-        kw["length_unit"] = str(length_unit)
-    run_cad_iges_to_inp(step, mesh_inp, **kw)
+
+    from backend.replan.thresholds import load_thresholds
+
+    retry_cfg = load_thresholds().get("retry") or {}
+    retries_left = int(max_replan_retries if max_replan_retries is not None else retry_cfg.get("max_retries", 3))
+    replan_events: list[str] = []
+    last_err: Exception | None = None
+
+    while True:
+        kw: dict[str, Any] = {"char_length_max": cl_max, "timeout_s": timeout_s}
+        if char_length_min is not None:
+            kw["char_length_min"] = float(char_length_min)
+        if element_order is not None:
+            kw["element_order"] = str(element_order)
+        if mesh_size_from_curvature is not None:
+            kw["mesh_size_from_curvature"] = int(mesh_size_from_curvature)
+        if compound_part_strategy is not None:
+            kw["compound_part_strategy"] = str(compound_part_strategy)
+        if element_dimension is not None:
+            kw["element_dimension"] = str(element_dimension)
+        if geometry_tolerance is not None:
+            kw["geometry_tolerance"] = float(geometry_tolerance)
+        if optimize_std is not None:
+            kw["optimize_std"] = bool(optimize_std)
+        if length_unit is not None:
+            kw["length_unit"] = str(length_unit)
+        try:
+            run_cad_iges_to_inp(step, mesh_inp, **kw)
+            last_err = None
+            break
+        except Exception as e:
+            last_err = e
+            err_text = str(e)
+            from backend.replan.engine import evaluate_feedback, replan as replan_theta
+
+            fb = evaluate_feedback(phase="II", step="mesh", logs=err_text)
+            if fb.rho_p != 1 or fb.failure_kind != "mesh" or retries_left <= 0:
+                raise
+            result = replan_theta(
+                {"characteristic_length_max": cl_max, "element_size_m": cl_max},
+                fb,
+                case_id="mesh_live",
+                persist=True,
+            )
+            new_cl = result.theta_after.get("characteristic_length_max")
+            if new_cl is None or float(new_cl) >= float(cl_max):
+                # Ensure we refine (smaller element size)
+                new_cl = max(0.5, float(cl_max) * 0.72)
+            cl_max = float(new_cl)
+            if result.event:
+                replan_events.append(result.event.event_id)
+                merge_session_meta(
+                    sdir,
+                    {
+                        "last_replan_event_id": result.event.event_id,
+                        "mesh_replan_char_length_max": cl_max,
+                    },
+                )
+            retries_left -= 1
+
+    if last_err is not None:
+        raise last_err
+
     mesh_inp = mesh_inp.resolve()
     size_b = mesh_inp.stat().st_size if mesh_inp.is_file() else 0
     meta_mesh: dict[str, Any] = {
@@ -439,6 +485,9 @@ def run_mesh(
         "mesh_char_length_max_used": cl_max,
         "mesh_inp_size_bytes": int(size_b),
     }
+    if replan_events:
+        meta_mesh["mesh_replan_event_ids"] = replan_events
+        meta_mesh["last_replan_event_id"] = replan_events[-1]
     ten_mb = 10 * 1024 * 1024
     if size_b > ten_mb:
         meta_mesh["mesh_inp_size_warning"] = (
@@ -451,6 +500,42 @@ def run_mesh(
     out: dict[str, Any] = {"mesh_inp": str(mesh_inp), "mesh_inp_size_bytes": int(size_b), "mesh_char_length_max_used": cl_max}
     if size_b > ten_mb:
         out["mesh_inp_size_warning"] = meta_mesh["mesh_inp_size_warning"]
+    if replan_events:
+        out["replan_event_ids"] = replan_events
+        out["last_replan_event_id"] = replan_events[-1]
+        try:
+            from backend.replan.guided import attach_guided
+            from backend.replan.paths import load_event
+
+            ev = load_event(replan_events[-1])
+            if ev is not None:
+                guided = attach_guided(
+                    {
+                        "case_id": "case1",
+                        "title": "体网格失败 · 自治重规划并重试",
+                        "feedback_before": {
+                            "rho_p": 1,
+                            "failure_kind": "mesh",
+                            "signals": ev.signals_before.model_dump(mode="json"),
+                        },
+                        "feedback_after": {"rho_p": 0},
+                        "result": {
+                            "actions": [a.model_dump(mode="json") for a in ev.actions],
+                            "theta_before": ev.theta_before,
+                            "theta_after": ev.theta_after,
+                            "event": ev.model_dump(mode="json"),
+                        },
+                        "outcome": {
+                            "status": "success",
+                            "note": f"已用更新后的特征尺寸 {cl_max} 重新划分网格并成功。",
+                            "mesh_char_length_max_used": cl_max,
+                        },
+                        "ok": True,
+                    }
+                )
+                out["replan_guided"] = guided
+        except Exception:
+            pass
     return out
 
 

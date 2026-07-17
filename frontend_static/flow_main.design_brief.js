@@ -257,3 +257,100 @@ export async function clarifyDesignChecklist(checklistId, reply, baseUrl) {
   }
   return data;
 }
+
+/** Detect "演示重规划 Case1/2/3" style intents */
+export function detectReplanDemoIntent(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+  if (!/重规划|replan|Table\s*S\.?1|失败驱动|自治恢复/i.test(raw)) return null;
+  if (/case\s*1|案例\s*1|网格|gmsh|mesh/i.test(raw)) return "case1";
+  if (/case\s*2|案例\s*2|残差|calculix|收敛|solver/i.test(raw)) return "case2";
+  if (/case\s*3|案例\s*3|zwind|pitch|倾角|海况/i.test(raw)) return "case3";
+  if (/三案例|全部案例|所有案例|case\s*1\s*[\/、,]\s*2/i.test(raw)) return "all";
+  return "case1";
+}
+
+export async function runReplanCaseDemo(caseId, baseUrl) {
+  const base = String(baseUrl || "").replace(/\/+$/, "");
+  const r = await fetch(`${base}/api/replan/cases/${encodeURIComponent(caseId)}/demo`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new Error(typeof data.detail === "string" ? data.detail : r.statusText || "重规划演示失败");
+  }
+  return data;
+}
+
+export function buildReplanCardPayload(data, baseUrl) {
+  const base = String(baseUrl || "").replace(/\/+$/, "");
+  const title = data.title || data.case_id || "重规划";
+  const before = data.feedback_before || {};
+  const after = data.feedback_after || {};
+  const result = data.result || {};
+  const actions = result.actions || [];
+  const thetaB = result.theta_before || {};
+  const thetaA = result.theta_after || {};
+  const outcome = data.outcome || {};
+  const eid = result.event?.event_id || "";
+  const eventUrl = eid ? `${base}/api/replan/events/${encodeURIComponent(eid)}` : "";
+
+  const sig = before.signals || {};
+  const sigLines = [];
+  if (sig.mesh_quality_min != null) sigLines.push(`mesh_quality_min=${sig.mesh_quality_min}`);
+  if (sig.mesh_error_code != null) sigLines.push(`mesh_error_code=${sig.mesh_error_code}`);
+  if (sig.residual_norm != null) sigLines.push(`residual_norm=${sig.residual_norm}`);
+  if (sig.convergence_flag != null) sigLines.push(`convergence_flag=${sig.convergence_flag}`);
+  if (sig.pitch_max_deg != null) sigLines.push(`pitch_max=${sig.pitch_max_deg}°`);
+  if (sig.simulation_abort != null) sigLines.push(`simulation_abort=${sig.simulation_abort}`);
+
+  const keys = Array.from(new Set([...Object.keys(thetaB), ...Object.keys(thetaA)])).filter(
+    (k) => !["dt_s_extreme_window"].includes(k),
+  );
+
+  let html = `<div class="dcCard dcCard--replan" data-case-id="${esc(data.case_id || "")}">`;
+  html += `<div class="dcCardHd"><div class="dcCardTitle">${esc(title)}</div>`;
+  html += `<div class="dcCardChips">${chip(data.ok ? "演示成功" : "未通过", data.ok ? "ok" : "warn")}`;
+  html += `${chip(`ρ ${before.rho_p ?? "—"}→${after.rho_p ?? "—"}`, "id")}</div></div>`;
+
+  html += `<div class="dcGrid">`;
+  html += `<div class="dcSec"><div class="dcSecTitle">诊断信号 Fₚ</div><dl class="dcKv">`;
+  html += `<div class="dcKvRow"><dt>失败类型</dt><dd>${esc(before.failure_kind || "—")}</dd></div>`;
+  html += `<div class="dcKvRow"><dt>信号</dt><dd>${esc(sigLines.join(" · ") || "—")}</dd></div>`;
+  html += `</dl></div>`;
+
+  html += `<div class="dcSec"><div class="dcSecTitle">重规划策略</div><ul class="dcAssumptions" style="margin:0;padding-left:1.1em;border:none;background:transparent">`;
+  for (const a of actions) {
+    html += `<li><strong>${esc(a.policy)}</strong> — ${esc(a.description || "")}</li>`;
+  }
+  if (!actions.length) html += `<li>（无策略）</li>`;
+  html += `</ul></div>`;
+
+  html += `<div class="dcSec"><div class="dcSecTitle">θ 前后对比</div><dl class="dcKv">`;
+  for (const k of keys.slice(0, 8)) {
+    const vb = thetaB[k];
+    const va = thetaA[k];
+    if (JSON.stringify(vb) === JSON.stringify(va)) continue;
+    html += `<div class="dcKvRow"><dt>${esc(k)}</dt><dd>${esc(vb)} → <strong>${esc(va)}</strong></dd></div>`;
+  }
+  html += `</dl></div>`;
+
+  html += `<div class="dcSec"><div class="dcSecTitle">结果</div><p style="margin:0;font-size:12.5px">${esc(outcome.note || "")}</p></div>`;
+  html += `</div>`;
+
+  html += `<div class="dcCardFt">`;
+  html += `<span class="dcStatus ${data.ok ? "dcStatus--ok" : "dcStatus--pending"}">${
+    data.ok ? "失败驱动重规划闭环完成（Table S.1）" : "演示未通过验收断言"
+  }</span>`;
+  if (eventUrl) {
+    html += `<a class="dcDlBtn" href="${esc(eventUrl)}" target="_blank" rel="noopener noreferrer">查看审计 JSON</a>`;
+  }
+  html += `</div></div>`;
+
+  return {
+    html,
+    plainSummary: `${title} · ${data.ok ? "OK" : "FAIL"} · ${before.failure_kind || ""}`,
+    caseId: data.case_id,
+  };
+}

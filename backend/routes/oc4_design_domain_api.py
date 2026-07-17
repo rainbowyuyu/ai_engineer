@@ -485,6 +485,12 @@ def oc4_dd_mesh(body: MeshIn):
     }
     if out.get("mesh_inp_size_warning"):
         payload["mesh_inp_size_warning"] = out["mesh_inp_size_warning"]
+    if out.get("replan_event_ids"):
+        payload["replan_event_ids"] = out["replan_event_ids"]
+    if out.get("last_replan_event_id"):
+        payload["last_replan_event_id"] = out["last_replan_event_id"]
+    if out.get("replan_guided"):
+        payload["replan_guided"] = out["replan_guided"]
     return payload
 
 
