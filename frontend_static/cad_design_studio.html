@@ -1084,6 +1084,18 @@
             if (a && a.type === "open_results_viewer" && a.scan_dir) {
               appendUser("（提示）结果查看器请在主页打开：\n" + String(a.scan_dir));
             }
+            if (a && a.type === "show_cad_drawing" && a.sheet_url) {
+              const base = apiBase().replace(/\/$/, "");
+              const sheet = String(a.sheet_url);
+              const imgUrl = sheet.startsWith("http") ? sheet : base + sheet;
+              appendUser(
+                "![工程图预览](" +
+                  imgUrl +
+                  ")\n\n来源：" +
+                  String(a.source_path || "") +
+                  "\n\n预览级四视图 PNG（非 DWG/DXF/审图出图）",
+              );
+            }
           }
         }
 

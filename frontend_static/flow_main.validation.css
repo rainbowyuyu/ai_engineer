@@ -1337,3 +1337,32 @@
   grid-template-columns: 1fr;
   max-width: 960px;
 }
+
+.valHaltGate {
+  margin: 12px 0 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(37, 99, 235, 0.06));
+}
+
+.valHaltGateText {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.valCandidatesPanel {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border, #e2e8f0);
+  background: rgba(248, 250, 252, 0.9);
+}
+
+.valCandidatesList {
+  margin: 8px 0 10px;
+  padding-left: 18px;
+  font-size: 13px;
+}
+

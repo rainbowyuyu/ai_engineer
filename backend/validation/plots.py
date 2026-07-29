@@ -28,8 +28,26 @@ NATURE_COLORS = {
     "domestic": "#E64B35",
     "candidate": "#00A087",
     "trend": "#8491B4",
-    "grid": "#E6E6E6",
-    "text": "#222222",
+    "grid": "#E8ECF0",
+    "text": "#1A1A1A",
+    "muted": "#5A5A5A",
+}
+
+# Nature-style type scale (pt) — print / SI panel readable
+NATURE_TYPE = {
+    "base": 13.0,
+    "title": 16.0,
+    "subtitle": 13.5,
+    "axis": 13.0,
+    "tick": 12.0,
+    "legend": 12.0,
+    "legend_title": 12.5,
+    "table": 12.0,
+    "table_header": 11.5,
+    "note": 11.0,
+    "radar_spoke": 14.0,
+    "radar_ring": 12.0,
+    "center": 13.0,
 }
 
 CATEGORY_LABELS = {
@@ -181,19 +199,20 @@ def _radar_fleet_order(fleet_points: list[FleetReviewPoint]) -> list[FleetReview
 
 def _style_nature_radar(ax: plt.Axes, angles: list[float], labels: list[str]) -> None:
     """Nature-style polar grid: gray rings, axis-end dots, outer metric labels."""
+    T = NATURE_TYPE
     ax.set_theta_offset(np.pi / 2)
     ax.set_theta_direction(-1)
     ax.set_ylim(0, 100)
     ax.set_yticks([20, 40, 60, 80, 100])
     ax.set_yticklabels([])
     ax.set_xticks(angles)
-    ax.set_xticklabels(labels, fontsize=9, color=NATURE_COLORS["text"])
-    ax.tick_params(axis="x", pad=22)
-    ax.grid(color="#BFBFBF", linewidth=0.55, alpha=0.85, linestyle="-")
+    ax.set_xticklabels(labels, fontsize=T["radar_spoke"], color=NATURE_COLORS["text"], fontweight="600")
+    ax.tick_params(axis="x", pad=30)
+    ax.grid(color="#C8C8C8", linewidth=0.6, alpha=0.85, linestyle="-")
     ax.spines["polar"].set_visible(False)
     for ang in angles:
-        ax.plot([ang, ang], [0, 100], color="#BFBFBF", linewidth=0.45, alpha=0.7, zorder=0)
-        ax.plot(ang, 100, "o", color="#1a1a1a", markersize=3.2, zorder=8, clip_on=False)
+        ax.plot([ang, ang], [0, 100], color="#C8C8C8", linewidth=0.5, alpha=0.75, zorder=0)
+        ax.plot(ang, 100, "o", color="#1a1a1a", markersize=3.8, zorder=8, clip_on=False)
     ax.text(
         0.5,
         0.5,
@@ -201,11 +220,11 @@ def _style_nature_radar(ax: plt.Axes, angles: list[float], labels: list[str]) ->
         transform=ax.transAxes,
         ha="center",
         va="center",
-        fontsize=9,
+        fontsize=T["center"],
         fontweight="bold",
         color=NATURE_COLORS["text"],
         zorder=9,
-        linespacing=0.9,
+        linespacing=1.05,
     )
 
 
@@ -233,32 +252,33 @@ def _draw_radar_polygon(
 
 def _nature_radar_legend(ax: plt.Axes, entries: list[tuple[str, str]]) -> None:
     """Upper-left legend with colored border boxes (Nature figure style)."""
+    T = NATURE_TYPE
     handles = [
-        Line2D([0], [0], color=c, lw=2.2, marker="s", markersize=0, label=label)
+        Line2D([0], [0], color=c, lw=2.4, marker="s", markersize=0, label=label)
         for label, c in entries
     ]
     leg = ax.legend(
         handles=handles,
         loc="upper left",
-        bbox_to_anchor=(-0.22, 1.14),
-        fontsize=7,
+        bbox_to_anchor=(-0.18, 1.16),
+        fontsize=T["legend"],
         frameon=False,
         handlelength=0,
         handletextpad=0,
         borderaxespad=0,
-        labelspacing=0.55,
+        labelspacing=0.72,
     )
     for text, (_, color) in zip(leg.get_texts(), entries):
         text.set_bbox(
             {
-                "boxstyle": "square,pad=0.35",
+                "boxstyle": "square,pad=0.42",
                 "edgecolor": color,
                 "facecolor": "white",
-                "linewidth": 1.4,
-                "alpha": 0.95,
+                "linewidth": 1.5,
+                "alpha": 0.97,
             }
         )
-        text.set_fontsize(6.8)
+        text.set_fontsize(T["legend"])
         text.set_color(NATURE_COLORS["text"])
 
 
@@ -274,6 +294,7 @@ def _radar_score_table(
     cats: list[str],
 ) -> None:
     """Bottom panel: full fleet five-dimension scores."""
+    T = NATURE_TYPE
     ax_tbl.axis("off")
     dim_headers = ["Cap.", "Steel", "Cost", "Sched.", "Life"]
     header = ["", "Project", "Overall", *dim_headers]
@@ -291,16 +312,18 @@ def _radar_score_table(
         colLabels=header,
         loc="center",
         cellLoc="center",
-        colWidths=[0.032, 0.19, 0.075, 0.075, 0.075, 0.075, 0.075, 0.075],
+        colWidths=[0.034, 0.26, 0.078, 0.078, 0.078, 0.078, 0.078, 0.078],
     )
     table.auto_set_font_size(False)
-    table.set_fontsize(7)
-    table.scale(1.0, 1.35)
+    table.set_fontsize(T["table"])
+    table.scale(1.0, 1.95)
 
     for (r, c), cell in table.get_celld().items():
+        cell.set_edgecolor("#D8DEE6")
+        cell.set_linewidth(0.45)
         if r == 0:
             cell.set_facecolor("#EEF2F7")
-            cell.set_text_props(fontweight="bold", fontsize=6.8)
+            cell.set_text_props(fontweight="bold", fontsize=T["table_header"], color=NATURE_COLORS["text"])
             continue
         if c == 0 and r > 0:
             color = rows[r - 1][0]
@@ -308,8 +331,10 @@ def _radar_score_table(
                 cell.set_facecolor(color)
             cell.get_text().set_text("")
         elif c == 1:
-            cell.set_text_props(ha="left", fontsize=6.8)
-            cell.PAD = 0.04
+            cell.set_text_props(ha="left", fontsize=T["table"], color=NATURE_COLORS["text"])
+            cell.PAD = 0.06
+        else:
+            cell.set_text_props(fontsize=T["table"], color=NATURE_COLORS["text"])
 
 
 def configure_nature_style() -> None:
@@ -318,20 +343,27 @@ def configure_nature_style() -> None:
     preferred = ["Arial", "Helvetica", "DejaVu Sans", "Microsoft YaHei", "SimHei"]
     available = {f.name for f in fm.fontManager.ttflist}
     font_family = next((f for f in preferred if f in available), "DejaVu Sans")
+    T = NATURE_TYPE
     mpl.rcParams.update(
         {
             "font.family": "sans-serif",
             "font.sans-serif": [font_family, "Arial", "DejaVu Sans"],
-            "font.size": 8,
-            "axes.labelsize": 8,
-            "axes.titlesize": 9,
-            "axes.linewidth": 0.6,
-            "legend.fontsize": 7,
+            "font.size": T["base"],
+            "axes.labelsize": T["axis"],
+            "axes.titlesize": T["subtitle"],
+            "axes.linewidth": 0.7,
+            "axes.labelcolor": NATURE_COLORS["text"],
+            "axes.titlecolor": NATURE_COLORS["text"],
+            "xtick.labelsize": T["tick"],
+            "ytick.labelsize": T["tick"],
+            "legend.fontsize": T["legend"],
             "legend.frameon": False,
             "figure.dpi": 150,
             "savefig.dpi": 600,
             "savefig.bbox": "tight",
+            "savefig.pad_inches": 0.18,
             "pdf.fonttype": 42,
+            "axes.unicode_minus": False,
         }
     )
 
@@ -362,7 +394,7 @@ def _chart_project_name(name: str) -> str:
     for zh, en in sorted(PROJECT_NAME_EN.items(), key=lambda kv: len(kv[0]), reverse=True):
         if zh in name or name == zh:
             return en
-    return name if len(name) <= 16 else f"{name[:14]}…"
+    return name if len(name) <= 22 else f"{name[:20]}…"
 
 
 def _chart_year_label(record: BenchmarkRecord) -> str:
@@ -458,7 +490,8 @@ def plot_benchmark_metric(
     y = np.array([_record_metric_value(r, attr) for r in records], dtype=float)
     tick_labels = [_chart_year_label(r) for r in records]
 
-    fig, ax = plt.subplots(figsize=(7.6, 3.8))
+    T = NATURE_TYPE
+    fig, ax = plt.subplots(figsize=(10.4, 5.0))
     _style_axis(ax)
 
     for region in ("international", "domestic"):
@@ -469,14 +502,14 @@ def plot_benchmark_metric(
                 y[idx],
                 "o-",
                 color=NATURE_COLORS[region],
-                markersize=4,
+                markersize=5.5,
                 markerfacecolor="white",
-                markeredgewidth=0.9,
-                linewidth=1.0,
+                markeredgewidth=1.1,
+                linewidth=1.25,
                 label="International" if region == "international" else "China",
             )
 
-    ax.plot(x, y, color="#ccc", linestyle="--", linewidth=0.6, zorder=0)
+    ax.plot(x, y, color="#ccc", linestyle="--", linewidth=0.7, zorder=0)
 
     trend_years = [float(r.year) for r in records if r.year is not None]
     trend = _year_polynomial_trend(records, attr=attr, degree=2)
@@ -492,7 +525,7 @@ def plot_benchmark_metric(
             val_grid,
             color=NATURE_COLORS["trend"],
             linestyle="--",
-            linewidth=1.5,
+            linewidth=1.8,
             zorder=2,
             label=f"Trend ({deg_label}, $R^2$={r2:.2f})",
         )
@@ -503,10 +536,10 @@ def plot_benchmark_metric(
         )
         fig.text(
             0.02,
-            0.01,
+            0.012,
             f"* Planned project. Nonlinear fit vs. year; {note}.",
-            fontsize=6.5,
-            color="#666666",
+            fontsize=T["note"],
+            color=NATURE_COLORS["muted"],
         )
 
     target = config.get("target")
@@ -515,18 +548,18 @@ def plot_benchmark_metric(
             float(target),
             color="#999",
             linestyle=":",
-            linewidth=0.8,
+            linewidth=0.9,
             label=str(config.get("target_label") or "target"),
         )
 
     ax.set_xticks(x)
-    ax.set_xticklabels(tick_labels, rotation=0, fontsize=7)
+    ax.set_xticklabels(tick_labels, rotation=28, ha="right", fontsize=T["tick"])
 
-    ax.set_xlabel("Commissioning / planning year (fleet order)")
-    ax.set_ylabel(str(config["ylabel"]))
-    ax.set_title(str(config["title"]), loc="left", fontweight="bold")
-    ax.legend(loc="upper right", fontsize=6.5)
-    fig.subplots_adjust(bottom=0.14)
+    ax.set_xlabel("Commissioning / planning year (fleet order)", fontsize=T["axis"])
+    ax.set_ylabel(str(config["ylabel"]), fontsize=T["axis"])
+    ax.set_title(str(config["title"]), loc="left", fontweight="bold", fontsize=T["subtitle"], pad=10)
+    ax.legend(loc="upper right", fontsize=T["legend"], frameon=False)
+    fig.subplots_adjust(bottom=0.22, left=0.10, right=0.98, top=0.90)
     return _save(fig, out_dir, str(config["stem"]))
 
 
@@ -557,6 +590,7 @@ def plot_score_radar(
     candidate_label: str = "Proposed",
 ) -> list[str]:
     configure_nature_style()
+    T = NATURE_TYPE
     _ = score  # fleet-only chart; candidate scores shown in validity table instead
     _ = candidate_label
     cats = list(DIMENSION_KEYS)
@@ -567,8 +601,8 @@ def plot_score_radar(
     angles = np.linspace(0, 2 * np.pi, len(cats), endpoint=False).tolist()
     angles_c = angles + [angles[0]]
 
-    fig = plt.figure(figsize=(11.0, 10.8))
-    gs = fig.add_gridspec(2, 1, height_ratios=[1.15, 1.0], hspace=0.38)
+    fig = plt.figure(figsize=(14.0, 13.4))
+    gs = fig.add_gridspec(2, 1, height_ratios=[1.15, 1.05], hspace=0.42)
     ax = fig.add_subplot(gs[0], projection="polar")
     ax_tbl = fig.add_subplot(gs[1])
     ax.set_theta_offset(np.pi / 2)
@@ -586,11 +620,11 @@ def plot_score_radar(
             angles_c,
             vals_c,
             ls=ls,
-            linewidth=1.5,
+            linewidth=1.7,
             color=color,
             marker=style["marker"],
-            markersize=4.0,
-            alpha=0.9,
+            markersize=5.0,
+            alpha=0.92,
             zorder=3,
         )
         compare_handles.append(
@@ -598,53 +632,57 @@ def plot_score_radar(
                 [0],
                 [0],
                 color=color,
-                lw=1.5,
+                lw=1.7,
                 ls=ls,
                 marker=style["marker"],
-                markersize=3.5,
+                markersize=4.5,
                 label=_chart_project_name(pt.short_name),
             )
         )
 
     ax.set_xticks(angles)
-    ax.set_xticklabels(labels, fontsize=9.5)
-    ax.tick_params(axis="x", pad=18)
+    ax.set_xticklabels(labels, fontsize=T["radar_spoke"], fontweight="600", color=NATURE_COLORS["text"])
+    ax.tick_params(axis="x", pad=36)
     ax.set_ylim(0, 100)
     ax.set_yticks([20, 40, 60, 80])
-    ax.set_yticklabels(["20", "40", "60", "80"], fontsize=7, color="#888888")
-    ax.grid(color="#DDDDDD", linewidth=0.55, alpha=0.9)
-    ax.spines["polar"].set_color("#CCCCCC")
+    ax.set_yticklabels(["20", "40", "60", "80"], fontsize=T["radar_ring"], color=NATURE_COLORS["muted"])
+    ax.grid(color="#D0D6DE", linewidth=0.65, alpha=0.9)
+    ax.spines["polar"].set_color("#C5CCD6")
     ax.set_title(
         "AI Review — fleet five-metric comparison",
-        fontsize=10.5,
+        fontsize=T["title"],
         fontweight="bold",
-        pad=24,
+        pad=28,
+        color=NATURE_COLORS["text"],
     )
     ax.legend(
         handles=compare_handles,
         loc="upper left",
-        bbox_to_anchor=(1.02, 1.05),
-        fontsize=6,
+        bbox_to_anchor=(1.04, 1.08),
+        fontsize=T["legend"],
         frameon=True,
         fancybox=False,
-        edgecolor="#DDDDDD",
+        edgecolor="#D8DEE6",
+        facecolor="white",
         ncol=2,
         title="Fleet (n={})".format(len(fleet_points)),
-        title_fontsize=6.5,
-        columnspacing=0.8,
-        handletextpad=0.4,
+        title_fontsize=T["legend_title"],
+        columnspacing=1.0,
+        handletextpad=0.5,
+        labelspacing=0.55,
+        borderpad=0.6,
     )
 
     _radar_score_table(ax_tbl, fleet_points, cats)
     fig.text(
         0.5,
-        0.01,
+        0.012,
         "Full fleet overlay on five AI Review metrics (0–100). Dashed = planned projects.",
         ha="center",
-        fontsize=7,
-        color="#666666",
+        fontsize=T["note"],
+        color=NATURE_COLORS["muted"],
     )
-    fig.subplots_adjust(top=0.92, bottom=0.06, right=0.78)
+    fig.subplots_adjust(top=0.93, bottom=0.055, left=0.04, right=0.76)
     return _save(fig, out_dir, "fig_score_radar")
 
 
@@ -684,7 +722,8 @@ def plot_fleet_metrics_bars(
         return []
 
     cats = list(DIMENSION_KEYS)
-    fig, axes = plt.subplots(2, 3, figsize=(10.5, 6.8))
+    T = NATURE_TYPE
+    fig, axes = plt.subplots(2, 3, figsize=(12.4, 8.0))
     axes_list = list(axes.flat)
 
     for i, dim in enumerate(cats):
@@ -706,17 +745,17 @@ def plot_fleet_metrics_bars(
             reg_ys.append(float(reg_s))
             names.append(_chart_project_name(str(row.get("name", ""))))
 
-        ax.scatter(xs, ai_ys, s=28, c=NATURE_COLORS["international"], edgecolors="white", linewidths=0.4, zorder=3, label="AI Review")
-        ax.scatter(xs, reg_ys, s=28, c=NATURE_COLORS["domestic"], marker="s", edgecolors="white", linewidths=0.4, zorder=3, label="Regulatory")
+        ax.scatter(xs, ai_ys, s=42, c=NATURE_COLORS["international"], edgecolors="white", linewidths=0.5, zorder=3, label="AI Review")
+        ax.scatter(xs, reg_ys, s=42, c=NATURE_COLORS["domestic"], marker="s", edgecolors="white", linewidths=0.5, zorder=3, label="Regulatory")
 
         if len(xs) >= 3:
             x_grid = np.linspace(min(xs), max(xs), 40)
             ai_trend = _trend_line(np.array(xs), np.array(ai_ys), x_grid)
             reg_trend = _trend_line(np.array(xs), np.array(reg_ys), x_grid)
             if ai_trend is not None:
-                ax.plot(x_grid, ai_trend, "--", color=NATURE_COLORS["international"], linewidth=1.2, alpha=0.85, zorder=2)
+                ax.plot(x_grid, ai_trend, "--", color=NATURE_COLORS["international"], linewidth=1.4, alpha=0.85, zorder=2)
             if reg_trend is not None:
-                ax.plot(x_grid, reg_trend, "--", color=NATURE_COLORS["domestic"], linewidth=1.2, alpha=0.85, zorder=2)
+                ax.plot(x_grid, reg_trend, "--", color=NATURE_COLORS["domestic"], linewidth=1.4, alpha=0.85, zorder=2)
 
         if cand and cand.get("ai_metrics", {}).get(dim) is not None:
             cr = cand["ai_metrics"][dim]
@@ -724,17 +763,18 @@ def plot_fleet_metrics_bars(
             c_reg = (cand.get("regulatory_scores") or {}).get(dim)
             if c_ai is not None and c_reg is not None:
                 cx = _performance_index(dim, float(cr), sample)
-                ax.scatter([cx], [float(c_ai)], s=90, c=NATURE_COLORS["candidate"], marker="*", edgecolors="black", linewidths=0.5, zorder=5)
-                ax.scatter([cx], [float(c_reg)], s=55, c=NATURE_COLORS["candidate"], marker="D", edgecolors="black", linewidths=0.4, zorder=5)
+                ax.scatter([cx], [float(c_ai)], s=110, c=NATURE_COLORS["candidate"], marker="*", edgecolors="black", linewidths=0.55, zorder=5)
+                ax.scatter([cx], [float(c_reg)], s=70, c=NATURE_COLORS["candidate"], marker="D", edgecolors="black", linewidths=0.45, zorder=5)
 
         ax.set_xlim(-5, 105)
         ax.set_ylim(0, 105)
-        ax.set_xlabel("Performance index (0–100)", fontsize=6.5)
-        ax.set_ylabel("Score", fontsize=6.5)
-        ax.set_title(RADAR_SHORT_LABELS.get(dim, dim), fontsize=8, fontweight="bold", loc="left")
-        ax.grid(True, color=NATURE_COLORS["grid"], linewidth=0.4, alpha=0.8)
+        ax.set_xlabel("Performance index (0–100)", fontsize=T["tick"])
+        ax.set_ylabel("Score", fontsize=T["tick"])
+        ax.tick_params(axis="both", labelsize=T["tick"])
+        ax.set_title(RADAR_SHORT_LABELS.get(dim, dim), fontsize=T["subtitle"], fontweight="bold", loc="left", pad=8)
+        ax.grid(True, color=NATURE_COLORS["grid"], linewidth=0.45, alpha=0.85)
         if i == 0:
-            ax.legend(loc="lower right", fontsize=6, frameon=False)
+            ax.legend(loc="lower right", fontsize=T["legend"], frameon=False, labelspacing=0.4)
 
     axes_list[5].axis("off")
     vs = validity_table.get("validity_summary") or {}
@@ -744,55 +784,61 @@ def plot_fleet_metrics_bars(
         f"high agreement={vs.get('high_agreement_pct', '—')}%. "
         "Dashed curves: nonlinear trend of scores vs. raw performance index."
     )
-    fig.suptitle("AI Review validity — raw metrics vs. scores", fontsize=10, fontweight="bold", y=0.98)
-    fig.text(0.5, 0.02, note, ha="center", fontsize=7, color="#555555")
-    fig.subplots_adjust(top=0.90, bottom=0.08, hspace=0.42, wspace=0.32)
+    fig.suptitle("AI Review validity — raw metrics vs. scores", fontsize=T["title"], fontweight="bold", y=0.985)
+    fig.text(0.5, 0.018, note, ha="center", fontsize=T["note"], color=NATURE_COLORS["muted"], wrap=True)
+    fig.subplots_adjust(top=0.91, bottom=0.10, left=0.07, right=0.98, hspace=0.48, wspace=0.36)
     return _save(fig, out_dir, "fig_fleet_metrics_bars")
 
 
 def plot_rule_heatmap(score: ValidationScore, out_dir: Path) -> list[str]:
     configure_nature_style()
+    T = NATURE_TYPE
     rules = score.rule_results
     if not rules:
         return []
-    names = [r.id[:22] for r in rules]
+    names = [r.id[:28] for r in rules]
     scores = [r.score_0_100 for r in rules]
     colors = [NATURE_COLORS["candidate"] if r.status == "pass" else "#E64B35" if r.status == "fail" else "#F39B7F" for r in rules]
 
-    fig, ax = plt.subplots(figsize=(7.2, max(3.0, 0.28 * len(rules))))
+    fig, ax = plt.subplots(figsize=(8.6, max(3.6, 0.36 * len(rules))))
     y = np.arange(len(rules))
-    ax.barh(y, scores, color=colors, height=0.7, edgecolor="white", linewidth=0.3)
+    ax.barh(y, scores, color=colors, height=0.72, edgecolor="white", linewidth=0.35)
     ax.set_yticks(y)
-    ax.set_yticklabels(names, fontsize=6)
+    ax.set_yticklabels(names, fontsize=T["tick"])
     ax.set_xlim(0, 105)
-    ax.set_xlabel("Rule score (0–100)")
-    ax.set_title("Rule score breakdown", loc="left", fontweight="bold")
+    ax.set_xlabel("Rule score (0–100)", fontsize=T["axis"])
+    ax.set_title("Rule score breakdown", loc="left", fontweight="bold", fontsize=T["subtitle"], pad=10)
+    ax.tick_params(axis="x", labelsize=T["tick"])
     _style_axis(ax)
     ax.invert_yaxis()
+    fig.subplots_adjust(left=0.28, right=0.96, top=0.90, bottom=0.12)
     return _save(fig, out_dir, "fig_rule_heatmap")
 
 
 def plot_capacity_intensity(score: ValidationScore, out_dir: Path, label: str = "Candidate") -> list[str]:
     configure_nature_style()
+    T = NATURE_TYPE
     _ = score
     _ = label
     records = [r for r in load_benchmark_records() if r.steel_intensity and r.capacity_mw]
 
-    fig, ax = plt.subplots(figsize=(4.8, 4.0))
+    fig, ax = plt.subplots(figsize=(5.8, 4.8))
     _style_axis(ax)
     ax.grid(True, color=NATURE_COLORS["grid"], linewidth=0.5)
     for r in records:
-        ax.scatter(r.capacity_mw, r.steel_intensity, c=NATURE_COLORS[r.region], s=28,
-                   edgecolors="white", linewidths=0.5, alpha=0.85)
-    ax.axhline(300, color="#999", linestyle=":", linewidth=0.8)
-    ax.set_xlabel("Unit capacity (MW)")
-    ax.set_ylabel("Steel intensity (t MW$^{-1}$)")
-    ax.set_title("Capacity vs. steel intensity", loc="left", fontweight="bold")
+        ax.scatter(r.capacity_mw, r.steel_intensity, c=NATURE_COLORS[r.region], s=40,
+                   edgecolors="white", linewidths=0.55, alpha=0.88)
+    ax.axhline(300, color="#999", linestyle=":", linewidth=0.9)
+    ax.set_xlabel("Unit capacity (MW)", fontsize=T["axis"])
+    ax.set_ylabel("Steel intensity (t MW$^{-1}$)", fontsize=T["axis"])
+    ax.set_title("Capacity vs. steel intensity", loc="left", fontweight="bold", fontsize=T["subtitle"], pad=10)
+    ax.tick_params(axis="both", labelsize=T["tick"])
     handles = [
-        Line2D([0], [0], marker="o", color="w", markerfacecolor=NATURE_COLORS["international"], markersize=5, label="Intl."),
-        Line2D([0], [0], marker="o", color="w", markerfacecolor=NATURE_COLORS["domestic"], markersize=5, label="China"),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor=NATURE_COLORS["international"], markersize=7, label="Intl."),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor=NATURE_COLORS["domestic"], markersize=7, label="China"),
     ]
-    ax.legend(handles=handles, loc="upper right")
+    ax.legend(handles=handles, loc="upper right", fontsize=T["legend"], frameon=False)
+    fig.subplots_adjust(left=0.14, right=0.96, top=0.90, bottom=0.14)
     return _save(fig, out_dir, "fig_capacity_intensity")
 
 
@@ -841,12 +887,18 @@ def plot_validity_table(validity: dict[str, Any], out_dir: Path) -> list[str]:
     if not ai_cols or not reg_cols:
         return []
 
-    raw_headers = ["MW", "t/MW", "kCNY/MW", "yr", "yr"]
-    header = ["Project / turbine", *raw_headers]
-    header.extend([DIMENSION_LABELS_EN.get(c["key"], c.get("label", c["key"])) for c in ai_cols])
-    header.extend(
-        [f"{DIMENSION_LABELS_EN.get(c['key'], c.get('label', c['key']))} (reg.)" for c in reg_cols]
-    )
+    raw_headers = ["MW", "t/MW", "kCNY/MW", "Constr.", "Life"]
+    # Compact headers so enlarged type stays legible without collision
+    short_ai = {
+        "capacity_mw": "Cap.",
+        "steel_per_mw": "Steel",
+        "unit_cost": "Cost",
+        "construction_years": "Sched.",
+        "fatigue_life": "Life",
+    }
+    header = ["Project", *raw_headers]
+    header.extend([short_ai.get(c["key"], c.get("label", c["key"])[:6]) for c in ai_cols])
+    header.extend([f"{short_ai.get(c['key'], 'M')}.R" for c in reg_cols])
 
     def build_rows(cohort: list[dict[str, Any]]) -> list[list[str]]:
         rows: list[list[str]] = []
@@ -884,40 +936,43 @@ def plot_validity_table(validity: dict[str, Any], out_dir: Path) -> list[str]:
         return []
 
     ncols = len(header)
-    col_widths = [0.14] + [0.078] * (ncols - 1)
-    fig_w = max(13.5, 0.95 * ncols)
-    fig_h = max(4.2, 0.38 * len(body) + 1.8)
+    T = NATURE_TYPE
+    name_w = 0.16
+    other_w = (0.84 / max(ncols - 1, 1))
+    col_widths = [name_w] + [other_w] * (ncols - 1)
+    fig_w = max(15.5, 0.98 * ncols)
+    fig_h = max(5.8, 0.62 * len(body) + 2.0)
     fig, ax = plt.subplots(figsize=(fig_w, fig_h))
     ax.axis("off")
 
+    title = (
+        validity.get("title_en")
+        or "Table 1 | AI Review vs. regulatory scores (same five metrics)"
+    )
     sub = (
-        "Raw metrics (left, '-' if missing); AI Review scores; regulatory scores (same five metrics). "
+        "Raw (MW…Life) · AI Review (Cap.…Life) · Regulatory (.R). "
         "Scores shown only when raw data exists."
     )
-    ax.set_title(
-        validity.get("title_en")
-        or "Table 1 | AI Review vs. regulatory scores (same five metrics)",
-        loc="left",
-        fontsize=10,
-        fontweight="bold",
-        pad=14,
-    )
-    fig.text(0.02, 0.94, sub, fontsize=7, color="#444444")
+    fig.text(0.02, 0.97, title, fontsize=T["title"], fontweight="bold", color=NATURE_COLORS["text"], va="top")
+    fig.text(0.02, 0.935, sub, fontsize=T["note"], color=NATURE_COLORS["muted"], va="top")
 
     table = ax.table(
         cellText=body,
         colLabels=header,
-        loc="center",
+        loc="upper center",
         cellLoc="center",
         colWidths=col_widths,
+        bbox=[0.01, 0.11, 0.98, 0.76],
     )
     table.auto_set_font_size(False)
-    table.set_fontsize(6.8)
-    table.scale(1.0, 1.55)
+    table.set_fontsize(T["table"])
+    table.scale(1.0, 2.15)
 
     n_ai = len(ai_cols)
     n_raw = len(raw_headers)
     for (r, c), cell in table.get_celld().items():
+        cell.set_edgecolor("#D8DEE6")
+        cell.set_linewidth(0.4)
         if r == 0:
             if c == 0:
                 cell.set_facecolor("#F3F4F6")
@@ -927,25 +982,30 @@ def plot_validity_table(validity: dict[str, Any], out_dir: Path) -> list[str]:
                 cell.set_facecolor("#E8EEF7")
             else:
                 cell.set_facecolor("#F7ECE8")
-            cell.set_text_props(weight="bold", fontsize=6.5)
+            cell.set_text_props(weight="bold", fontsize=T["table_header"], color=NATURE_COLORS["text"])
             continue
         if (r - 1) in section_row_indices:
             cell.set_facecolor("#EEF2FF")
             if c == 0:
-                cell.set_text_props(weight="bold", ha="left")
+                cell.set_text_props(weight="bold", ha="left", fontsize=T["table"])
             continue
         if c == 0:
-            cell.set_text_props(ha="left", fontsize=6.8)
+            cell.set_text_props(ha="left", fontsize=T["table"], color=NATURE_COLORS["text"])
+            cell.PAD = 0.06
         elif 0 < c <= n_raw:
             cell.set_facecolor("#FAFFFA")
+            cell.set_text_props(fontsize=T["table"])
         elif n_raw < c <= n_raw + n_ai:
             cell.set_facecolor("#FAFCFF")
+            cell.set_text_props(fontsize=T["table"])
         elif c > n_raw + n_ai:
             cell.set_facecolor("#FFFAF8")
+            cell.set_text_props(fontsize=T["table"])
 
     note = validity.get("note_en") or validity.get("note") or ""
-    fig.text(0.02, 0.02, note[:280] + ("…" if len(note) > 280 else ""), fontsize=6.5, color="#555555")
-    fig.subplots_adjust(top=0.88, bottom=0.08)
+    note_show = note[:420] + ("…" if len(note) > 420 else "")
+    fig.text(0.02, 0.035, note_show, fontsize=T["note"], color=NATURE_COLORS["muted"], va="bottom")
+    fig.subplots_adjust(top=1.0, bottom=0.0, left=0.0, right=1.0)
     return _save(fig, out_dir, "fig_ai_review_validity")
 
 
@@ -984,7 +1044,7 @@ def _plot_pinn_workflow_schematic(ax, *, active: bool) -> None:
     color = NATURE_COLORS["candidate"] if active else NATURE_COLORS["trend"]
     for i, (x, y, txt) in enumerate(boxes):
         ax.add_patch(Rectangle((x, y), 1.5, 1.2, fc="#f8fafc", ec=color, lw=1.4, zorder=2))
-        ax.text(x + 0.75, y + 0.6, txt, ha="center", va="center", fontsize=8, color=NATURE_COLORS["text"])
+        ax.text(x + 0.75, y + 0.6, txt, ha="center", va="center", fontsize=NATURE_TYPE["tick"], color=NATURE_COLORS["text"])
         if i < len(boxes) - 1:
             ax.annotate(
                 "",
@@ -998,11 +1058,11 @@ def _plot_pinn_workflow_schematic(ax, *, active: bool) -> None:
         "Phase 1: static PINN proxy (CalculiX / analytical labels)\nDoes not replace Zwind time-domain or CCS review",
         ha="center",
         va="top",
-        fontsize=9,
+        fontsize=NATURE_TYPE["note"],
         color="#64748b",
     )
     title = "Physics-informed neural surrogate — active" if active else "Physics-informed neural surrogate — not engaged"
-    ax.set_title(title, fontsize=11, fontweight="600", color=NATURE_COLORS["text"], pad=8)
+    ax.set_title(title, fontsize=NATURE_TYPE["subtitle"], fontweight="600", color=NATURE_COLORS["text"], pad=10)
 
 
 def plot_surrogate_pinn(score: ValidationScore, out_dir: Path) -> list[str]:

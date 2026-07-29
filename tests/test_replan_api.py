@@ -40,3 +40,40 @@ def test_case_demos():
         r = client.post(f"/api/replan/cases/{cid}/demo")
         assert r.status_code == 200, r.text
         assert r.json()["ok"] is True
+
+
+def test_replan_resume_mesh_and_beso():
+    r = client.post(
+        "/api/replan/resume",
+        json={
+            "target": "mesh",
+            "theta_after": {"characteristic_length_max": 1.8},
+            "session_id": "sess-demo",
+            "design_checklist_id": None,
+        },
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["target"] == "mesh"
+    assert data["mesh_body"]["characteristic_length_max"] == 1.8
+
+    b = client.post(
+        "/api/replan/resume",
+        json={
+            "target": "beso",
+            "theta_after": {"mass_goal_ratio": 0.4, "filter_radius": 2.0},
+            "scan_dir": "runs/demo",
+            "mass_goal_ratio": 0.4,
+        },
+    )
+    assert b.status_code == 200, b.text
+    chat = b.json()["chat_body"]
+    assert chat["auto_start"] is True
+    assert chat["mass_goal_ratio"] == 0.4
+
+
+def test_workflow_can_advance_empty_task():
+    r = client.get("/api/workflow/can-advance", params={"task_id": "task-test-1", "transition": "phase_ii_finalize"})
+    assert r.status_code == 200, r.text
+    assert "verdict" in r.json()
+

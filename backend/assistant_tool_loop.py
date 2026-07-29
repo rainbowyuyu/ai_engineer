@@ -15,6 +15,8 @@ from backend.oc4_design_domain_agent import (
 )
 from backend.qwen_client import QwenClient
 from backend.tools.cad_skill_runner import cad_skill_help_text, run_step_on_generator
+from backend.tools.cad_drawing_pack import build_cad_drawing_pack
+from backend.tools.inp_design_deliverables import build_inp_design_deliverables
 from backend.tools.freecad_cad_convert import (
     cad_convert_to_runs_subdir,
     path_under_workspace,
@@ -54,6 +56,31 @@ _ASSISTANT_TOOLS_BLOCK = (
     "6) open_cad_explorer — arguments: "
     '{"file": string | null（可选，工作区相对路径的 .step/.stp，如 third_party/text-to-cad/STEP/demo_mounting_plate.step）}；'
     "登记由浏览器打开内嵌 **CAD Explorer** 新标签页（本站点 /cad-explorer/）。\n"
+    "7) cad_drawing_pack — arguments: "
+    '{"input_path": string | null（工作区内 INP/IGES/STEP/STL/OBJ/VTK）, '
+    '"file_id": string | null（上传文件 id，与 input_path 二选一）, '
+    '"title": string | null, '
+    '"engine": "auto"|"freecad"|"mesh"（默认 auto：STEP/IGES/STL 优先线框）, '
+    '"sheet_size": "A3"|"A1"|"A0"（默认 A3 横幅）, '
+    '"layout": "ga"|"quad"（默认 ga=总布置式大俯视；quad=四等分）}；'
+    "生成「AI Engineer」国标风格总布置式工程图 PNG+PDF（及 SVG 线框）；底层可用 FreeCAD（D:\\\\freecad 或 FREECAD_CMD）或网格引擎；"
+    "输出于 runs/_cad_drawings/<id>/。"
+    "用户说「画图/工程图/图纸/出图/三视图/总布置」且已上传或给出 CAD/INP 路径时，**必须**调用本工具；"
+    "final_reply 说明引擎、比例与非审图免责声明，图面品牌为 AI Engineer。\n"
+    "8) export_design_deliverables — arguments: "
+    '{"input_path": string（工作区内 .inp，如 BESO 结果 file051_state1.inp）}；'
+    "从 INP 的 design_space（或首个 C3D4 块）导出四件套："
+    "design_space_preview.png、design_space_nodes.csv、design_space_elements.csv、design_space_surface.stl，"
+    "写入 runs/_deliverables/<pack_id>/。"
+    "final_reply 中表格链接必须使用工具返回的 files 内完整 URL（以 /runs/ 开头），勿只写裸文件名。\n"
+    "9) get_design_checklist — arguments: "
+    '{"checklist_id": string | null（省略则用会话绑定的 design_checklist_id）}；'
+    "读取 Phase I 设计清单摘要与待确认项。\n"
+    "10) update_design_checklist — arguments: "
+    '{"reply": string（用户修订原文，如「钢耗改为 280 t/MW，水深 55」）, '
+    '"checklist_id": string | null, '
+    '"mode": "edit"|"clarify"（默认 edit）}；'
+    "按答复写回同一清单；用户要改已锁定参数时**必须**调用本工具，并在 final_reply 复述更新字段。\n"
     "路径必须真实且位于工作区内；不要编造路径。若用户仅咨询概念、不需要操作文件，直接用 final_reply。"
 )
 
@@ -78,7 +105,7 @@ _JSON_REPAIR = (
     '- "thought": string（可简短中文）；\n'
     '- 要么 "tool": {"name": string, "arguments": object}，\n'
     '- 要么 "final_reply": string（直接回答用户）。\n'
-    "可调用工具名：cad_convert, open_results_viewer, list_scan_dir, cad_skill_help, cad_skill_step, open_cad_explorer。"
+    "可调用工具名：cad_convert, open_results_viewer, list_scan_dir, cad_skill_help, cad_skill_step, open_cad_explorer, cad_drawing_pack, export_design_deliverables。"
 )
 
 
@@ -121,6 +148,7 @@ def _run_assistant_tool(
     workspace_root: Path,
     runs_root: Path,
     client_actions: list[dict[str, Any]],
+    design_checklist_id: str | None = None,
 ) -> tuple[bool, str, dict[str, Any]]:
     args = args if isinstance(args, dict) else {}
     try:
@@ -186,6 +214,168 @@ def _run_assistant_tool(
             client_actions.append({"type": "open_cad_explorer", "file": rel})
             return True, "已登记打开 CAD Explorer（前端将打开新标签页）", {"file": rel or None}
 
+        if name == "cad_drawing_pack":
+            raw = str(args.get("input_path") or args.get("path") or "").strip()
+            fid = str(args.get("file_id") or "").strip() or None
+            if not raw and not fid:
+                return False, "须提供 input_path 或 file_id", {}
+            title_raw = args.get("title")
+            title = str(title_raw).strip() if isinstance(title_raw, str) and title_raw.strip() else None
+            eng = str(args.get("engine") or "auto").strip().lower() or "auto"
+            if eng not in ("auto", "freecad", "mesh"):
+                eng = "auto"
+            sheet_size = str(args.get("sheet_size") or "A3").strip().upper() or "A3"
+            if sheet_size not in ("A3", "A1", "A0"):
+                sheet_size = "A3"
+            layout = str(args.get("layout") or "ga").strip().lower() or "ga"
+            if layout not in ("ga", "quad"):
+                layout = "ga"
+            data = build_cad_drawing_pack(
+                raw or None,
+                file_id=fid,
+                workspace_root=workspace_root,
+                title=title,
+                engine=eng,
+                sheet_size=sheet_size,
+                layout=layout,
+            )
+            client_actions.append(
+                {
+                    "type": "show_cad_drawing",
+                    "sheet_url": data.get("sheet_url"),
+                    "pdf_url": data.get("pdf_url"),
+                    "manifest_url": data.get("manifest_url"),
+                    "source_path": data.get("source_path"),
+                    "drawing_id": data.get("drawing_id"),
+                    "engine": data.get("engine"),
+                    "view_svgs": data.get("view_svgs"),
+                    "sheet_size": data.get("sheet_size"),
+                    "layout": data.get("layout"),
+                    "scale": data.get("scale"),
+                    "pack": data.get("pack"),
+                }
+            )
+            return (
+                True,
+                f"已生成工程图（{data.get('engine') or 'mesh'} · {data.get('scale') or ''}）· {data.get('source_path') or raw or fid}",
+                {
+                    "source_path": data.get("source_path"),
+                    "drawing_id": data.get("drawing_id"),
+                    "sheet_url": data.get("sheet_url"),
+                    "pdf_url": data.get("pdf_url"),
+                    "manifest_url": data.get("manifest_url"),
+                    "engine": data.get("engine"),
+                    "view_svgs": data.get("view_svgs"),
+                    "sheet_size": data.get("sheet_size"),
+                    "layout": data.get("layout"),
+                    "scale": data.get("scale"),
+                    "pack": data.get("pack"),
+                },
+            )
+
+        if name == "export_design_deliverables":
+            raw = str(args.get("input_path") or args.get("path") or args.get("inp_path") or "").strip()
+            if not raw:
+                return False, "input_path 不能为空", {}
+            data = build_inp_design_deliverables(
+                raw,
+                workspace_root=workspace_root,
+                runs_root=runs_root,
+            )
+            files = data.get("files") if isinstance(data.get("files"), dict) else {}
+            client_actions.append(
+                {
+                    "type": "show_deliverables",
+                    "pack_id": data.get("pack_id"),
+                    "base_url": data.get("base_url"),
+                    "files": files,
+                    "source_path": data.get("source_path"),
+                }
+            )
+            return True, f"已导出 design_space 交付物 · {data.get('source_path') or raw}", data
+
+        if name == "get_design_checklist":
+            from backend.design_requirements.clarifications import (
+                build_pending_clarifications,
+                checklist_context_block,
+            )
+            from backend.design_requirements.paths import load_checklist
+
+            cid = str(args.get("checklist_id") or design_checklist_id or "").strip()
+            if not cid:
+                return False, "须提供 checklist_id 或会话已绑定设计清单", {}
+            cl = load_checklist(cid)
+            if cl is None:
+                return False, f"设计清单不存在: {cid}", {}
+            pending = build_pending_clarifications(cl.meta.source_text, cl)
+            summary = checklist_context_block(cl)
+            return (
+                True,
+                summary[:800],
+                {
+                    "checklist_id": cid,
+                    "context_summary": summary,
+                    "pending_clarifications": pending,
+                    "clarification_complete": len(pending) == 0,
+                },
+            )
+
+        if name == "update_design_checklist":
+            from backend.design_requirements.clarifications import (
+                apply_clarification_reply,
+                build_pending_clarifications,
+                checklist_context_block,
+            )
+            from backend.design_requirements.markdown import checklist_to_markdown
+            from backend.design_requirements.paths import load_checklist, save_checklist
+
+            cid = str(args.get("checklist_id") or design_checklist_id or "").strip()
+            reply = str(args.get("reply") or args.get("text") or "").strip()
+            mode = str(args.get("mode") or "edit").strip().lower() or "edit"
+            if mode not in ("edit", "clarify"):
+                mode = "edit"
+            if not cid:
+                return False, "须提供 checklist_id 或会话已绑定设计清单", {}
+            if not reply:
+                return False, "reply 不能为空", {}
+            cl = load_checklist(cid)
+            if cl is None:
+                return False, f"设计清单不存在: {cid}", {}
+            pending_ids = (
+                [p["field_id"] for p in build_pending_clarifications(cl.meta.source_text, cl)]
+                if mode == "clarify"
+                else []
+            )
+            updated, _, remaining, updated_fields = apply_clarification_reply(
+                cl, reply, pending_field_ids=pending_ids, mode=mode
+            )
+            if mode == "edit" and not updated_fields:
+                return False, "未识别到可更新字段；请写明数值如「钢耗 280 t/MW」", {}
+            md = checklist_to_markdown(updated)
+            save_checklist(updated, markdown=md)
+            client_actions.append(
+                {
+                    "type": "refresh_design_checklist",
+                    "checklist_id": cid,
+                    "checklist": updated.model_dump(mode="json"),
+                    "pending_clarifications": remaining,
+                    "clarification_complete": len(remaining) == 0,
+                    "updated_fields": updated_fields,
+                    "context_summary": checklist_context_block(updated),
+                }
+            )
+            names = ", ".join(u["field_id"] for u in updated_fields) or "—"
+            return (
+                True,
+                f"已更新设计清单字段: {names}",
+                {
+                    "checklist_id": cid,
+                    "updated_fields": updated_fields,
+                    "context_summary": checklist_context_block(updated),
+                    "clarification_complete": len(remaining) == 0,
+                },
+            )
+
         return False, f"未知工具: {name}", {}
     except Exception as e:
         logger.info("assistant tool %s failed: %s", name, e)
@@ -197,7 +387,18 @@ def _artifacts_from_tool_extra(extra: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     if not isinstance(extra, dict):
         return out
-    for key in ("step_path", "output_path", "runs_url", "scan_dir", "file"):
+    for key in (
+        "step_path",
+        "output_path",
+        "runs_url",
+        "scan_dir",
+        "file",
+        "sheet_url",
+        "pdf_url",
+        "manifest_url",
+        "source_path",
+        "drawing_id",
+    ):
         v = extra.get(key)
         if isinstance(v, str) and v.strip():
             out.append({"kind": key, "path": v.strip()[:4000]})
@@ -211,6 +412,7 @@ def iter_assistant_tool_loop_events(
     temperature: float,
     workspace_root: Path,
     runs_root: Path,
+    design_checklist_id: str | None = None,
 ):
     """
     以 dict 事件序列驱动 SSE：思考（thought）、工具起止、最终正文分块（delta）、结束（done）。
@@ -303,6 +505,7 @@ def iter_assistant_tool_loop_events(
             workspace_root=workspace_root,
             runs_root=runs_root,
             client_actions=client_actions,
+            design_checklist_id=design_checklist_id,
         )
         arg_snip = json.dumps(targs, ensure_ascii=False)[:800]
         ex = extra if isinstance(extra, dict) else {}
@@ -347,6 +550,7 @@ def run_assistant_tool_loop(
     temperature: float,
     workspace_root: Path,
     runs_root: Path,
+    design_checklist_id: str | None = None,
 ) -> AssistantToolLoopResult:
     client_actions: list[dict[str, Any]] = []
     tool_trace: list[dict[str, Any]] = []
@@ -406,6 +610,7 @@ def run_assistant_tool_loop(
             workspace_root=workspace_root,
             runs_root=runs_root,
             client_actions=client_actions,
+            design_checklist_id=design_checklist_id,
         )
         arg_snip = json.dumps(targs, ensure_ascii=False)[:800]
         ex_loop = extra if isinstance(extra, dict) else {}

@@ -13,7 +13,7 @@
 |------|------|
 | **拓扑优化任务** | `POST /api/chat` 创建 Job；`POST /api/jobs/{id}/start` 启动；`GET /ws/jobs/{id}` 订阅日志与产物事件。支持 `inp_path`、`file_id` 或 **`scan_dir` 扫描目录**（多文件合并/生成代码见 `backend/generator`）。 |
 | **自然语言参数** | 配置 `QWEN_API_KEY` 时，`backend.agent.decide_params` 可从用户描述中抽取 `mass_goal_ratio`、`filter_radius`、`optimization_base`（`failure_index` / `stiffness`）、`save_every` 等；未配置时使用内置默认。 |
-| **通用助手** | `POST /api/assistant/chat`、流式 `/api/assistant/chat/stream`；**工具模式** `tools_enabled=true`（及 `/api/assistant/chat/stream-tools`）：`cad_convert`、`open_results_viewer`、`list_scan_dir`、`cad_skill_help`、`cad_skill_step`、`open_cad_explorer` 等。支持深度思考、联网摘要（DuckDuckGo Instant Answer，仅供参考）。 |
+| **通用助手** | `POST /api/assistant/chat`、流式 `/api/assistant/chat/stream`；**工具模式** `tools_enabled=true`（及 `/api/assistant/chat/stream-tools`）：`cad_convert`、`cad_drawing_pack`、`open_results_viewer`、`list_scan_dir`、`cad_skill_help`、`cad_skill_step`、`open_cad_explorer` 等。支持深度思考、联网摘要（DuckDuckGo Instant Answer，仅供参考）。 |
 | **文件与 CAD** | `POST /api/files/upload`（体量上限见 **`MAX_UPLOAD_BYTES`**，默认 256MB）；IGES 目录异步转换 `POST /api/cad/convert-iges`；工作区内格式转换 `POST /api/tools/cad-convert`（FreeCAD）。 |
 | **网格预览** | `POST /api/preview/inp-mesh-vtk`：将主网格 INP 转为 VTK Legacy ASCII（FreeCAD FEM），供前端三维预览（单文件约 80MB 上限）。 |
 | **OC4 设计域** | 前缀 **`/api/oc4/design-domain`**：上传会话、几何构建、OBJ 预览、网格、载荷划分、与设计域智能体流式对话等（详见 `backend/routes/oc4_design_domain_api.py`；方法论上下文见 `backend/oc4_methodology_chen2026.py`）。 |

@@ -42,7 +42,7 @@ function streamUnits(text) {
 async function streamTextInto(el, text, opts = {}) {
   if (!el) return;
   const instant = Boolean(opts.instant);
-  const cps = Number(opts.cps) || 28; // chars per second (slower = clearer)
+  const cps = Number(opts.cps) || 42; // chars per second（略快仍可读）
   const chunk = Math.max(1, Number(opts.chunk) || 1);
   const units = streamUnits(text);
   if (instant || !units.length) {
@@ -53,7 +53,7 @@ async function streamTextInto(el, text, opts = {}) {
   el.classList.add("rpStreamCaret");
   el.textContent = "";
   let buf = "";
-  const tickMs = Math.max(22, Math.round(1000 / cps));
+  const tickMs = Math.max(12, Math.round(1000 / cps));
   for (let i = 0; i < units.length; i += chunk) {
     buf += units.slice(i, i + chunk).join("");
     el.textContent = buf;
@@ -135,18 +135,18 @@ async function streamStepCard(node, step, opts = {}) {
 
   // subtitle first (quick)
   if (sub) {
-    await streamTextInto(sub, step.subtitle || "", { cps: 36, chunk: 2, onTick });
-    await sleep(180);
+    await streamTextInto(sub, step.subtitle || "", { cps: 52, chunk: 2, onTick });
+    await sleep(80);
   }
   // title
   if (title) {
-    await streamTextInto(title, step.title || "", { cps: 22, chunk: 1, onTick });
-    await sleep(280);
+    await streamTextInto(title, step.title || "", { cps: 38, chunk: 1, onTick });
+    await sleep(110);
   }
-  // body — slowest, so users can read the diagnosis
+  // body — 略快于原节奏，仍保留可读性
   if (body) {
-    await streamTextInto(body, step.body || "", { cps: 18, chunk: 1, onTick });
-    await sleep(320);
+    await streamTextInto(body, step.body || "", { cps: 34, chunk: 2, onTick });
+    await sleep(140);
   }
 
   // metrics pills one-by-one
@@ -159,7 +159,7 @@ async function streamStepCard(node, step, opts = {}) {
       span.innerHTML = `<em>${esc(k)}</em>${esc(v)}`;
       metricsEl.appendChild(span);
       onTick?.();
-      await sleep(260);
+      await sleep(110);
     }
   }
 
@@ -171,8 +171,8 @@ async function streamStepCard(node, step, opts = {}) {
       const li = document.createElement("li");
       li.className = "rpThetaItem--in";
       thetaEl.appendChild(li);
-      await streamTextInto(li, t, { cps: 20, chunk: 1, onTick });
-      await sleep(200);
+      await streamTextInto(li, t, { cps: 36, chunk: 2, onTick });
+      await sleep(90);
     }
   }
 }
@@ -213,6 +213,7 @@ export function playReplanJourney(hostEl, data, opts = {}) {
 
   const onResume = typeof opts.onResume === "function" ? opts.onResume : null;
   const onComplete = typeof opts.onComplete === "function" ? opts.onComplete : null;
+  const onStep = typeof opts.onStep === "function" ? opts.onStep : null;
   const instant = Boolean(opts.instant);
   const reduceMotion =
     typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -232,18 +233,23 @@ export function playReplanJourney(hostEl, data, opts = {}) {
       node.classList.remove("rpStep--pending");
       node.classList.add("rpStep--active");
       scrollJourneyIntoView(root);
+      try {
+        onStep?.(step, i, steps.length);
+      } catch {
+        /* ignore */
+      }
 
       await streamStepCard(node, step, {
         instant: skipStream,
         onTick: () => scrollJourneyIntoView(root),
       });
 
-      // hold so user can finish reading before next step
-      const hold = skipStream ? 40 : Math.max(900, Number(step.delay_ms) || 1400);
+      // hold so user can finish reading before next step（约 0.6× 原节奏）
+      const hold = skipStream ? 40 : Math.max(420, Number(step.delay_ms) || 720);
       await sleep(hold);
       node.classList.remove("rpStep--active");
       node.classList.add("rpStep--done");
-      if (!skipStream) await sleep(280);
+      if (!skipStream) await sleep(120);
     }
 
     const resume = data.resume || steps[steps.length - 1]?.resume || {};
@@ -254,8 +260,8 @@ export function playReplanJourney(hostEl, data, opts = {}) {
           hint.textContent = resume.hint || "流程已可继续。";
         } else {
           await streamTextInto(hint, resume.hint || "流程已可继续。", {
-            cps: 24,
-            chunk: 1,
+            cps: 40,
+            chunk: 2,
             onTick: () => scrollJourneyIntoView(root),
           });
         }
@@ -323,4 +329,89 @@ export function replanDataToJourneyPayload(data) {
     journeyData: norm,
     isJourney: true,
   };
+}
+
+/**
+ * Modal popup that plays the guided replan journey animation.
+ * @returns {{ root: HTMLElement, done: Promise<void>, close: () => void } | null}
+ */
+export function openReplanJourneyModal(raw, opts = {}) {
+  const data = normalizeReplanJourneyData(raw);
+  if (!data) return null;
+  if (opts.title) data.title = String(opts.title);
+
+  const existing = document.getElementById("replanJourneyLightbox");
+  if (existing) existing.remove();
+
+  const root = document.createElement("div");
+  root.id = "replanJourneyLightbox";
+  root.className = "rpJourneyLb";
+  root.innerHTML = `
+    <div class="rpJourneyLbBackdrop" data-rp-lb="close"></div>
+    <div class="rpJourneyLbPanel" role="dialog" aria-modal="true" aria-labelledby="rpJourneyLbTitle">
+      <header class="rpJourneyLbHead">
+        <div class="rpJourneyLbHeadText">
+          <h2 id="rpJourneyLbTitle" class="rpJourneyLbTitle">${esc(data.title || "失败驱动重规划")}</h2>
+          <p class="rpJourneyLbSub">逐步播放：检测 → 诊断 → 策略 → 重规划 → 恢复</p>
+        </div>
+        <button type="button" class="rpJourneyLbIconBtn" data-rp-lb="close" title="关闭" aria-label="关闭">×</button>
+      </header>
+      <div class="rpJourneyLbStage rpJourneyHost" id="rpJourneyLbStage"></div>
+      <footer class="rpJourneyLbFoot">
+        <button type="button" class="rpJourneyLbBtn" data-rp-lb="close">关闭</button>
+      </footer>
+    </div>
+  `;
+  document.body.appendChild(root);
+  requestAnimationFrame(() => root.classList.add("is-open"));
+
+  const stage = root.querySelector("#rpJourneyLbStage");
+  const card = replanDataToJourneyPayload(data);
+  if (stage) stage.innerHTML = card.html;
+
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    root.classList.remove("is-open");
+    setTimeout(() => root.remove(), 220);
+  };
+
+  root.addEventListener("click", (e) => {
+    const t = e.target?.closest?.("[data-rp-lb]");
+    if (t?.getAttribute("data-rp-lb") === "close") close();
+  });
+
+  const onKey = (e) => {
+    if (e.key === "Escape") {
+      close();
+      window.removeEventListener("keydown", onKey);
+    }
+  };
+  window.addEventListener("keydown", onKey);
+
+  const played = playReplanJourney(stage, data, {
+    baseUrl: opts.baseUrl || "",
+    instant: opts.animate === false,
+    onResume: opts.onResume,
+    onStep: opts.onStep,
+    onComplete: () => {
+      try {
+        opts.onComplete?.(data);
+      } catch {
+        /* ignore */
+      }
+    },
+  });
+
+  const done = Promise.resolve(played?.done)
+    .catch(() => {})
+    .then(async () => {
+      // Keep modal visible briefly so user can read the final step
+      await sleep(Number(opts.holdMs) || 1200);
+      if (!opts.keepOpen) close();
+      window.removeEventListener("keydown", onKey);
+    });
+
+  return { root, done, close, data };
 }

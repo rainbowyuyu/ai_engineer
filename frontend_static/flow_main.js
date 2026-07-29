@@ -14,6 +14,12 @@ import { mountResultsViewer } from "./flow_main.resultsViewer.js";
 import { mountRuntimeConsole } from "./flow_main.runtimeConsole.js";
 import { diffLineStrings, diffHasStructuralChange, diffSummaryCounts, stableSortKeysDeep } from "./flow_main.ddNlUi.js";
 import {
+  extractWorkspaceCadPaths,
+  isCadDrawingFileName,
+  isCadDrawingIntent,
+  requestCadDrawingPack,
+} from "./flow_main.cad_draw.js";
+import {
   buildChecklistCardPayload,
   clarifyDesignChecklist,
   clearChecklistPendingState,
@@ -22,6 +28,7 @@ import {
   getActiveDesignChecklistId,
   getChecklistPendingState,
   isChecklistClarificationReply,
+  isChecklistEditReply,
   parseDesignChecklistFromChat,
   runReplanCaseDemo,
   setActiveDesignChecklistId,
@@ -29,9 +36,11 @@ import {
 } from "./flow_main.design_brief.js";
 import {
   normalizeReplanJourneyData,
+  openReplanJourneyModal,
   playReplanJourney,
   replanDataToJourneyPayload,
 } from "./flow_main.replan_journey.js";
+import { maybeRunBeso7LiveDemo } from "./flow_main.beso7_demo.js";
 
 const $ = (id) => document.getElementById(id);
 const refs = {
@@ -96,6 +105,7 @@ const refs = {
   chatLanding: $("chatLanding"),
   msgLanding: $("msgLanding"),
   landingMain: $("landingMain"),
+  landingComposerDock: $("landingComposerDock"),
   orchestrateMain: $("orchestrateMain"),
   flowMain: $("flowMain"),
   orchestrateStream: $("orchestrateStream"),
@@ -258,6 +268,8 @@ const state = {
   uploadedSourceDir: "",
   ws: null,
   jobId: null,
+  /** 最近一次 export_design_deliverables 的 pack_id，用于解析裸文件名链接 */
+  lastDeliverablesPackId: null,
   step1Ready: false,
   meshReady: false,
   imageCount: 0,
@@ -560,7 +572,12 @@ async function refreshQwenConfigStatus() {
   }
 }
 
-const layout = createLayoutManager({ refs, state });
+const layout = createLayoutManager({
+  refs,
+  state,
+  normalizedBaseUrl,
+  getDownloadContext: () => ({ packId: state.lastDeliverablesPackId || null }),
+});
 (() => {
   const show = layout.showStage.bind(layout);
   layout.showStage = (mode) => {
@@ -932,47 +949,173 @@ function persistReplanSuggestion(data) {
   }
 }
 
-function handleReplanResume(resume, data) {
-  const target = String(resume?.target || "home");
-  persistReplanSuggestion(data);
-  if (target === "mesh") {
-    const cl = Number(
-      data?.theta_after?.characteristic_length_max || data?.result?.theta_after?.characteristic_length_max,
+async function fetchWorkflowCanAdvance(transition) {
+  const tid = String(state.currentTaskId || "").trim();
+  if (!tid) return { ok: true, verdict: { ok: true } };
+  try {
+    const r = await fetch(
+      `${normalizedBaseUrl()}/api/workflow/can-advance?task_id=${encodeURIComponent(tid)}&transition=${encodeURIComponent(transition)}`,
     );
+    return await r.json().catch(() => ({ ok: true }));
+  } catch {
+    return { ok: true };
+  }
+}
+
+async function ensureWorkflowGate(transition, host = "landing") {
+  const data = await fetchWorkflowCanAdvance(transition);
+  if (data.ok !== false && data.verdict?.ok !== false) return true;
+  const reason =
+    data.verdict?.reason || "存在未完成的重规划恢复（ρₚ≠0）。请先完成重规划旅程中的「继续」步骤。";
+  if (host === "design_domain") appendDesignDomainChat("agent", reason);
+  layout.addLandingBubble("agent", reason, { format: "plain" });
+  return false;
+}
+
+async function linkOc4SessionToCurrentTask() {
+  const sid = String(state.oc4DesignDomainSessionId || "").trim();
+  const tid = String(state.currentTaskId || "").trim();
+  if (!sid || !tid) return;
+  const cid = getActiveDesignChecklistId();
+  try {
+    await fetch(`${normalizedBaseUrl()}/api/oc4/design-domain/session/link-task`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: sid,
+        task_id: tid,
+        design_checklist_id: cid || undefined,
+      }),
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
+async function executeReplanResume(resume, data) {
+  const target = String(resume?.target || "home");
+  const theta = data?.theta_after || data?.result?.theta_after || {};
+  const base = normalizedBaseUrl();
+  const checklistId = getActiveDesignChecklistId();
+  const body = {
+    target,
+    theta_after: theta,
+    session_id: state.oc4DesignDomainSessionId || null,
+    scan_dir: state.uploadedSourceDir || null,
+    design_checklist_id: checklistId || null,
+    task_id: state.currentTaskId || null,
+    mass_goal_ratio: Number.isFinite(Number(theta.mass_goal_ratio)) ? Number(theta.mass_goal_ratio) : undefined,
+    filter_radius: Number.isFinite(Number(theta.filter_radius)) ? Number(theta.filter_radius) : undefined,
+  };
+  let plan = null;
+  try {
+    const r = await fetch(`${base}/api/replan/resume`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    plan = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(plan.detail || r.statusText);
+  } catch (e) {
+    layout.addLandingBubble("agent", `重规划继续失败：${e?.message || e}`, { format: "plain" });
+    return;
+  }
+
+  try {
+    await fetch(`${base}/api/workflow/clear-rho?task_id=${encodeURIComponent(String(state.currentTaskId || ""))}`, {
+      method: "POST",
+    });
+  } catch {
+    /* ignore */
+  }
+
+  if (target === "mesh") {
+    const cl = Number(theta.characteristic_length_max);
     if (Number.isFinite(cl) && cl > 0) {
       state.oc4PendingMesh = { ...(state.oc4PendingMesh || {}), characteristic_length_max: cl };
     }
+    const sid = state.oc4DesignDomainSessionId;
+    if (sid && plan?.mesh_body) {
+      layout.addLandingBubble("agent", "正在按重规划建议重新划分体网格…", { format: "plain" });
+      try {
+        const meshBody = { ...plan.mesh_body, session_id: sid };
+        const cid = getActiveDesignChecklistId();
+        if (cid) meshBody.design_checklist_id = cid;
+        const out = await oc4DesignDomainApi("/mesh", meshBody, { timeoutMs: 900000 });
+        await syncDesignDomainSessionProgress().catch(() => {});
+        applyDesignDomainStepUi();
+        if (out?.replan_guided) {
+          presentReplanJourney(out.replan_guided, {
+            animate: true,
+            persist: out?.ok !== false,
+            host: "design_domain",
+          });
+        } else {
+          layout.addLandingBubble("agent", "体网格已按新参数重新划分完成。", { format: "plain" });
+        }
+      } catch (e) {
+        layout.addLandingBubble("agent", `体网格重试失败：${e?.message || e}`, { format: "plain" });
+      }
+      return;
+    }
     if (isOc4IgesFilename(state.currentFileName)) {
-      void openDesignDomainFromLanding({
-        softResume: true,
-        resumeHint: "重规划已就绪：可按更新后的特征尺寸继续体网格。",
-      });
+      await openDesignDomainFromLanding({ softResume: true });
     } else {
       layout.addLandingBubble(
         "agent",
-        "网格恢复路径已就绪。上传 IGES 并进入设计域后，体网格失败时将自动「检测 → 思考 → 重规划 → 重试」。",
+        "网格恢复参数已写入。上传 IGES 并进入设计域后可继续体网格。",
         { format: "plain" },
       );
     }
     return;
   }
+
   if (target === "beso") {
-    const theta = data?.theta_after || data?.result?.theta_after || {};
-    const mg = Number(theta.mass_goal_ratio);
-    const fr = Number(theta.filter_radius);
+    const chatBody = plan?.chat_body || {
+      message: "按重规划建议重跑 BESO",
+      auto_start: true,
+      scan_dir: state.uploadedSourceDir || undefined,
+      design_checklist_id: checklistId || undefined,
+    };
+    if (state.currentTaskId) chatBody.task_id = state.currentTaskId;
+    const mg = Number(chatBody.mass_goal_ratio ?? theta.mass_goal_ratio);
+    const fr = Number(chatBody.filter_radius ?? theta.filter_radius);
     if (Number.isFinite(mg) && mg > 0 && mg < 1 && refs.massGoal) refs.massGoal.value = String(mg);
     if (Number.isFinite(fr) && fr > 0 && refs.filterR) refs.filterR.value = String(fr);
     layout.showStage("orchestrate");
-    const note = `已应用重规划建议（max_iter=${theta.max_iterations ?? "—"}，load_increment=${theta.load_increment ?? "—"}，restart=${theta.restart_increment ?? "—"}）。可在编排页重新启动作业。`;
     try {
-      layout.addBubble?.("agent", note);
-    } catch {
-      layout.addLandingBubble("agent", note, { format: "plain" });
+      const resp = await fetch(`${base}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(chatBody),
+      });
+      const raw = await resp.text();
+      let j = {};
+      try {
+        j = raw ? JSON.parse(raw) : {};
+      } catch {
+        j = {};
+      }
+      if (!resp.ok) {
+        layout.addBubble?.("agent", `启动作业失败：${j.detail || raw}`);
+        return;
+      }
+      state.jobId = j.job_id;
+      refs.jobIdEl && (refs.jobIdEl.textContent = state.jobId);
+      refs.statusEl && (refs.statusEl.textContent = "running");
+      connectWs();
+      layout.addBubble?.(
+        "agent",
+        `已按重规划建议启动作业（max_iter=${theta.max_iterations ?? "—"}，load_increment=${theta.load_increment ?? "—"}）。`,
+      );
+    } catch (e) {
+      layout.addBubble?.("agent", `启动作业失败：${e?.message || e}`);
     }
     return;
   }
+
   if (target === "zwind") {
-    layout.addLandingBubble("agent", "时域校核参数已更新。真实 Zwind 子进程就绪后可直接重跑该阶段。", {
+    layout.addLandingBubble("agent", "时域校核参数已记录（Case3 演示/fixture）。真实 Zwind 子进程不在本轮范围。", {
       format: "plain",
     });
     return;
@@ -984,15 +1127,45 @@ function handleReplanResume(resume, data) {
   }
 }
 
+function handleReplanResume(resume, data) {
+  persistReplanSuggestion(data);
+  void executeReplanResume(resume, data);
+}
+
 /**
  * Present guided replan journey in landing (and optionally design-domain host).
  * @param {object} raw
  * @param {{ animate?: boolean, persist?: boolean, host?: "landing"|"design_domain" }} [opts]
  * @returns {{ data: object, done: Promise<void> } | null}
  */
+function setDdPlanTopicState(topic, mode, label) {
+  ensureDdPlanRailStepsIfEmpty();
+  const ol = refs.ddIdePlanList;
+  if (!ol) return;
+  const t = String(topic || "").trim();
+  if (!t) return;
+  if (label) appendDdPlanRailStep({ topic: t, label: String(label) });
+  ol.querySelectorAll("[data-dd-plan]").forEach((li) => {
+    li.classList.remove("is-active", "is-warn", "is-ok", "is-replan");
+  });
+  const li = ol.querySelector(`[data-dd-plan="${t}"]`);
+  if (!li) return;
+  if (mode === "warn") li.classList.add("is-warn", "is-active", "is-replan");
+  else if (mode === "ok") li.classList.add("is-ok", "is-replan");
+  else if (mode === "active") li.classList.add("is-active", "is-replan");
+  try {
+    li.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  } catch {
+    /* ignore */
+  }
+  const plan = document.getElementById("ddIdePlan");
+  if (plan && plan.tagName === "DETAILS") plan.open = true;
+}
+
 function presentReplanJourney(raw, opts = {}) {
   const data = normalizeReplanJourneyData(raw);
   if (!data) return null;
+  if (opts.title) data.title = String(opts.title);
   persistReplanSuggestion(data);
   const card = replanDataToJourneyPayload(data);
   const animate = opts.animate !== false;
@@ -1000,17 +1173,113 @@ function presentReplanJourney(raw, opts = {}) {
   const tid = String(state.currentTaskId || "").trim();
   /** @type {Promise<void>} */
   let done = Promise.resolve();
+  const onStepExt = typeof opts.onStep === "function" ? opts.onStep : null;
+
+  if (host === "modal") {
+    const modal = openReplanJourneyModal(data, {
+      animate,
+      baseUrl: normalizedBaseUrl(),
+      title: opts.title || data.title,
+      holdMs: opts.holdMs,
+      keepOpen: opts.keepOpen,
+      onResume: (resume, d) => handleReplanResume(resume, d),
+      onStep: onStepExt || undefined,
+      onComplete: opts.onComplete,
+    });
+    done = modal?.done || Promise.resolve();
+    // Optional lightweight persistence without dumping into hidden landing chat
+    if (opts.persist === true && tid) {
+      const hist = {
+        role: "assistant",
+        content: card.plainSummary,
+        format: "checklist",
+        checklist_payload: card,
+        kind: "replan_journey",
+        journey_complete: true,
+        case_id: data.case_id || null,
+      };
+      if (String(state.currentTaskId || "").trim() === tid) {
+        state.assistantThread.push(hist);
+      } else {
+        mergeAssistantMsgIntoBackgroundTask(tid, hist);
+      }
+      persistLandingAssistantThread(tid);
+    }
+    return { data, done, close: modal?.close };
+  }
 
   if (host === "design_domain" && refs.ddAgentRunLog) {
+    // Stay inside design-domain: open Plan, mark mesh step failing, scroll agent log
+    try {
+      ensureDdPlanRailStepsIfEmpty();
+      setDdPlanTopicState(
+        "mesh",
+        "warn",
+        "步骤 3：体网格质量异常（翻转/过低）→ 触发 ρₚ 重规划",
+      );
+      const plan = document.getElementById("ddIdePlan");
+      if (plan && plan.tagName === "DETAILS") plan.open = true;
+      ensureDesignDomainIde()?.setActiveTab?.("preview");
+    } catch {
+      /* ignore */
+    }
     const row = document.createElement("div");
     row.className = "ddAgentLine ddAgentLine--replan rpJourneyHost ddAgentReplanHost";
     row.innerHTML = card.html;
     refs.ddAgentRunLog.appendChild(row);
+    try {
+      row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    } catch {
+      /* ignore */
+    }
     done = playReplanJourney(row, data, {
       baseUrl: normalizedBaseUrl(),
       instant: !animate,
       onResume: (resume, d) => handleReplanResume(resume, d),
+      onStep: (step, i, n) => {
+        const id = String(step?.id || "").toLowerCase();
+        const tone = String(step?.tone || "");
+        if (tone === "warn" || /detect|diagnos|mesh|quality|fail/.test(id)) {
+          setDdPlanTopicState("mesh", "warn");
+        } else if (tone === "ok" || /replan|resume|recover|fix/.test(id)) {
+          setDdPlanTopicState(
+            "mesh",
+            i >= n - 1 ? "ok" : "active",
+            i >= n - 1
+              ? "步骤 3：体网格已按重规划 θ 恢复（ρₚ 闭环）"
+              : undefined,
+          );
+        }
+        try {
+          onStepExt?.(step, i, n);
+        } catch {
+          /* ignore */
+        }
+      },
+      onComplete: () => {
+        setDdPlanTopicState(
+          "mesh",
+          "ok",
+          "步骤 3：体网格已按重规划 θ 恢复（ρₚ 闭环）",
+        );
+        try {
+          opts.onComplete?.(data);
+        } catch {
+          /* ignore */
+        }
+      },
     }).done;
+  } else if (host === "design_domain") {
+    // Agent log unavailable — fall back to landing presentation so journey is still visible
+    const wrap = layout.addLandingReplanJourney(card, { plainSummary: card.plainSummary });
+    if (wrap) {
+      done = playReplanJourney(wrap, data, {
+        baseUrl: normalizedBaseUrl(),
+        instant: !animate,
+        onResume: (resume, d) => handleReplanResume(resume, d),
+        onStep: onStepExt || undefined,
+      }).done;
+    }
   }
 
   if (opts.persist !== false && tid) {
@@ -1410,11 +1679,14 @@ function landingAssistantAttachedFilesPayload(forTaskId) {
 }
 
 function landingAssistantOptionsPayload() {
-  return {
+  const o = {
     deep_think: Boolean(state.landingDeepThink),
     web_search: Boolean(state.landingWebSearch),
     tools_enabled: Boolean(state.landingAssistantTools),
   };
+  const cid = getActiveDesignChecklistId();
+  if (cid) o.design_checklist_id = cid;
+  return o;
 }
 
 function pushAssistantToolTraceCardForTask(taskId, tool_trace) {
@@ -2066,11 +2338,18 @@ async function pollJobSnapshotOnce() {
       if (a.kind === "code" || a.kind === "manifest") enqueueCodeStream(a.name, a.url, (a.meta && a.meta.group) || a.kind);
     });
     checkStep3Ready();
-    if (String(data.status || "").toLowerCase() === "failed" && state.imageCount === 0) {
+    const st = String(data.status || "").toLowerCase();
+    const isDemoSeed =
+      window.__beso7DemoActive ||
+      (state.jobId && window.__beso7DemoSeededJobId && window.__beso7DemoSeededJobId === state.jobId);
+    if (st === "failed" && state.imageCount === 0 && !isDemoSeed) {
       const hint = state.logs.slice(-1)[0] || "";
       showMetricsEmptyState(hint);
     }
-    if (["done", "completed", "failed", "cancelled"].includes(String(data.status || "").toLowerCase())) {
+    if (st === "completed" && state.imageCount === 0) {
+      hydrateDefaultImages().catch(() => {});
+    }
+    if (["done", "completed", "failed", "cancelled"].includes(st)) {
       stopJobPolling();
     }
   } catch {}
@@ -2605,7 +2884,15 @@ function sliceAssistantThreadForApi(maxMsgs = 48, threadSource = null) {
   for (const m of (src || []).slice(-maxMsgs)) {
     const role = String(m?.role || "").trim();
     if (!allowed.has(role)) continue;
-    const content = String(m?.content ?? "").trim();
+    let content = String(m?.content ?? "").trim();
+    // 清单卡片：把摘要上下文带给模型（不仅一行标题）
+    if (m?.format === "checklist" || m?.kind === "design_checklist") {
+      const richer =
+        m?.checklist_payload?.contextSummary ||
+        m?.checklist_payload?.plainSummary ||
+        content;
+      if (richer) content = String(richer).trim();
+    }
     if (!content) continue;
     out.push({ role, content });
   }
@@ -2792,7 +3079,7 @@ async function sendLandingAssistantChat() {
   persistMyTaskIfViewing();
 
   const replanCase = detectReplanDemoIntent(text);
-  if (replanCase) {
+  if (replanCase && !window.__beso7DemoRunning) {
     const thinkingEl = layout.addLandingThinking();
     try {
       const cases = replanCase === "all" ? ["case1", "case2", "case3"] : [replanCase];
@@ -2821,10 +3108,18 @@ async function sendLandingAssistantChat() {
   }
 
   const pendingCl = state.designChecklistPending || getChecklistPendingState();
-  if (isChecklistClarificationReply(text, pendingCl)) {
+  const activeChecklistId = getActiveDesignChecklistId();
+  const clarifying = isChecklistClarificationReply(text, pendingCl);
+  const editingLocked =
+    !clarifying && isChecklistEditReply(text, activeChecklistId || pendingCl?.checklistId);
+  if (clarifying || editingLocked) {
+    const checklistId = clarifying
+      ? pendingCl.checklistId
+      : activeChecklistId || pendingCl?.checklistId;
+    const mode = clarifying ? "clarify" : "edit";
     const thinkingEl = layout.addLandingThinking();
     try {
-      const data = await clarifyDesignChecklist(pendingCl.checklistId, text, normalizedBaseUrl());
+      const data = await clarifyDesignChecklist(checklistId, text, normalizedBaseUrl(), { mode });
       thinkingEl?.remove();
       commitChecklistTurnForTask(myTaskId, data, normalizedBaseUrl());
       persistMyTaskIfViewing();
@@ -2832,7 +3127,10 @@ async function sendLandingAssistantChat() {
       thinkingEl?.remove();
       commitAgentTurnForTask(myTaskId, {
         role: "assistant",
-        content: `澄清失败：${e?.message || e}。请按「水深 50 m，风速 11 m/s」格式回复，或发送「用默认」。`,
+        content:
+          mode === "edit"
+            ? `清单修订失败：${e?.message || e}。请写明数值，例如「钢耗改为 280 t/MW」或「水深 55 m，静倾 4 度」。`
+            : `澄清失败：${e?.message || e}。请按「水深 50 m，风速 11 m/s」格式回复，或发送「用默认」。答复中也可直接改已有项（如钢耗）。`,
         format: "plain",
       });
       persistMyTaskIfViewing();
@@ -2855,6 +3153,48 @@ async function sendLandingAssistantChat() {
       commitAgentTurnForTask(myTaskId, {
         role: "assistant",
         content: `设计清单解析失败：${e?.message || e}`,
+        format: "plain",
+      });
+      persistMyTaskIfViewing();
+    } finally {
+      state.landingAssistantPending = false;
+      syncLandingSendButtonState();
+    }
+    return;
+  }
+
+  const cadPaths = extractWorkspaceCadPaths(text);
+  const hasUploadedCad = isCadDrawingFileName(state.currentFileName);
+  if (isCadDrawingIntent(text, cadPaths, { hasUploadedCad })) {
+    const thinkingEl = layout.addLandingThinking();
+    try {
+      const drawBody = cadPaths[0]
+        ? { path: cadPaths[0], engine: "auto" }
+        : { fileId: String(state.currentFileId || "").trim() || undefined, engine: "auto" };
+      if (!drawBody.path && !drawBody.fileId) {
+        throw new Error("请先上传 INP / STEP / IGES 等文件，或在消息中用 @路径 指定文件");
+      }
+      const data = await requestCadDrawingPack(drawBody, normalizedBaseUrl());
+      thinkingEl?.remove();
+      if (viewingThisTask) layout.addLandingCadDrawingCard?.(data, normalizedBaseUrl());
+      const eng =
+        data?.engine === "freecad"
+          ? "AI Engineer · 线框多视图"
+          : data?.engine === "freecad_mesh"
+            ? "AI Engineer · 网格着色"
+            : "AI Engineer · 网格四视图";
+      const srcLabel = data?.source_path || cadPaths[0] || state.currentFileName || "已上传文件";
+      commitAgentTurnForTask(myTaskId, {
+        role: "assistant",
+        content: `已根据 \`${srcLabel}\` 用 **${eng}** 生成工程图（轴测 / 俯视 / 正视 / 侧视）。点击下图可放大。\n\n图面含外包络尺寸、比例尺与标题栏；此为预览级出图，非 DWG/DXF 审图级交付。`,
+        format: "md",
+      });
+      persistMyTaskIfViewing();
+    } catch (e) {
+      thinkingEl?.remove();
+      commitAgentTurnForTask(myTaskId, {
+        role: "assistant",
+        content: `工程图生成失败：${e?.message || e}。请确认已上传或指定工作区内文件（支持 INP / IGES / STEP / STL / OBJ / VTK），且 FreeCAD 可用（\`D:\\freecad\` 或 \`FREECAD_CMD\`）。`,
         format: "plain",
       });
       persistMyTaskIfViewing();
@@ -3643,6 +3983,9 @@ function appendDesignDomainChatRow(role, text, oc4Idx) {
         row.blur();
       }
     });
+  } else if (role === "agent" || role === "assistant") {
+    row.classList.add("ddMsg--md");
+    row.innerHTML = renderSimpleMd(text);
   } else {
     row.textContent = text;
   }
@@ -4436,6 +4779,7 @@ async function enterOc4DesignDomainStageImpl(opts = {}) {
     layout.showStage("designDomain");
     applyDesignDomainStepUi();
     await deferTwoFrames();
+    void linkOc4SessionToCurrentTask();
     void refreshDesignDomainPreviewsFromSession().catch(() => {});
     const hint = String(resumeHint || "").trim();
     if (hint) appendDesignDomainChat("agent", hint);
@@ -4490,9 +4834,14 @@ async function enterOc4DesignDomainStageImpl(opts = {}) {
         await ensureOc4DesignDomainSessionForResume();
       }
       if (!state.oc4DesignDomainSessionId || forceNewSession) {
-        const sess = await oc4DesignDomainApi("/session", { file_id: state.currentFileId });
+        const sess = await oc4DesignDomainApi("/session", {
+          file_id: state.currentFileId,
+          task_id: state.currentTaskId || undefined,
+          design_checklist_id: getActiveDesignChecklistId() || undefined,
+        });
         state.oc4DesignDomainSessionId = sess.session_id;
         state.oc4DesignDomainSessionIdForResume = state.oc4DesignDomainSessionId;
+        await linkOc4SessionToCurrentTask();
         appendDesignDomainChat("agent", `已创建设计域会话（${sess.session_id.slice(0, 8)}…）。几何摘要已写入服务端。`);
         if (state.currentTaskId) {
           await taskManager.upsertTask({ oc4_design_domain_session_id: state.oc4DesignDomainSessionId }).catch(() => {});
@@ -4506,6 +4855,7 @@ async function enterOc4DesignDomainStageImpl(opts = {}) {
           });
         }
       } else {
+        await linkOc4SessionToCurrentTask();
         appendDesignDomainChat(
           "agent",
           `继续会话 ${state.oc4DesignDomainSessionId.slice(0, 8)}…（已从任务列表恢复，未新建会话）`,
@@ -4513,6 +4863,7 @@ async function enterOc4DesignDomainStageImpl(opts = {}) {
         ensureDdPlanRailStepsIfEmpty();
       }
     } else {
+      await linkOc4SessionToCurrentTask();
       appendDesignDomainChat("agent", `继续会话 ${state.oc4DesignDomainSessionId.slice(0, 8)}…（重新上传文件可开启新会话）`);
       ensureDdPlanRailStepsIfEmpty();
     }
@@ -4599,7 +4950,13 @@ async function goBackToOc4DesignDomainFromPipeline(opts = {}) {
 }
 
 async function beginOrchestrationAfterLanding(opts = {}) {
-  const { skipUserBubble = false, userMessage = "" } = opts;
+  const {
+    skipUserBubble = false,
+    userMessage = "",
+    suppressExecutePrompt = false,
+    taskTitle = "",
+  } = opts;
+  if (!(await ensureWorkflowGate("design_domain_to_orchestrate", "landing"))) return;
   state.oc4OrchestrateShouldRegenerate = false;
   state.currentTaskUiStage = "orchestrate";
   if (!isOc4IgesFilename(state.currentFileName)) state.oc4ActivityLog = [];
@@ -4634,13 +4991,21 @@ async function beginOrchestrationAfterLanding(opts = {}) {
   state.currentTaskStatus = "orchestrating";
   pushOrchestrateWorkflowCardToLandingThread();
   persistLandingAssistantThread();
+  const demoTitle =
+    String(taskTitle || "").trim() ||
+    (window.__beso7DemoActive || /^【全流程演示】/.test(uMsg) ? "全流程演示 · BESO7" : "");
+  const nextTitle =
+    demoTitle ||
+    (uMsg && !/^【全流程演示】/.test(uMsg) && uMsg.length < 48 ? uMsg.slice(0, 80) : "") ||
+    String(refs.msgEl?.value || "").slice(0, 80) ||
+    "构型优化编排";
   await taskManager.upsertTask({
-    title: uMsg.slice(0, 80) || String(refs.msgEl?.value || "").slice(0, 80),
+    title: nextTitle,
     progress: 12,
     step: 1,
     status: "orchestrating",
     ui_stage: "orchestrate",
-    file_name: state.currentFileName,
+    file_name: state.currentFileName || (demoTitle ? "BESO7.FCStd" : undefined),
     scan_dir: state.uploadedSourceDir,
   });
   await taskManager.loadTasks();
@@ -4648,9 +5013,24 @@ async function beginOrchestrationAfterLanding(opts = {}) {
   if (refs.executePlannedTask) refs.executePlannedTask.disabled = true;
   const preambleMd = buildOc4OrchestratePreambleMd();
   layout.streamOrchestration(async () => {
-    if (refs.executePlannedTask) refs.executePlannedTask.disabled = false;
-    layout.addLandingBubble("agent", "构型优化编排完成，点击「执行任务」进入分步执行。");
-    await taskManager.upsertTask({ progress: 20, step: 1, status: "ready_to_execute" });
+    if (suppressExecutePrompt || window.__beso7DemoActive) {
+      if (refs.executePlannedTask) refs.executePlannedTask.disabled = true;
+      layout.addLandingBubble(
+        "agent",
+        "全流程演示将自动种子拓扑回放产物（曲线 / 3D），无需点击「执行任务」。",
+      );
+      await taskManager.upsertTask({
+        title: demoTitle || "全流程演示 · BESO7",
+        progress: 20,
+        step: 1,
+        status: "orchestrating",
+        file_name: state.currentFileName || "BESO7.FCStd",
+      });
+    } else {
+      if (refs.executePlannedTask) refs.executePlannedTask.disabled = false;
+      layout.addLandingBubble("agent", "构型优化编排完成，点击「执行任务」进入分步执行。");
+      await taskManager.upsertTask({ progress: 20, step: 1, status: "ready_to_execute" });
+    }
     await taskManager.loadTasks();
   }, { preambleMd });
 }
@@ -4753,22 +5133,147 @@ function updateStepperClickableState() {
   });
 }
 
+function ensureUploadProgressUi() {
+  let el = document.getElementById("landingUploadProgress");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "landingUploadProgress";
+    el.className = "landingUploadProgress";
+    el.hidden = true;
+    el.setAttribute("role", "status");
+    el.setAttribute("aria-live", "polite");
+    el.innerHTML = `
+      <div class="landingUploadProgressCard">
+        <div class="landingUploadProgressHead">
+          <span class="landingUploadProgressTitle">正在上传</span>
+          <span class="landingUploadProgressPct" id="landingUploadProgressPct">0%</span>
+        </div>
+        <p class="landingUploadProgressName" id="landingUploadProgressName"></p>
+        <div class="landingUploadProgressTrack" aria-hidden="true">
+          <div class="landingUploadProgressFill" id="landingUploadProgressFill"></div>
+        </div>
+        <p class="landingUploadProgressHint" id="landingUploadProgressHint">准备中…</p>
+      </div>`;
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+function showUploadProgress(fileName) {
+  const el = ensureUploadProgressUi();
+  el.hidden = false;
+  el.classList.add("is-visible");
+  const nameEl = document.getElementById("landingUploadProgressName");
+  if (nameEl) nameEl.textContent = fileName || "文件";
+  setUploadProgressPercent(0, "开始上传…");
+}
+
+function setUploadProgressPercent(pct, hint) {
+  const pctEl = document.getElementById("landingUploadProgressPct");
+  const fill = document.getElementById("landingUploadProgressFill");
+  const hintEl = document.getElementById("landingUploadProgressHint");
+  const n = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
+  if (pctEl) pctEl.textContent = `${n}%`;
+  if (fill) {
+    fill.style.width = `${n}%`;
+    fill.classList.toggle("is-indeterminate", false);
+  }
+  if (hintEl && hint != null) hintEl.textContent = hint;
+}
+
+function setUploadProgressBusy(hint) {
+  const fill = document.getElementById("landingUploadProgressFill");
+  const hintEl = document.getElementById("landingUploadProgressHint");
+  const pctEl = document.getElementById("landingUploadProgressPct");
+  if (fill) {
+    fill.style.width = "100%";
+    fill.classList.add("is-indeterminate");
+  }
+  if (pctEl) pctEl.textContent = "…";
+  if (hintEl) hintEl.textContent = hint || "服务器处理中…";
+}
+
+function hideUploadProgress() {
+  const el = document.getElementById("landingUploadProgress");
+  if (!el) return;
+  el.classList.remove("is-visible");
+  window.setTimeout(() => {
+    if (!el.classList.contains("is-visible")) el.hidden = true;
+  }, 280);
+}
+
+function formatUploadBytes(n) {
+  const v = Number(n) || 0;
+  if (v < 1024) return `${v} B`;
+  if (v < 1024 * 1024) return `${(v / 1024).toFixed(1)} KB`;
+  return `${(v / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function uploadFileWithProgress(file) {
+  const url = `${normalizedBaseUrl()}/api/files/upload`;
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.responseType = "text";
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && e.total > 0) {
+        const pct = Math.round((e.loaded / e.total) * 100);
+        setUploadProgressPercent(
+          pct,
+          `已上传 ${formatUploadBytes(e.loaded)} / ${formatUploadBytes(e.total)}`,
+        );
+      } else if (e.loaded > 0) {
+        setUploadProgressPercent(
+          Math.min(95, Math.round((e.loaded / Math.max(file.size || e.loaded, 1)) * 100)),
+          `已上传 ${formatUploadBytes(e.loaded)}`,
+        );
+      }
+    };
+    xhr.upload.onload = () => {
+      setUploadProgressPercent(100, "上传完成，正在登记文件…");
+      setUploadProgressBusy("服务器处理中…");
+    };
+    xhr.onerror = () => reject(new Error("网络错误，上传中断"));
+    xhr.onabort = () => reject(new Error("上传已取消"));
+    xhr.onload = () => {
+      const raw = String(xhr.responseText || "");
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        data = { detail: raw.slice(0, 400) };
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        const msg =
+          typeof data.detail === "string"
+            ? data.detail
+            : Array.isArray(data.detail)
+              ? JSON.stringify(data.detail)
+              : raw.slice(0, 300);
+        reject(new Error(msg || `HTTP ${xhr.status}`));
+        return;
+      }
+      resolve(data);
+    };
+    const fd = new FormData();
+    fd.append("file", file);
+    xhr.send(fd);
+  });
+}
+
 async function uploadSelectedFile(file) {
-  const fd = new FormData();
-  fd.append("file", file);
-  const resp = await fetch(`${normalizedBaseUrl()}/api/files/upload`, { method: "POST", body: fd });
-  const raw = await resp.text();
-  let data = {};
+  showUploadProgress(file?.name || "文件");
+  let data;
   try {
-    data = raw ? JSON.parse(raw) : {};
-  } catch {
-    data = { detail: raw.slice(0, 400) };
+    data = await uploadFileWithProgress(file);
+    setUploadProgressPercent(100, "上传成功");
+  } catch (e) {
+    hideUploadProgress();
+    const msg = e?.message || String(e);
+    layout.addBubble("agent", `上传失败：${msg}`);
+    throw e;
   }
-  if (!resp.ok) {
-    const msg = typeof data.detail === "string" ? data.detail : Array.isArray(data.detail) ? JSON.stringify(data.detail) : raw.slice(0, 300);
-    layout.addBubble("agent", `上传失败（${resp.status}）：${msg || "未知错误"}`);
-    throw new Error(msg || `HTTP ${resp.status}`);
-  }
+  try {
   await ensureLandingTaskForWork();
   const prevFileId = state.currentFileId;
   state.currentFileId = data.file_id;
@@ -4825,6 +5330,9 @@ async function uploadSelectedFile(file) {
     await taskManager.upsertTask({ oc4_design_domain_session_id: "" }).catch(() => {});
   }
   syncLandingHeroVisibility();
+  } finally {
+    hideUploadProgress();
+  }
 }
 
 function firstIgesNameFromScan(data) {
@@ -5435,6 +5943,15 @@ function applyFloatingLogDockPosition(dock) {
 
 function updateLogDockVisibility() {
   if (!refs.logFloatDock) return;
+  // 全流程演示已把任务日志并入右侧窗口总览，永久隐藏原悬浮日志
+  if (
+    refs.logFloatDock.classList.contains("beso7LogDock--suppressed") ||
+    document.getElementById("beso7PanelOverview")
+  ) {
+    refs.logFloatDock.classList.add("hidden");
+    refs.logFloatDock.setAttribute("aria-hidden", "true");
+    return;
+  }
   const inFlowStage = !!refs.flowMain && !refs.flowMain.classList.contains("hidden");
   const jid = String(state.jobId || "").trim();
   /** 仅在拓扑分步流（flow）且已绑定当前 Job 时显示，避免无任务时占位 */
@@ -5706,7 +6223,14 @@ function connectWs() {
         if (a.kind === "image") viewer.upsertImage(a.name, a.url);
       });
       hydrateDefaultImages().catch(() => {});
-      if (String(msg.job.status || "").toLowerCase() === "failed" && state.imageCount === 0) {
+      const isDemoSeed =
+        window.__beso7DemoActive ||
+        (state.jobId && window.__beso7DemoSeededJobId && window.__beso7DemoSeededJobId === state.jobId);
+      if (
+        String(msg.job.status || "").toLowerCase() === "failed" &&
+        state.imageCount === 0 &&
+        !isDemoSeed
+      ) {
         const hint = state.logs.slice(-1)[0] || "";
         showMetricsEmptyState(hint);
       } else {
@@ -5769,6 +6293,39 @@ function connectWs() {
 }
 
 async function createAndRun() {
+  // 全流程演示已种子 BESO7 曲线/3D；禁止再触发 live beso_main（易 CCX exit 1 → 空曲线）
+  const seededId = window.__beso7DemoSeededJobId;
+  if (
+    window.__beso7DemoActive ||
+    seededId === "pending" ||
+    (state.jobId && seededId && seededId === state.jobId)
+  ) {
+    layout.addBubble(
+      "agent",
+      "当前为全流程演示回放任务（曲线与 3D 由演示种子写入）。请勿再次「执行任务」调用 live beso_main；如需真实求解请新建任务。",
+    );
+    return;
+  }
+  // Persist flag from job_context when available
+  if (state.jobId) {
+    try {
+      const r = await fetch(`${normalizedBaseUrl()}/api/jobs/${state.jobId}`, { cache: "no-store" });
+      if (r.ok) {
+        const j = await r.json();
+        const ctx = j.job_context || j.context || {};
+        if (ctx.demo_seeded === true || ctx.demo_case === "beso7_live_pipeline") {
+          window.__beso7DemoSeededJobId = state.jobId;
+          layout.addBubble(
+            "agent",
+            "检测到演示种子任务（demo_seeded）。已阻止 live beso_main，以免覆盖 Mass/FI 曲线。",
+          );
+          return;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
   layout.addBubble("user", refs.msgEl?.value || "");
   const body = { message: refs.msgEl?.value || "", auto_start: true };
   if (refs.scanDirInput?.value.trim()) body.scan_dir = refs.scanDirInput.value.trim();
@@ -5779,6 +6336,7 @@ async function createAndRun() {
   if (topo.filter_radius != null) body.filter_radius = topo.filter_radius;
   const checklistId = getActiveDesignChecklistId();
   if (checklistId) body.design_checklist_id = checklistId;
+  if (state.currentTaskId) body.task_id = state.currentTaskId;
   const resp = await fetch(`${normalizedBaseUrl()}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const rawText = await resp.text();
   let data = {};
@@ -5935,6 +6493,57 @@ refs.startBtn?.addEventListener("click", async () => { if (!state.step1Ready) aw
 refs.cancelBtn?.addEventListener("click", async () => { if (!state.jobId) return; await fetch(`${normalizedBaseUrl()}/api/jobs/${state.jobId}/cancel`, { method: "POST" }); });
 
 refs.pickBtnLanding?.addEventListener("click", () => refs.fileInputLanding?.click());
+
+function setupLandingFileDrop() {
+  let overlay = document.getElementById("landingDropOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "landingDropOverlay";
+    overlay.className = "landingDropOverlay";
+    overlay.hidden = true;
+    overlay.innerHTML =
+      '<div class="landingDropOverlayInner"><span>松开鼠标上传文件</span><p>INP · IGES · STEP · VTK · OBJ</p></div>';
+    document.body.appendChild(overlay);
+  }
+  const zones = [refs.chatLanding, refs.landingComposerDock, refs.landingMain].filter(Boolean);
+  let depth = 0;
+  const show = () => {
+    overlay.hidden = false;
+    overlay.classList.add("is-active");
+  };
+  const hide = () => {
+    depth = 0;
+    overlay.classList.remove("is-active");
+    overlay.hidden = true;
+  };
+  for (const z of zones) {
+    z.addEventListener("dragenter", (e) => {
+      if (!e.dataTransfer?.types?.includes("Files")) return;
+      e.preventDefault();
+      depth += 1;
+      show();
+    });
+    z.addEventListener("dragleave", (e) => {
+      if (!e.dataTransfer?.types?.includes("Files")) return;
+      e.preventDefault();
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) hide();
+    });
+    z.addEventListener("dragover", (e) => {
+      if (!e.dataTransfer?.types?.includes("Files")) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    });
+    z.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      hide();
+      const f = e.dataTransfer?.files?.[0];
+      if (f) await uploadSelectedFile(f);
+    });
+  }
+}
+setupLandingFileDrop();
+
 refs.fileInputLanding?.addEventListener("change", async (e) => {
   const f = e.target.files && e.target.files[0];
   if (!f) return;
@@ -6093,15 +6702,32 @@ refs.ddBtnFinalize?.addEventListener("click", async () => {
       layout.addLandingBubble("agent", tip);
       return;
     }
+    if (!(await ensureWorkflowGate("phase_ii_finalize", "design_domain"))) return;
+    await linkOc4SessionToCurrentTask();
     const data = await oc4DesignDomainApi("/finalize", { session_id: state.oc4DesignDomainSessionId });
     state.uploadedSourceDir = String(data.scan_dir || "").trim();
     if (refs.scanDirInput) refs.scanDirInput.value = state.uploadedSourceDir;
     state.oc4DesignDomainFinalized = true;
     const sidKeep = String(state.oc4DesignDomainSessionId || "").trim();
     state.oc4DesignDomainSessionIdForResume = sidKeep;
+    const bt = data?.beso_theta || {};
+    if (Number.isFinite(Number(bt.mass_goal_ratio)) && refs.massGoal) {
+      refs.massGoal.value = String(bt.mass_goal_ratio);
+    }
+    if (Number.isFinite(Number(bt.filter_radius)) && refs.filterR) {
+      refs.filterR.value = String(bt.filter_radius);
+    }
+    try {
+      persistTopologySettingsImmediate?.();
+    } catch {
+      /* ignore */
+    }
+    const thetaSrc = String(bt.source || "").trim();
     appendDesignDomainChat(
       "agent",
-      `设计域收尾完成。工作目录：${state.uploadedSourceDir || "(未知)"}，随后进入编排流水线。`,
+      `设计域收尾完成。工作目录：${state.uploadedSourceDir || "(未知)"}` +
+        (thetaSrc ? `；BESO θ：${thetaSrc}` : "") +
+        "，随后进入编排流水线。",
     );
     await flushOc4ActivityPersist();
     resetOc4DesignDomainState();
@@ -6523,6 +7149,61 @@ function runAssistantClientActions(client_actions) {
         }
       }
     }
+    if (a?.type === "show_cad_drawing" && a.sheet_url) {
+      try {
+        layout.addLandingCadDrawingCard?.(
+          {
+            sheet_url: a.sheet_url,
+            pdf_url: a.pdf_url,
+            source_path: a.source_path,
+            manifest_url: a.manifest_url,
+            drawing_id: a.drawing_id,
+            engine: a.engine,
+            scale: a.scale,
+            sheet_size: a.sheet_size,
+            layout: a.layout,
+            pack: a.pack,
+          },
+          normalizedBaseUrl(),
+        );
+      } catch (e) {
+        try {
+          layout.addLandingBubble("agent", `工程图预览展示失败：${e?.message || e}`);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    if (a?.type === "refresh_design_checklist" && a.checklist_id) {
+      try {
+        const tid = String(state.currentTaskId || "").trim();
+        if (tid) {
+          commitChecklistTurnForTask(
+            tid,
+            {
+              checklist_id: a.checklist_id,
+              checklist: a.checklist,
+              pending_clarifications: a.pending_clarifications || [],
+              clarification_complete: a.clarification_complete !== false,
+              updated_fields: a.updated_fields || [],
+              context_summary: a.context_summary || "",
+              parser: a.checklist?.meta?.parser || "qwen",
+            },
+            normalizedBaseUrl(),
+          );
+          persistLandingAssistantThread(tid);
+        }
+      } catch (e) {
+        try {
+          layout.addLandingBubble("agent", `刷新设计清单失败：${e?.message || e}`);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    if (a?.type === "show_deliverables" && a.pack_id) {
+      state.lastDeliverablesPackId = String(a.pack_id);
+    }
   }
 }
 
@@ -6552,3 +7233,35 @@ runtimeConsoleCtl = mountRuntimeConsole({
   getCachedTaskItems: () => taskManager?.getCachedTaskItems?.() || [],
   onTrackActivate: ({ id }) => handleConsoleTrackActivate(id),
 });
+
+/** 全流程演示：真实进入设计域/编排并引导大模型 */
+void maybeRunBeso7LiveDemo({
+  baseUrl: normalizedBaseUrl,
+  state,
+  layout,
+  taskManager,
+  refs,
+  commitChecklistTurnForTask,
+  persistLandingAssistantThread,
+  presentReplanJourney,
+  linkOc4SessionToCurrentTask,
+  enterOc4DesignDomainStage,
+  syncDesignDomainSessionProgress,
+  applyDesignDomainStepUi,
+  appendDesignDomainChat,
+  beginOrchestrationAfterLanding,
+  ensureDesignDomainIde,
+  ensureDdPlanRailStepsIfEmpty,
+  get designDomainAgentUi() {
+    return designDomainAgentUi;
+  },
+  sendLandingAssistantChat,
+  persistTopologySettingsImmediate,
+  setSettingsDrawer,
+  syncLandingPendingAttachBar,
+  viewer,
+  connectWs,
+  hydrateDefaultImages,
+  checkStep3Ready,
+  refreshDesignDomainPreviewsFromSession,
+}).catch((e) => console.warn("[beso7-demo]", e));

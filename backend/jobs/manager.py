@@ -483,13 +483,16 @@ class JobManager:
                 logs=combined + "\nconvergence_flag = 1; residual_norm = 1.2e-3",
                 metrics={"convergence_flag": 1, "residual_norm": 1.2e-3},
             )
+        from backend.replan.checklist_bridge import load_checklist_from_run_dir, write_job_context
+
+        checklist = load_checklist_from_run_dir(run_dir)
         theta0 = {
             "max_iterations": 100,
             "load_increment": 0.05,
             "mass_goal_ratio": float(job.mass_goal_ratio),
             "filter_radius": float(job.filter_radius),
         }
-        result = replan_theta(theta0, fb, case_id="solver_live", persist=True)
+        result = replan_theta(theta0, fb, checklist=checklist, case_id="solver_live", persist=True)
         payload = {
             "event_id": result.event.event_id if result.event else None,
             "failure_kind": fb.failure_kind,
@@ -524,6 +527,37 @@ class JobManager:
         payload["title"] = guided.get("title") or "BESO 重规划"
         out_path = run_dir / "replan_suggestion.json"
         out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        if checklist is not None:
+            try:
+                write_job_context(run_dir, design_checklist_id=checklist.meta.checklist_id)
+            except Exception:
+                pass
+        try:
+            from backend.orchestrator.state import mark_rho_pending
+            from backend.replan.checklist_bridge import maybe_commit_live_replan_version
+
+            ctx_path = run_dir / "job_context.json"
+            data: dict[str, Any] = {}
+            if ctx_path.is_file():
+                data = json.loads(ctx_path.read_text(encoding="utf-8"))
+            data["rho_pending"] = 1
+            data["last_replan_event_id"] = payload.get("event_id")
+            ctx_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            tid = str(data.get("task_id") or "").strip()
+            if tid:
+                mark_rho_pending(tid, event_id=payload.get("event_id"))
+                ver = maybe_commit_live_replan_version(
+                    tid,
+                    event_id=payload.get("event_id"),
+                    theta_before=payload.get("theta_before"),
+                    theta_after=payload.get("theta_after"),
+                    message=f"BESO solver live replan · {payload.get('failure_kind')}",
+                    case_id="solver_live",
+                )
+                if ver:
+                    payload["version"] = ver
+        except Exception:
+            pass
         return payload
 
 

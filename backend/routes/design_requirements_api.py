@@ -1,6 +1,8 @@
 """Design requirements API — Phase I NL → design checklist."""
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
@@ -8,6 +10,7 @@ from pydantic import BaseModel, Field
 from backend.design_requirements.clarifications import (
     apply_clarification_reply,
     build_pending_clarifications,
+    checklist_context_block,
     clarification_complete,
 )
 from backend.design_requirements.markdown import checklist_to_markdown
@@ -28,6 +31,7 @@ def _enrich_response(checklist, *, markdown: str | None = None) -> dict:
         "parser": checklist.meta.parser,
         "pending_clarifications": pending,
         "clarification_complete": clarification_complete(pending),
+        "context_summary": checklist_context_block(checklist),
     }
 
 
@@ -38,6 +42,10 @@ class ParseDesignRequirementsRequest(BaseModel):
 
 class ClarifyDesignRequirementsRequest(BaseModel):
     reply: str = Field(..., min_length=1, max_length=8000)
+    mode: Literal["clarify", "edit"] = Field(
+        default="clarify",
+        description="clarify=待确认项+默认；edit=仅按答复中的显式数值修订已锁定清单",
+    )
 
 
 @router.post("/parse")
@@ -64,20 +72,30 @@ def clarify_design_requirements(checklist_id: str, body: ClarifyDesignRequiremen
     cl = load_checklist(checklist_id)
     if cl is None:
         raise HTTPException(status_code=404, detail="设计清单不存在")
+    mode = body.mode or "clarify"
     pending_before = build_pending_clarifications(cl.meta.source_text, cl)
-    pending_ids = [p["field_id"] for p in pending_before]
+    pending_ids = [p["field_id"] for p in pending_before] if mode == "clarify" else []
     try:
-        updated, _, remaining = apply_clarification_reply(
+        updated, _, remaining, updated_fields = apply_clarification_reply(
             cl,
             body.reply,
             pending_field_ids=pending_ids,
+            mode=mode,
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"澄清回复解析失败: {e}") from e
+    if mode == "edit" and not updated_fields:
+        raise HTTPException(
+            status_code=400,
+            detail="未识别到可更新的参数。请写明数值，例如：钢耗改为 280 t/MW；水深 55 m；静倾 4 度",
+        )
     md = checklist_to_markdown(updated)
     save_checklist(updated, markdown=md)
     payload = _enrich_response(updated, markdown=md)
     payload["clarification_reply"] = body.reply
+    payload["mode"] = mode
+    payload["updated_fields"] = updated_fields
+    payload["remaining_pending_count"] = len(remaining)
     return payload
 
 
@@ -86,11 +104,7 @@ def get_design_requirements(checklist_id: str) -> dict:
     cl = load_checklist(checklist_id)
     if cl is None:
         raise HTTPException(status_code=404, detail="设计清单不存在")
-    return {
-        "checklist_id": checklist_id,
-        "checklist": cl.model_dump(mode="json"),
-        "artifact_urls": artifact_urls(checklist_id),
-    }
+    return _enrich_response(cl)
 
 
 @router.get("/{checklist_id}/export/markdown")

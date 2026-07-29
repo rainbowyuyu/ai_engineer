@@ -60,15 +60,31 @@ def main() -> int:
     out_obj.parent.mkdir(parents=True, exist_ok=True)
     linear_deflection = float(cfg.get("linear_deflection", 800.0))
 
-    doc = FreeCAD.newDocument("ExportObj")
+    doc = None
     try:
-        Import.insert(str(cad), doc.Name)
-        doc.recompute()
+        suf = cad.suffix.lower()
+        if suf == ".fcstd":
+            # Native FreeCAD document (e.g. BESO7.FCStd design domain)
+            doc = FreeCAD.openDocument(str(cad))
+            doc_name = doc.Name
+        else:
+            doc = FreeCAD.newDocument("ExportObj")
+            doc_name = doc.Name
+            Import.insert(str(cad), doc.Name)
+            doc.recompute()
         shapes: list = []
         for o in doc.Objects:
             sh = getattr(o, "Shape", None)
-            if sh is not None and not sh.isNull():
+            if sh is None:
+                continue
+            try:
+                if hasattr(sh, "isNull") and sh.isNull():
+                    continue
+                if getattr(sh, "Volume", None) is None and getattr(sh, "Faces", None) is None:
+                    continue
                 shapes.append(sh)
+            except Exception:
+                continue
         if not shapes:
             _die("文档中未找到可三角化的 Shape。")
         if len(shapes) == 1:
@@ -79,7 +95,11 @@ def main() -> int:
         mesh = MeshPart.meshFromShape(Shape=shape, LinearDeflection=linear_deflection)
         mesh.write(str(out_obj))
     finally:
-        FreeCAD.closeDocument(doc.Name)
+        if doc is not None:
+            try:
+                FreeCAD.closeDocument(doc.Name)
+            except Exception:
+                pass
 
     print(f"[OK] {cad.name} -> {out_obj} ({out_obj.stat().st_size} bytes)")
     return 0

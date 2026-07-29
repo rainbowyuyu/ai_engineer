@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>新功能体验中心 — 完整案例演示</title>
+    <link rel="icon" href="./assets/beso-agent-mark.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./flow_main.css" />
+    <link rel="stylesheet" href="./flow_main.demo_hub.css" />
+  </head>
+  <body class="demoHubBody">
+    <div class="demoHubBg" aria-hidden="true"></div>
+
+    <div class="demoHubApp">
+      <header class="demoHubTop">
+        <div class="demoHubBrand">
+          <a href="./index.html" class="demoHubBack" title="返回主页">←</a>
+          <div>
+            <h1 class="demoHubTitle">新功能体验中心</h1>
+            <p class="demoHubSubtitle">可视化演示 · 一键跑通真实后端能力</p>
+          </div>
+        </div>
+        <div class="demoHubTopRight">
+          <span class="demoHubConn" id="demoConn" data-state="unknown">检测连接…</span>
+          <label class="demoHubApiField">
+            <span class="sr-only">API</span>
+            <input id="demoApiBase" type="text" spellcheck="false" placeholder="http://127.0.0.1:8000" />
+          </label>
+          <a class="btn demoHubLinkBtn" href="./index.html">主页工作台</a>
+          <a class="btn demoHubLinkBtn" href="./validation.html" target="_blank" rel="noopener">验证页</a>
+        </div>
+      </header>
+
+      <nav class="demoHubNav" id="demoNav" aria-label="案例导航">
+        <button type="button" class="demoHubNavBtn is-active" data-panel="overview">总览</button>
+        <button type="button" class="demoHubNavBtn" data-panel="case1">案例 1 · 网格重规划</button>
+        <button type="button" class="demoHubNavBtn" data-panel="case2">案例 2 · 求解器重规划</button>
+        <button type="button" class="demoHubNavBtn" data-panel="case3">案例 3 · 验证归档闭环</button>
+        <button type="button" class="demoHubNavBtn" data-panel="case4">案例 4 · 工程图出图</button>
+        <button type="button" class="demoHubNavBtn" data-panel="case5">案例 5 · 文件版本管理</button>
+        <button type="button" class="demoHubNavBtn" data-panel="case6">全流程演示</button>
+      </nav>
+
+      <div class="demoHubLayout demoHubLayout--wide">
+        <main class="demoHubMain">
+          <!-- 总览 -->
+          <section class="demoPanel is-active" id="panel-overview" data-panel="overview">
+            <div class="demoHero">
+              <p class="demoHeroKicker">可视化演示 · 真实 API</p>
+              <h2>完整案例，一眼看懂功能</h2>
+              <p class="demoHeroLead">
+                推荐 <strong>全流程演示</strong>：真实进入主工作台设计域与编排，引导大模型操作；
+                其余案例覆盖重规划、相位闸、终止门、工程图与版本链。
+              </p>
+            </div>
+            <div class="demoCasePickGrid" id="demoCasePickGrid"></div>
+            <div class="demoQuickRow">
+              <label class="demoField">
+                <span>贯穿案例的任务 ID</span>
+                <input id="demoTaskId" type="text" spellcheck="false" />
+              </label>
+              <button type="button" class="btn btnSoft" id="demoNewTaskId">生成新 ID</button>
+              <button type="button" class="btn btnPrimary" id="demoRunAllCases">▶ 连续运行全部案例</button>
+            </div>
+          </section>
+
+          <!-- 案例面板由 JS 注入 -->
+          <div id="demoCasePanelsMount"></div>
+        </main>
+
+        <aside class="demoHubLog" id="demoHubLog" aria-label="API 追踪" hidden>
+          <div class="demoHubLogHead">
+            <span>API 追踪（可选）</span>
+            <button type="button" class="btn btnGhost btnTiny" id="demoClearLog">清空</button>
+          </div>
+          <pre class="demoHubLogBody" id="demoLogBody">// 运行案例后可在此查看原始响应…</pre>
+        </aside>
+      </div>
+    </div>
+
+    <button type="button" class="demoLogToggle" id="demoLogToggle" aria-expanded="false">显示 API 日志</button>
+    <div class="demoToast" id="demoToast" hidden role="status"></div>
+
+    <script type="module" src="./flow_main.demo_hub.js"></script>
+  </body>
+</html>

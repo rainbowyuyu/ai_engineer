@@ -490,16 +490,36 @@ def _run_tool(
             import os
 
             ccx = Path(os.environ.get("CCX_PATH", r"D:\freecad\bin\ccx.exe")).resolve()
+            from backend.replan.checklist_bridge import beso_theta_defaults_from_checklist, load_checklist_from_session
             from backend.tools.inp_oc4_design_nondesign import write_beso_conf_example3_style
 
+            meta_fin = read_session_meta(sdir)
+            task_hint = str(meta_fin.get("task_id") or "").strip()
+            if task_hint:
+                try:
+                    from backend.orchestrator.gates import evaluate_transition
+                    from backend.orchestrator.state import load_workflow_state
+
+                    st = load_workflow_state(task_hint, oc4_session_id=session_id)
+                    verdict = evaluate_transition(st, "phase_ii_finalize")
+                    if not verdict.ok:
+                        return False, verdict.reason or "相位闸阻止 finalize（ρₚ≠0）", {}
+                except Exception:
+                    pass
+            checklist = load_checklist_from_session(sdir)
+            if checklist is None and meta_fin.get("design_checklist_id"):
+                from backend.design_requirements.paths import load_checklist
+
+                checklist = load_checklist(str(meta_fin.get("design_checklist_id")))
+            beso_theta = beso_theta_defaults_from_checklist(checklist)
             write_beso_conf_example3_style(
                 sdir / "beso_conf.py",
                 work_dir=sdir.resolve(),
                 ccx_path=ccx,
                 inp_name="03_for_beso.inp",
-                mass_goal_ratio=0.15,
-                filter_radius=2.0,
-                optimization_base="stiffness",
+                mass_goal_ratio=float(beso_theta["mass_goal_ratio"]),
+                filter_radius=float(beso_theta["filter_radius"]),
+                optimization_base=str(beso_theta["optimization_base"]),
             )
             scan_dir = str(sdir.resolve())
             merge_session_meta(
@@ -507,10 +527,30 @@ def _run_tool(
                 {
                     "scan_dir": scan_dir,
                     "finalized": True,
-                    "beso_defaults_ref": "Chen et al. (2026) Ocean Engineering 347: stiffness TO, mass_goal_ratio=0.15",
+                    "beso_defaults_ref": beso_theta.get("source")
+                    or "Chen et al. (2026) Ocean Engineering 347: stiffness TO, mass_goal_ratio=0.15",
+                    "beso_theta": {
+                        "mass_goal_ratio": beso_theta["mass_goal_ratio"],
+                        "filter_radius": beso_theta["filter_radius"],
+                        "optimization_base": beso_theta["optimization_base"],
+                    },
+                    "design_checklist_id": beso_theta.get("checklist_id") or meta_fin.get("design_checklist_id"),
                 },
             )
-            return True, f"finalize 完成 scan_dir={scan_dir}", {"scan_dir": scan_dir}
+            return (
+                True,
+                f"finalize 完成 scan_dir={scan_dir} · BESO θ from {beso_theta.get('source')}",
+                {
+                    "scan_dir": scan_dir,
+                    "beso_theta": {
+                        "mass_goal_ratio": beso_theta["mass_goal_ratio"],
+                        "filter_radius": beso_theta["filter_radius"],
+                        "optimization_base": beso_theta["optimization_base"],
+                        "source": beso_theta.get("source"),
+                    },
+                    "design_checklist_id": beso_theta.get("checklist_id") or meta_fin.get("design_checklist_id"),
+                },
+            )
         return False, f"未知工具: {name}", {}
     except Exception as e:
         return False, f"{name} 失败: {e}", {}

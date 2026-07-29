@@ -1,5 +1,10 @@
+/**
+ * @file Landing layout / chat bubbles
+ */
+import { handleChatDownloadClick, resolveChatDownloadHref } from "./flow_main.download.js";
+
 export function createLayoutManager(deps) {
-  const { refs, state } = deps;
+  const { refs, state, normalizedBaseUrl, getDownloadContext } = deps;
   const railStops = [refs.railStop1, refs.railStop2, refs.railStop3, refs.railStop4];
   const railConns = [refs.railConn1, refs.railConn2, refs.railConn3];
 
@@ -91,7 +96,19 @@ export function createLayoutManager(deps) {
       escapeHtml(text)
         .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
         .replace(/`([^`]+)`/g, "<code>$1</code>")
-        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, href) => {
+          const ctx = {
+            baseUrl: typeof normalizedBaseUrl === "function" ? normalizedBaseUrl() : "",
+            jobId: state?.jobId || null,
+            scanDir: state?.uploadedSourceDir || "",
+            packId: state?.lastDeliverablesPackId || null,
+            ...(typeof getDownloadContext === "function" ? getDownloadContext() : {}),
+          };
+          const resolved = resolveChatDownloadHref(href, ctx) || href;
+          const safeHref = escapeHtml(resolved);
+          const safeLabel = escapeHtml(label);
+          return `<a class="mdDownloadLink" href="${safeHref}" data-dl-href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${safeLabel}</a>`;
+        });
     const bulletItem = (line) => line.startsWith("- ") || line.startsWith("* ");
     const bulletBody = (line) => (line.startsWith("- ") ? line.slice(2) : line.slice(2));
     const orderedMatch = (line) => line.match(/^(\d+)\.\s(.*)$/);
@@ -310,6 +327,23 @@ export function createLayoutManager(deps) {
     if (landingBubbleActionsWired || !refs.chatLanding) return;
     landingBubbleActionsWired = true;
     refs.chatLanding.addEventListener("click", async (e) => {
+      const mdLink = e.target.closest?.(".bubbleText--md a[href], .mdTable a[href]");
+      if (mdLink && refs.chatLanding.contains(mdLink)) {
+        const ctx = {
+          baseUrl: typeof normalizedBaseUrl === "function" ? normalizedBaseUrl() : "",
+          jobId: state?.jobId || null,
+          scanDir: state?.uploadedSourceDir || "",
+          packId: state?.lastDeliverablesPackId || null,
+          ...(typeof getDownloadContext === "function" ? getDownloadContext() : {}),
+        };
+        try {
+          const handled = await handleChatDownloadClick(e, ctx);
+          if (handled) return;
+        } catch (err) {
+          addLandingBubble("agent", `下载失败：${err?.message || err}`);
+          return;
+        }
+      }
       const btn = e.target.closest("[data-bubble-action]");
       if (!btn || !refs.chatLanding.contains(btn)) return;
       const turn = btn.closest(".landingTurn");
@@ -428,7 +462,7 @@ export function createLayoutManager(deps) {
   /**
    * @param {"user"|"agent"} role
    * @param {string} text
-   * @param {{ format?: "plain"|"md"|"checklist"; withToolbar?: boolean; debut?: boolean; checklistHtml?: string }} [opts]
+   * @param {{ format?: "plain"|"md"|"html"|"checklist"; withToolbar?: boolean; debut?: boolean; checklistHtml?: string }} [opts]
    */
   function addLandingBubble(role, text, opts = {}) {
     if (!refs.chatLanding) return;
@@ -442,10 +476,19 @@ export function createLayoutManager(deps) {
     bubble.className = `bubble ${role}`;
     const inner = document.createElement("div");
     const useChecklist = role === "agent" && opts.format === "checklist" && opts.checklistHtml;
-    const useMd = role === "agent" && opts.format === "md";
-    inner.className = useChecklist ? "bubbleText bubbleText--checklist" : useMd ? "bubbleText bubbleText--md" : "bubbleText";
+    const useHtml = opts.format === "html";
+    const useMd = (role === "agent" || role === "user") && opts.format === "md";
+    inner.className = useChecklist
+      ? "bubbleText bubbleText--checklist"
+      : useHtml
+        ? "bubbleText bubbleText--html"
+        : useMd
+          ? "bubbleText bubbleText--md"
+          : "bubbleText";
     if (useChecklist) {
       inner.innerHTML = String(opts.checklistHtml || "");
+    } else if (useHtml) {
+      inner.innerHTML = raw;
     } else if (useMd) {
       inner.innerHTML = renderMd(raw);
     } else {
@@ -882,7 +925,6 @@ export function createLayoutManager(deps) {
     return wrap;
   }
 
-  /** Soft guided replan journey card; returns wrap for playReplanJourney */
   function addLandingReplanJourney(payload, opts = {}) {
     if (!refs.chatLanding) return null;
     wireLandingBubbleActionsOnce();
@@ -904,12 +946,366 @@ export function createLayoutManager(deps) {
     return wrap;
   }
 
+  /** 工程图预览卡片 + 应用内预览窗 */
+  function ensureCadDrawingLightbox() {
+    let root = document.getElementById("cadDrawingLightbox");
+    if (root) return root;
+    root = document.createElement("div");
+    root.id = "cadDrawingLightbox";
+    root.className = "cadDrawLb";
+    root.hidden = true;
+    root.innerHTML = `
+      <div class="cadDrawLbBackdrop" data-cad-lb="close"></div>
+      <div class="cadDrawLbPanel" role="dialog" aria-modal="true" aria-labelledby="cadDrawLbTitle">
+        <header class="cadDrawLbHead">
+          <div class="cadDrawLbHeadText">
+            <h2 id="cadDrawLbTitle" class="cadDrawLbTitle">工程图预览</h2>
+            <p class="cadDrawLbSub" id="cadDrawLbSub"></p>
+          </div>
+          <button type="button" class="cadDrawLbIconBtn" data-cad-lb="close" title="关闭" aria-label="关闭">×</button>
+        </header>
+        <div class="cadDrawLbStage">
+          <img class="cadDrawLbImg" id="cadDrawLbImg" alt="工程图" draggable="false" />
+        </div>
+        <footer class="cadDrawLbFoot">
+          <div class="cadDrawLbZoom">
+            <button type="button" class="cadDrawLbBtn" data-cad-lb="zoom-out" title="缩小">−</button>
+            <button type="button" class="cadDrawLbBtn" data-cad-lb="zoom-reset" title="适应">适应</button>
+            <button type="button" class="cadDrawLbBtn" data-cad-lb="zoom-in" title="放大">+</button>
+          </div>
+          <div class="cadDrawLbActions">
+            <a class="cadDrawLbBtn cadDrawLbBtn--primary" id="cadDrawLbDlPng" download target="_blank" rel="noopener">下载 PNG</a>
+            <a class="cadDrawLbBtn" id="cadDrawLbDlPdf" download target="_blank" rel="noopener" hidden>下载 PDF</a>
+            <a class="cadDrawLbBtn" id="cadDrawLbDlManifest" download target="_blank" rel="noopener" hidden>清单</a>
+            <button type="button" class="cadDrawLbBtn" data-cad-lb="copy" title="复制图片链接">复制链接</button>
+            <button type="button" class="cadDrawLbBtn" data-cad-lb="close">关闭</button>
+          </div>
+        </footer>
+      </div>
+    `;
+    document.body.appendChild(root);
+
+    let scale = 1;
+    const img = () => root.querySelector("#cadDrawLbImg");
+    const applyScale = () => {
+      const el = img();
+      if (el) el.style.transform = `scale(${scale})`;
+    };
+    const close = () => {
+      root.classList.remove("is-open");
+      scale = 1;
+      applyScale();
+      setTimeout(() => {
+        root.hidden = true;
+      }, 220);
+    };
+    root._cadLb = {
+      open(payload) {
+        const title = root.querySelector("#cadDrawLbTitle");
+        const sub = root.querySelector("#cadDrawLbSub");
+        const el = img();
+        const dl = root.querySelector("#cadDrawLbDlPng");
+        const dlPdf = root.querySelector("#cadDrawLbDlPdf");
+        const man = root.querySelector("#cadDrawLbDlManifest");
+        if (title) title.textContent = payload.title || "总布置式工程图（预览）";
+        if (sub) sub.textContent = payload.subtitle || "";
+        if (el) {
+          el.src = payload.src || "";
+          el.style.transform = "scale(1)";
+        }
+        scale = 1;
+        if (dl) {
+          dl.href = payload.src || "#";
+          dl.download = payload.downloadName || "drawing_sheet.png";
+        }
+        if (dlPdf) {
+          if (payload.pdfUrl) {
+            dlPdf.hidden = false;
+            dlPdf.href = payload.pdfUrl;
+            dlPdf.download = payload.pdfDownloadName || "drawing_sheet.pdf";
+          } else {
+            dlPdf.hidden = true;
+          }
+        }
+        if (man) {
+          if (payload.manifestUrl) {
+            man.hidden = false;
+            man.href = payload.manifestUrl;
+            man.download = "pack_manifest.json";
+          } else {
+            man.hidden = true;
+          }
+        }
+        root.hidden = false;
+        requestAnimationFrame(() => root.classList.add("is-open"));
+      },
+      close,
+    };
+    root.addEventListener("click", async (e) => {
+      const act = e.target.closest?.("[data-cad-lb]")?.getAttribute("data-cad-lb");
+      if (!act) return;
+      if (act === "close") {
+        close();
+        return;
+      }
+      if (act === "zoom-in") {
+        scale = Math.min(3, scale + 0.2);
+        applyScale();
+        return;
+      }
+      if (act === "zoom-out") {
+        scale = Math.max(0.4, scale - 0.2);
+        applyScale();
+        return;
+      }
+      if (act === "zoom-reset") {
+        scale = 1;
+        applyScale();
+        return;
+      }
+      if (act === "copy") {
+        const src = img()?.src || "";
+        try {
+          await navigator.clipboard.writeText(src);
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && root.classList.contains("is-open")) close();
+    });
+    return root;
+  }
+
+  function openCadDrawingLightbox(payload) {
+    const root = ensureCadDrawingLightbox();
+    root._cadLb?.open(payload);
+  }
+
+  function addLandingCadDrawingCard(data, baseUrl) {
+    if (!refs.chatLanding) return null;
+    wireLandingBubbleActionsOnce();
+    const base = String(baseUrl || "").replace(/\/$/, "");
+    const wrap = document.createElement("div");
+    wrap.className = "landingTurn landingTurn--agent landingTurn--cadDrawing";
+    const bubble = document.createElement("div");
+    bubble.className = "bubble agent";
+    const inner = document.createElement("div");
+    inner.className = "bubbleText landingCadDrawingCard";
+
+    const stem = `${(data?.pack?.source_name || "drawing").replace(/\.[^.]+$/, "")}_sheet`;
+    const title = document.createElement("div");
+    title.className = "landingCadDrawingTitle";
+    title.textContent = data?.pack?.source_name || "总布置式工程图（预览）";
+    const meta = document.createElement("div");
+    meta.className = "landingCadDrawingMeta";
+    const engRaw = data?.engine || data?.pack?.engine || "";
+    const engLabel =
+      engRaw === "freecad"
+        ? "AI Engineer · 线框轮廓"
+        : engRaw === "freecad_mesh" || engRaw === "mesh"
+          ? "AI Engineer · 轮廓投影"
+          : engRaw
+            ? `AI Engineer · ${engRaw}`
+            : "AI Engineer";
+    const scale = data?.scale || data?.pack?.scale || "";
+    const sheetSize = data?.sheet_size || data?.pack?.sheet_size || "";
+    meta.textContent = [engLabel, scale, sheetSize, data?.source_path || ""].filter(Boolean).join(" · ");
+
+    const sheet = String(data?.sheet_url || "").trim();
+    const sheetUrl = sheet ? (sheet.startsWith("http") ? sheet : `${base}${sheet}`) : "";
+    const pdf = String(data?.pdf_url || data?.pack?.sheet_pdf_url || "").trim();
+    let pdfUrl = "";
+    if (pdf) {
+      pdfUrl = pdf.startsWith("http") ? pdf : `${base}${pdf.startsWith("/") ? pdf : `/${pdf}`}`;
+    } else if (data?.pack?.sheet_pdf && sheetUrl) {
+      pdfUrl = sheetUrl.replace(/drawing_sheet\.png$/i, "drawing_sheet.pdf");
+    }
+    const man = String(data?.manifest_url || "").trim();
+    const manUrl = man ? (man.startsWith("http") ? man : `${base}${man}`) : "";
+
+    const img = document.createElement("img");
+    img.className = "landingCadDrawingImg";
+    img.alt = "总布置式工程图预览";
+    img.loading = "lazy";
+    if (sheetUrl) img.src = sheetUrl;
+
+    const openLb = () => {
+      if (!sheetUrl) return;
+      openCadDrawingLightbox({
+        title: data?.pack?.source_name || "总布置式工程图（预览）",
+        subtitle: [data?.source_path || "", scale, sheetSize].filter(Boolean).join(" · "),
+        src: sheetUrl,
+        pdfUrl,
+        manifestUrl: manUrl,
+        downloadName: `${stem}.png`,
+        pdfDownloadName: `${stem}.pdf`,
+      });
+    };
+    img.addEventListener("click", openLb);
+
+    const actions = document.createElement("div");
+    actions.className = "landingCadDrawingActions";
+    const btnPreview = document.createElement("button");
+    btnPreview.type = "button";
+    btnPreview.className = "landingCadDrawingBtn landingCadDrawingBtn--primary";
+    btnPreview.textContent = "预览";
+    btnPreview.addEventListener("click", openLb);
+    const aDl = document.createElement("a");
+    aDl.className = "landingCadDrawingBtn";
+    aDl.textContent = "下载 PNG";
+    aDl.href = sheetUrl || "#";
+    aDl.download = `${stem}.png`;
+    aDl.target = "_blank";
+    aDl.rel = "noopener";
+    actions.appendChild(btnPreview);
+    actions.appendChild(aDl);
+    if (pdfUrl) {
+      const aPdf = document.createElement("a");
+      aPdf.className = "landingCadDrawingBtn";
+      aPdf.textContent = "下载 PDF";
+      aPdf.href = pdfUrl;
+      aPdf.download = `${stem}.pdf`;
+      aPdf.target = "_blank";
+      aPdf.rel = "noopener";
+      actions.appendChild(aPdf);
+    }
+    if (manUrl) {
+      const aMan = document.createElement("a");
+      aMan.className = "landingCadDrawingBtn";
+      aMan.textContent = "清单";
+      aMan.href = manUrl;
+      aMan.download = "pack_manifest.json";
+      aMan.target = "_blank";
+      aMan.rel = "noopener";
+      actions.appendChild(aMan);
+    }
+
+    const foot = document.createElement("div");
+    foot.className = "landingCadDrawingFoot";
+    foot.textContent = "总布置式预览 · PNG/PDF · 非审图出图";
+
+    inner.appendChild(title);
+    inner.appendChild(meta);
+    inner.appendChild(img);
+    inner.appendChild(actions);
+    inner.appendChild(foot);
+    bubble.appendChild(inner);
+    wrap.appendChild(bubble);
+    refs.chatLanding.appendChild(wrap);
+    refs.chatLanding.scrollTop = refs.chatLanding.scrollHeight;
+    return wrap;
+  }
+
+  /** Phase V · Automated Reviewer — sync rich card to landing homepage */
+  function addLandingValidationCard(data, baseUrl) {
+    if (!refs.chatLanding) return null;
+    wireLandingBubbleActionsOnce();
+    const base = String(baseUrl || "").replace(/\/$/, "");
+    const wrap = document.createElement("div");
+    wrap.className = "landingTurn landingTurn--agent landingTurn--validation";
+    const bubble = document.createElement("div");
+    bubble.className = "bubble agent";
+    const inner = document.createElement("div");
+    inner.className = "bubbleText landingValidationCard";
+
+    const gate = data?.halt_gate || {};
+    const title = document.createElement("div");
+    title.className = "landingValidationTitle";
+    title.textContent = "Phase V · Automated Reviewer 验证";
+    const gateEl = document.createElement("div");
+    gateEl.className = `landingValidationGate ${gate.ok ? "is-pass" : "is-fail"}`;
+    gateEl.innerHTML =
+      `综合分 <strong>S=${data?.overall_score ?? "—"}</strong>` +
+      ` · 等级 <strong>${data?.grade || "—"}</strong>` +
+      ` · 终止门：${gate.ok ? "可终止探索" : gate.reason || "未通过"}`;
+
+    const grid = document.createElement("div");
+    grid.className = "landingValidationGrid";
+    for (const f of (data?.figures || []).slice(0, 4)) {
+      const u = String(f.url || "");
+      if (!u) continue;
+      const src = u.startsWith("http") ? u : `${base}${u}`;
+      const fig = document.createElement("figure");
+      fig.className = "landingValidationFig";
+      const img = document.createElement("img");
+      img.src = src;
+      img.alt = f.label || "验证图";
+      img.loading = "lazy";
+      const cap = document.createElement("figcaption");
+      cap.textContent = f.label || "";
+      fig.appendChild(img);
+      fig.appendChild(cap);
+      grid.appendChild(fig);
+    }
+
+    const foot = document.createElement("div");
+    foot.className = "landingValidationFoot";
+    const links = [];
+    if (data?.report_md_url) {
+      links.push(`<a href="${base}${data.report_md_url}" target="_blank" rel="noopener">validation_report.md</a>`);
+    }
+    if (data?.score_json_url) {
+      links.push(`<a href="${base}${data.score_json_url}" target="_blank" rel="noopener">score.json</a>`);
+    }
+    foot.innerHTML = links.length ? links.join(" · ") : "验证产物已同步至主页";
+
+    inner.appendChild(title);
+    inner.appendChild(gateEl);
+    if (grid.childNodes.length) inner.appendChild(grid);
+    inner.appendChild(foot);
+    bubble.appendChild(inner);
+    wrap.appendChild(bubble);
+    refs.chatLanding.appendChild(wrap);
+    refs.chatLanding.scrollTop = refs.chatLanding.scrollHeight;
+    return wrap;
+  }
+
+  /** Replace existing checklist card in place (avoid duplicate pending/locked cards). */
+  function replaceLandingChecklistCard(data, baseUrl) {
+    if (!refs.chatLanding) return null;
+    const id = String(data?.checklistId || data?.checklist_id || data?.checklist?.meta?.checklist_id || "").trim();
+    const html = data?.html || "";
+    if (!html) return null;
+    let host = null;
+    if (id) {
+      try {
+        host = refs.chatLanding.querySelector(`.dcCard[data-checklist-id="${id.replace(/"/g, "")}"]`);
+      } catch {
+        host = null;
+      }
+      if (!host) {
+        host = refs.chatLanding.querySelector(`.landingTurn--checklist[data-checklist-id="${id.replace(/"/g, "")}"] .dcCard`);
+      }
+    }
+    if (!host) host = refs.chatLanding.querySelector(".landingTurn--checklist .dcCard, .dcCard");
+    if (!host) {
+      return addLandingChecklistCard(data, { plainSummary: data?.plainSummary });
+    }
+    const turn = host.closest(".landingTurn");
+    const bubbleText = turn?.querySelector(".bubbleText") || host.parentElement;
+    if (bubbleText) {
+      bubbleText.innerHTML = html;
+      if (turn) {
+        turn.dataset.rawText = data?.plainSummary || turn.dataset.rawText || "";
+        if (id) turn.dataset.checklistId = id;
+      }
+      refs.chatLanding.scrollTop = refs.chatLanding.scrollHeight;
+      return turn;
+    }
+    return null;
+  }
+
   return {
     setStep,
     addBubble,
     addLandingBubble,
     addLandingChecklistCard,
+    replaceLandingChecklistCard,
     addLandingReplanJourney,
+    addLandingCadDrawingCard,
+    addLandingValidationCard,
     addLandingThinking,
     removeLandingThinking,
     addLandingTyping,

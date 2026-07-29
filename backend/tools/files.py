@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 
-ALLOWED_EXTS = {".inp", ".vtk", ".obj", ".igs", ".iges"}
+ALLOWED_EXTS = {".inp", ".vtk", ".obj", ".igs", ".iges", ".step", ".stp", ".stl"}
 _DEFAULT_MAX_UPLOAD_BYTES = 256 * 1024 * 1024  # 256MB（Gmsh 生成的大 INP 常超过 50MB）
 
 

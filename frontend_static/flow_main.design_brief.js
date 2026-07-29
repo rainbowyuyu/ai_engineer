@@ -76,6 +76,46 @@ export function isChecklistClarificationReply(text, pendingState) {
   return raw.length <= 160;
 }
 
+/** 已锁定清单后：用户要改参数 */
+export function detectChecklistEditIntent(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  if (/修改(设计)?清单|更新(设计)?清单|改(一下|下)?清单|调整清单|修订清单/i.test(raw)) return true;
+  if (/把.{0,16}(改成|改为|改到|调整为)/i.test(raw)) return true;
+  if (/(钢耗|水深|风速|静倾|疲劳|造价|容量|Hs|Tp).{0,20}(改|调|为|=|是)/i.test(raw) && /\d/.test(raw)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 锁定后的参数修订（同一 checklist_id）。
+ * @param {string} text
+ * @param {string} activeChecklistId
+ */
+export function isChecklistEditReply(text, activeChecklistId) {
+  const id = String(activeChecklistId || "").trim();
+  if (!id) return false;
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  if (detectDesignChecklistIntent(raw) && /设计清单|形式化|Phase\s*I/i.test(raw) && raw.length > 40) {
+    return false;
+  }
+  if (/^(开始|运行|进入|打开).{0,16}(编排|优化|设计域|BESO|构型)/i.test(raw) && raw.length < 48) {
+    return false;
+  }
+  if (detectChecklistEditIntent(raw)) return true;
+  // 短句带场址/性能关键词 + 数字，视为修订
+  if (
+    raw.length <= 200 &&
+    /\d/.test(raw) &&
+    /(钢耗|水深|风速|静倾|疲劳|造价|容量|Hs|Tp|t\s*\/\s*MW)/i.test(raw)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function esc(s) {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -196,7 +236,11 @@ export function buildChecklistCardPayload(data, baseUrl) {
     html += `<div class="dcClarify"><div class="dcClarifyTitle">待您确认的参数</div>`;
     html += `<p class="dcClarifyHint">以下参数未在您的描述中出现。请直接回复数值；若暂不确定，可回复「用默认」或「水深不知道，其余默认」。</p><ol class="dcClarifyList">`;
     for (const p of pending.slice(0, 8)) {
-      html += `<li><strong>${esc(p.question)}</strong><span class="dcClarifyDef">建议默认：${esc(p.default_display || p.default_value)}</span></li>`;
+      const fid = esc(p.field_id || "");
+      html += `<li class="dcClarifyItem" data-field-id="${fid}">`;
+      html += `<strong>${esc(p.question)}</strong>`;
+      html += `<span class="dcClarifyDef" data-role="def">建议默认：${esc(p.default_display || p.default_value)}</span>`;
+      html += `</li>`;
     }
     html += `</ol></div>`;
   } else if ((cl.assumptions || []).length) {
@@ -207,11 +251,22 @@ export function buildChecklistCardPayload(data, baseUrl) {
     html += `</ul></div>`;
   }
 
+  const updated = data.updated_fields || [];
+  if (updated.length) {
+    html += `<div class="dcAssumptions"><div class="dcSecTitle">本次已更新</div><ul>`;
+    for (const u of updated.slice(0, 8)) {
+      const lab = u.field_id || "";
+      const val = u.value != null ? `${u.value}${u.unit ? ` ${u.unit}` : ""}` : "—";
+      html += `<li>${esc(lab)} → <strong>${esc(val)}</strong></li>`;
+    }
+    html += `</ul></div>`;
+  }
+
   html += `<div class="dcCardFt">`;
   if (complete && id) {
-    html += `<span class="dcStatus dcStatus--ok">已锁定并带入当前任务 · 后续 BESO / 设计域 / 验证将引用此清单</span>`;
+    html += `<span class="dcStatus dcStatus--ok">已锁定并带入当前任务 · 可随时回复修改，例如「钢耗改为 280 t/MW」或「水深 55，静倾 4」</span>`;
   } else if (id) {
-    html += `<span class="dcStatus dcStatus--pending">清单草稿已保存 · 请回复上方待确认项后自动锁定</span>`;
+    html += `<span class="dcStatus dcStatus--pending">清单草稿已保存 · 请回复上方待确认项；答复中也可直接改已有数值（如钢耗）</span>`;
   }
   if (mdUrl) {
     html += `<a class="dcDlBtn" href="${esc(mdUrl)}" download target="_blank" rel="noopener noreferrer">`;
@@ -220,13 +275,26 @@ export function buildChecklistCardPayload(data, baseUrl) {
   }
   html += `</div></div>`;
 
+  const ctx =
+    data.context_summary ||
+    [
+      `Phase I 设计清单（${parserLabel}）checklist_id=${id}`,
+      `容量=${proj.target_capacity_mw ?? "—"} MW · Hs=${site.Hs_m ?? "—"} m · Tp=${site.Tp_s ?? "—"} s`,
+      `水深=${site.water_depth_m ?? "—"} m · 风速=${site.wind_ref_m_s ?? "—"} m/s`,
+      `钢耗=${perf.steel_intensity_t_per_MW ?? "—"} t/MW · 静倾=${perf.pitch_limit_deg ?? "—"}° · 疲劳=${perf.fatigue_design_life_years ?? "—"} 年`,
+      complete
+        ? "状态：已锁定；用户可自然语言修订参数。"
+        : `状态：待确认 ${pending.length} 项。`,
+    ].join("\n");
+
   return {
     html,
-    plainSummary: `Phase I 设计清单（${parserLabel}）· ${proj.target_capacity_mw ?? "—"} MW · Hs=${site.Hs_m ?? "—"} m`,
+    plainSummary: ctx,
     checklistId: id,
     pending,
     complete,
     mdUrl,
+    contextSummary: ctx,
   };
 }
 
@@ -244,12 +312,19 @@ export async function parseDesignChecklistFromChat(text, baseUrl) {
   return data;
 }
 
-export async function clarifyDesignChecklist(checklistId, reply, baseUrl) {
+/**
+ * @param {string} checklistId
+ * @param {string} reply
+ * @param {string} baseUrl
+ * @param {{ mode?: "clarify"|"edit" }} [opts]
+ */
+export async function clarifyDesignChecklist(checklistId, reply, baseUrl, opts = {}) {
   const base = String(baseUrl || "").replace(/\/+$/, "");
+  const mode = opts.mode === "edit" ? "edit" : "clarify";
   const r = await fetch(`${base}/api/design-requirements/${encodeURIComponent(checklistId)}/clarify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ reply: String(reply || "").trim() }),
+    body: JSON.stringify({ reply: String(reply || "").trim(), mode }),
   });
   const data = await r.json().catch(() => ({}));
   if (!r.ok) {

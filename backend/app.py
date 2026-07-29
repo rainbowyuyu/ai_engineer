@@ -59,6 +59,13 @@ from backend.routes.oc4_design_domain_api import router as oc4_design_domain_rou
 from backend.routes.validation_api import router as validation_router
 from backend.routes.design_requirements_api import router as design_requirements_router
 from backend.routes.replan_api import router as replan_router
+from backend.routes.workflow_api import router as workflow_router
+from backend.routes.audit_api import router as audit_router
+from backend.routes.candidates_api import router as candidates_router
+from backend.routes.cad_drawing_api import router as cad_drawing_router
+from backend.routes.workspace_download_api import router as workspace_download_router
+from backend.routes.versions_api import router as versions_router
+from backend.routes.demo_pipeline_api import router as demo_pipeline_router
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +143,13 @@ app.include_router(oc4_design_domain_router, prefix="/api/oc4/design-domain")
 app.include_router(validation_router, prefix="/api/validation")
 app.include_router(design_requirements_router, prefix="/api/design-requirements")
 app.include_router(replan_router, prefix="/api/replan")
+app.include_router(workflow_router, prefix="/api/workflow")
+app.include_router(audit_router, prefix="/api/audit")
+app.include_router(candidates_router, prefix="/api/candidates")
+app.include_router(cad_drawing_router, prefix="/api/cad")
+app.include_router(workspace_download_router, prefix="/api/workspace")
+app.include_router(versions_router, prefix="/api/versions")
+app.include_router(demo_pipeline_router, prefix="/api/demo")
 
 app.add_middleware(
     CORSMiddleware,
@@ -475,6 +489,7 @@ def assistant_chat(body: AssistantChatRequest):
                 temperature=temp,
                 workspace_root=WORKSPACE_ROOT,
                 runs_root=RUNS_ROOT,
+                design_checklist_id=str(body.design_checklist_id or "").strip() or None,
             )
         except RuntimeError as e:
             raise HTTPException(status_code=503, detail=str(e)) from e
@@ -567,6 +582,14 @@ def _assistant_messages_for_qwen(body: AssistantChatRequest) -> list[dict[str, A
         msgs[0] = {**msgs[0], "content": file_ctx + msgs[0]["content"]}
 
     mode_parts: list[str] = []
+    if body.tools_enabled:
+        mode_parts.append(
+            "【工程图·工具可用】用户要画图/工程图/出图时，调用 cad_drawing_pack："
+            "优先传会话附件 file_id，或工作区 input_path（INP/IGES/STEP/STL）。"
+            "engine 默认 auto（STEP/IGES/STL 走 FreeCAD 线框，INP 走网格）。"
+            "本平台不产出 DWG/DXF/审图级参数化图；产出为 PNG/SVG 预览交付物。"
+            "final_reply 中说明引擎与产物路径。"
+        )
     if body.deep_think:
         mode_parts.append(
             "【深度思考模式·已开启】请采用显式结构：①已知条件与假设 ②分步推理 ③结论与注意事项；"
@@ -589,6 +612,19 @@ def _assistant_messages_for_qwen(body: AssistantChatRequest) -> list[dict[str, A
                 )
         else:
             mode_parts.append("【联网检索】对话中缺少用户文本，已跳过外部摘要。")
+    cid = str(getattr(body, "design_checklist_id", None) or "").strip()
+    if cid:
+        try:
+            from backend.design_requirements.clarifications import checklist_context_block
+            from backend.design_requirements.paths import load_checklist
+
+            cl = load_checklist(cid)
+            block = checklist_context_block(cl)
+            if block:
+                mode_parts.append(block)
+        except Exception:
+            mode_parts.append(f"【设计清单】已绑定 checklist_id={cid}，但读取失败；勿编造清单数值。")
+
     if mode_parts:
         extra = "\n\n".join(mode_parts)
         sys_i = next((i for i, m in enumerate(msgs) if m.get("role") == "system"), None)
@@ -671,6 +707,7 @@ def assistant_chat_stream_tools(body: AssistantChatRequest):
                 temperature=temp,
                 workspace_root=WORKSPACE_ROOT,
                 runs_root=RUNS_ROOT,
+                design_checklist_id=str(body.design_checklist_id or "").strip() or None,
             ):
                 yield "data: " + json.dumps(ev, ensure_ascii=False) + "\n\n"
         except Exception as e:
@@ -817,6 +854,18 @@ def chat(req: ChatRequest):
         generated_code_files=[],
         selected_inputs=None,
     )
+
+    if req.design_checklist_id or req.task_id:
+        try:
+            from backend.replan.checklist_bridge import write_job_context
+
+            write_job_context(
+                Path(job.run_dir),
+                design_checklist_id=req.design_checklist_id,
+                task_id=req.task_id,
+            )
+        except Exception:
+            pass
 
     if bundle is not None:
         ccx_path = Path(os.environ.get("CCX_PATH", r"D:\freecad\bin\ccx.exe")).resolve()

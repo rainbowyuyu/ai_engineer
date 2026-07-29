@@ -20,6 +20,7 @@
         </div>
         <div class="topRight">
           <div class="topUtilityCluster" aria-label="工具">
+            <a class="btn resultsViewerTopBtn" href="./demo_hub.html" title="新功能体验中心">新功能演示</a>
             <a class="btn resultsViewerTopBtn" href="./index.html" title="返回主页工作台">← 主页</a>
             <a class="btn resultsViewerTopBtn" href="./cad_design_studio.html" target="_blank" rel="noopener">CAD 设计台</a>
           </div>
@@ -46,6 +47,8 @@
               autocomplete="off"
               placeholder="例如 rules/optimized_geometry.json"
             />
+            <label class="fieldLabel" for="valTaskId" style="margin-top:10px">任务 ID（可选，用于终止门/归档/候选）</label>
+            <input id="valTaskId" type="text" spellcheck="false" autocomplete="off" placeholder="主页任务 UUID" />
             <div class="valToolbar">
               <label class="valCheck">
                 <input type="checkbox" id="useSurrogate" />
@@ -103,8 +106,22 @@
                 </button>
                 <a id="valReportLink" href="#" target="_blank" rel="noopener">下载 Markdown 报告</a>
                 <a id="valJsonLink" href="#" target="_blank" rel="noopener">validation_score.json</a>
+                <a id="valAuditLink" href="#" target="_blank" rel="noopener" hidden>下载审计清单</a>
               </div>
             </header>
+
+            <div id="valHaltGate" class="valHaltGate" hidden>
+              <div class="valHaltGateInner">
+                <p id="valHaltGateText" class="valHaltGateText"></p>
+                <button type="button" class="btn btnPrimary" id="valHaltArchiveBtn">一键归档</button>
+              </div>
+            </div>
+
+            <aside id="valCandidatesPanel" class="valCandidatesPanel" hidden>
+              <h3 class="fieldLabel">设计候选</h3>
+              <ul id="valCandidatesList" class="valCandidatesList"></ul>
+              <button type="button" class="btn" id="valSelectBestBtn">选最高分候选</button>
+            </aside>
 
             <nav class="valTabs" role="tablist" aria-label="报告视图">
               <button type="button" class="valTab is-active" data-tab="Overview" role="tab" aria-selected="true">总览</button>

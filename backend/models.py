@@ -73,6 +73,7 @@ class ChatRequest(BaseModel):
         default=None,
         description="Phase I 设计清单 ID；若提供则以其 BESO 初值覆盖默认参数",
     )
+    task_id: str | None = Field(default=None, description="主页任务 ID，用于 workflow ρₚ 与审计关联")
 
 
 class ChatResponse(BaseModel):
@@ -110,7 +111,12 @@ class AssistantChatRequest(BaseModel):
     )
     tools_enabled: bool = Field(
         default=False,
-        description="开启后走服务端 JSON 工具循环（cad_convert / open_results_viewer / list_scan_dir / cad_skill_help / cad_skill_step / open_cad_explorer），响应含 client_actions 与 tool_trace",
+        description="开启后走服务端 JSON 工具循环（cad_convert / cad_drawing_pack / open_results_viewer / list_scan_dir / cad_skill_help / cad_skill_step / open_cad_explorer），响应含 client_actions 与 tool_trace",
+    )
+    design_checklist_id: str | None = Field(
+        default=None,
+        max_length=128,
+        description="当前任务绑定的 Phase I 设计清单 ID；注入系统上下文，供对话感知/修订清单参数",
     )
 
     @field_validator("messages", mode="before")

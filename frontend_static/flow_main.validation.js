@@ -949,6 +949,107 @@
     }
   }
 
+  function getValTaskId() {
+    const inp = $("#valTaskId")?.value?.trim();
+    if (inp) return inp;
+    try {
+      return new URLSearchParams(window.location.search).get("task_id") || "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function renderHaltGate(haltGate, validationId) {
+    const box = $("#valHaltGate");
+    const text = $("#valHaltGateText");
+    const btn = $("#valHaltArchiveBtn");
+    if (!box || !haltGate) {
+      box?.setAttribute("hidden", "");
+      return;
+    }
+    box.removeAttribute("hidden");
+    const passed = Boolean(haltGate.passed || haltGate.ok);
+    if (text) {
+      text.textContent = passed
+        ? `已达内审终止条件（S≥${haltGate.S_min ?? 85}，子分≥${haltGate.subscore_min ?? 60}）。可一键归档。`
+        : haltGate.reason || "未达终止门，可继续探索或人工决策。";
+    }
+    if (btn) {
+      if (passed) {
+        btn.removeAttribute("hidden");
+        btn.onclick = () => void haltAndArchive(validationId);
+      } else {
+        btn.setAttribute("hidden", "");
+      }
+    }
+  }
+
+  async function haltAndArchive(validationId) {
+    const taskId = getValTaskId();
+    if (!taskId) {
+      setStatus("请填写任务 ID 后再归档", "err");
+      return;
+    }
+    const btn = $("#valHaltArchiveBtn");
+    btn?.setAttribute("disabled", "true");
+    try {
+      const checklistId = (() => {
+        try {
+          return localStorage.getItem("beso.design_checklist_id") || null;
+        } catch (_) {
+          return null;
+        }
+      })();
+      const geom = $("#geomPath")?.value?.trim() || null;
+      const data = await fetchJson(`${apiBase()}/api/workflow/halt-and-archive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          task_id: taskId,
+          validation_id: validationId,
+          design_checklist_id: checklistId,
+          geometry_path: geom,
+        }),
+      });
+      setStatus(`已归档：${data.archive_path || "完成"}`, "ok");
+      await loadCandidates(taskId);
+    } catch (e) {
+      setStatus(`归档失败：${friendlyFetchError(e)}`, "err");
+    } finally {
+      btn?.removeAttribute("disabled");
+    }
+  }
+
+  async function loadCandidates(taskId) {
+    const panel = $("#valCandidatesPanel");
+    const list = $("#valCandidatesList");
+    if (!panel || !list || !taskId) return;
+    try {
+      const data = await fetchJson(`${apiBase()}/api/candidates?task_id=${encodeURIComponent(taskId)}`);
+      const items = data.candidates || data.items || [];
+      list.innerHTML = "";
+      for (const c of items) {
+        const li = document.createElement("li");
+        li.textContent = `${c.label || c.candidate_id} · ${Number(c.overall_score || 0).toFixed(1)} 分`;
+        list.appendChild(li);
+      }
+      panel.removeAttribute("hidden");
+    } catch (_) {
+      panel?.setAttribute("hidden", "");
+    }
+  }
+
+  function updateAuditLink(url) {
+    const a = $("#valAuditLink");
+    if (!a) return;
+    if (url) {
+      a.href = assetUrl(url);
+      a.removeAttribute("hidden");
+    } else {
+      a.setAttribute("hidden", "");
+    }
+  }
+
   function updateDownloadLinks(urls, validationId) {
     if (urls.report_md) $("#valReportLink").href = assetUrl(urls.report_md);
     if (urls.score_json) $("#valJsonLink").href = assetUrl(urls.score_json);
@@ -982,6 +1083,7 @@
             use_llm_rationale: $("#useLlm")?.checked || false,
             use_surrogate: $("#useSurrogate")?.checked || false,
             candidate_label: "本方案",
+            task_id: getValTaskId() || undefined,
             design_checklist_id: (() => {
               try {
                 return localStorage.getItem("beso.design_checklist_id") || null;
@@ -1010,6 +1112,10 @@
       renderSurrogatePanel(data.surrogate_context);
 
       updateDownloadLinks(urls, data.validation_id);
+      updateAuditLink(data.audit_manifest_url);
+      renderHaltGate(data.halt_gate, data.validation_id);
+      const tid = getValTaskId();
+      if (tid) void loadCandidates(tid);
       const wordErrors = [data.word_export_error, data.word_detailed_export_error].filter(Boolean);
       if (wordErrors.length) {
         setStatus(`验证完成，Word 预生成部分失败：${wordErrors.join("；")}`, "err");
@@ -1067,6 +1173,26 @@
     $("#valDocxBtn")?.addEventListener("click", downloadWordReport);
     $("#valDocxDetailedBtn")?.addEventListener("click", downloadWordReportDetailed);
     $("#valRunBtn")?.addEventListener("click", runValidation);
+    $("#valSelectBestBtn")?.addEventListener("click", async () => {
+      const taskId = getValTaskId();
+      if (!taskId) {
+        setStatus("请填写任务 ID", "err");
+        return;
+      }
+      try {
+        const data = await fetchJson(`${apiBase()}/api/candidates/select-best`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ task_id: taskId }),
+        });
+        setStatus(`已选最高分候选：${data.candidate?.overall_score ?? "—"} 分`, "ok");
+        await loadCandidates(taskId);
+      } catch (e) {
+        setStatus(`选优失败：${friendlyFetchError(e)}`, "err");
+      }
+    });
+    const tidParam = new URLSearchParams(window.location.search).get("task_id");
+    if (tidParam && $("#valTaskId")) $("#valTaskId").value = tidParam;
     $("#geomPath")?.addEventListener("keydown", (e) => {
       if (e.key === "Enter") runValidation();
     });

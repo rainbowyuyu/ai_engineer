@@ -23,6 +23,7 @@ from backend.oc4_design_domain_service import (
     run_export_source_preview_only,
     run_loads,
     run_mesh,
+    export_layout_preview_pack,
     runs_file_url,
     session_dir,
     session_progress_flags,
@@ -89,6 +90,8 @@ def _parse_json_object(text: str) -> dict[str, Any] | None:
 
 class SessionCreateIn(BaseModel):
     file_id: str
+    task_id: str | None = Field(default=None, description="可选：关联主页任务 ID")
+    design_checklist_id: str | None = Field(default=None, description="可选：Phase I 设计清单 ID")
 
 
 class BuildIn(BaseModel):
@@ -126,6 +129,7 @@ class MeshIn(BaseModel):
     optimize_std: bool | None = None
     length_unit: str | None = None
     timeout_minutes: float | None = Field(default=None, ge=5.0, le=720.0)
+    design_checklist_id: str | None = Field(default=None, description="可选：Phase I 设计清单 ID")
 
 
 class LoadsIn(BaseModel):
@@ -154,6 +158,29 @@ class ChatIn(BaseModel):
     topic: Literal["general", "design", "preview", "mesh", "loads"] = "general"
 
 
+class LinkTaskIn(BaseModel):
+    session_id: str
+    task_id: str
+    design_checklist_id: str | None = None
+
+
+@router.post("/session/link-task")
+def oc4_dd_link_task(body: LinkTaskIn):
+    sdir = _get_session(body.session_id)
+    try:
+        from backend.replan.checklist_bridge import link_oc4_session_to_task
+
+        link_oc4_session_to_task(
+            body.session_id,
+            sdir,
+            task_id=body.task_id,
+            design_checklist_id=body.design_checklist_id,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True}
+
+
 @router.post("/session")
 def oc4_dd_create_session(body: SessionCreateIn):
     try:
@@ -162,6 +189,18 @@ def oc4_dd_create_session(body: SessionCreateIn):
         raise HTTPException(status_code=404, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    if body.task_id or body.design_checklist_id:
+        try:
+            from backend.replan.checklist_bridge import link_oc4_session_to_task
+
+            link_oc4_session_to_task(
+                sid,
+                sdir,
+                task_id=body.task_id,
+                design_checklist_id=body.design_checklist_id,
+            )
+        except Exception:
+            pass
     src = sdir / (read_session_meta(sdir).get("source_name") or "00_source.igs")
     summ = geometry_summary(src)
     merge_session_meta(sdir, {"geometry_summary": summ})
@@ -456,6 +495,10 @@ def oc4_dd_export_obj(body: ExportObjIn):
 @router.post("/mesh")
 def oc4_dd_mesh(body: MeshIn):
     sdir = _get_session(body.session_id)
+    meta = read_session_meta(sdir)
+    checklist_id = body.design_checklist_id or meta.get("design_checklist_id")
+    if body.design_checklist_id:
+        merge_session_meta(sdir, {"design_checklist_id": body.design_checklist_id})
     timeout_s = None
     if body.timeout_minutes is not None:
         timeout_s = float(body.timeout_minutes) * 60.0
@@ -474,6 +517,15 @@ def oc4_dd_mesh(body: MeshIn):
             timeout_s=timeout_s,
         )
     except Exception as e:
+        from backend.oc4_design_domain_service import MeshReplanGuidedError
+
+        if isinstance(e, MeshReplanGuidedError):
+            return {
+                "ok": False,
+                "mesh_error": str(e),
+                "replan_guided": e.guided,
+                "design_checklist_id": str(checklist_id) if checklist_id else None,
+            }
         raise HTTPException(status_code=400, detail=f"体网格失败: {e}") from e
     url = runs_file_url(_workspace_root(), Path(out["mesh_inp"]))
     payload: dict[str, Any] = {
@@ -674,6 +726,20 @@ class FinalizeIn(BaseModel):
     session_id: str
 
 
+@router.post("/session/{session_id}/layout-preview")
+def oc4_dd_layout_preview(session_id: str):
+    """MVP layout preview pack for archive / certification prep."""
+    sdir = _get_session(session_id)
+    out_dir = sdir / "layout_preview"
+    try:
+        pack = export_layout_preview_pack(session_id, out_dir=out_dir, workspace_root=_workspace_root())
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"layout preview 失败: {e}") from e
+    return {"ok": True, "pack": pack, "out_dir": str(out_dir)}
+
+
 @router.post("/finalize")
 def oc4_dd_finalize(body: FinalizeIn):
     """写入最小 beso_conf.py，返回扫描目录供后续 AI Engineer 编排流程使用。"""
@@ -684,18 +750,39 @@ def oc4_dd_finalize(body: FinalizeIn):
             status_code=400,
             detail="尚未生成 03_for_beso.inp：请在本页依次完成「3 FreeCAD 体网格」与「4 划分载荷」后再点收尾。",
         )
+    meta = read_session_meta(sdir)
+    task_hint = str(meta.get("task_id") or "").strip()
+    if task_hint:
+        try:
+            from backend.orchestrator.gates import evaluate_transition
+            from backend.orchestrator.state import load_workflow_state
+
+            st = load_workflow_state(task_hint, oc4_session_id=body.session_id)
+            verdict = evaluate_transition(st, "phase_ii_finalize")
+            if not verdict.ok:
+                raise HTTPException(status_code=409, detail=verdict.reason)
+        except HTTPException:
+            raise
+        except Exception:
+            pass
     ccx = Path(os.environ.get("CCX_PATH", r"D:\freecad\bin\ccx.exe")).resolve()
+    from backend.replan.checklist_bridge import beso_theta_defaults_from_checklist, load_checklist_from_session
     from backend.tools.inp_oc4_design_nondesign import write_beso_conf_example3_style
 
+    checklist = load_checklist_from_session(sdir)
+    if checklist is None and meta.get("design_checklist_id"):
+        from backend.design_requirements.paths import load_checklist
+
+        checklist = load_checklist(str(meta.get("design_checklist_id")))
+    beso_theta = beso_theta_defaults_from_checklist(checklist)
     write_beso_conf_example3_style(
         sdir / "beso_conf.py",
         work_dir=sdir.resolve(),
         ccx_path=ccx,
         inp_name="03_for_beso.inp",
-        # Chen et al. (2026) Ocean Engineering：概念阶段 BESO 约 15% 体积分数、柔度最小化 → stiffness + 0.15
-        mass_goal_ratio=0.15,
-        filter_radius=2.0,
-        optimization_base="stiffness",
+        mass_goal_ratio=float(beso_theta["mass_goal_ratio"]),
+        filter_radius=float(beso_theta["filter_radius"]),
+        optimization_base=str(beso_theta["optimization_base"]),
     )
     scan_dir = str(sdir.resolve())
     merge_session_meta(
@@ -703,10 +790,40 @@ def oc4_dd_finalize(body: FinalizeIn):
         {
             "scan_dir": scan_dir,
             "finalized": True,
-            "beso_defaults_ref": "Chen et al. (2026) Ocean Engineering 347: stiffness TO, mass_goal_ratio=0.15",
+            "beso_defaults_ref": beso_theta.get("source")
+            or "Chen et al. (2026) Ocean Engineering 347: stiffness TO, mass_goal_ratio=0.15",
+            "beso_theta": {
+                "mass_goal_ratio": beso_theta["mass_goal_ratio"],
+                "filter_radius": beso_theta["filter_radius"],
+                "optimization_base": beso_theta["optimization_base"],
+            },
+            "design_checklist_id": beso_theta.get("checklist_id") or meta.get("design_checklist_id"),
         },
     )
-    return {"ok": True, "scan_dir": scan_dir}
+    return {
+        "ok": True,
+        "scan_dir": scan_dir,
+        "beso_theta": {
+            "mass_goal_ratio": beso_theta["mass_goal_ratio"],
+            "filter_radius": beso_theta["filter_radius"],
+            "optimization_base": beso_theta["optimization_base"],
+            "source": beso_theta.get("source"),
+        },
+        "design_checklist_id": beso_theta.get("checklist_id") or meta.get("design_checklist_id"),
+        "task_id": task_hint or meta.get("task_id"),
+    }
+
+
+@router.post("/session/{session_id}/layout-preview")
+def oc4_dd_layout_preview(session_id: str) -> dict[str, Any]:
+    """MVP layout preview pack for archive / AIP narrative."""
+    sdir = _get_session(session_id)
+    out_dir = sdir / "layout_preview"
+    try:
+        pack = export_layout_preview_pack(session_id, out_dir=out_dir, workspace_root=_workspace_root())
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"布局预览包失败: {e}") from e
+    return {"ok": True, "pack": pack, "pack_dir": str(out_dir)}
 
 
 class AgentStreamIn(BaseModel):

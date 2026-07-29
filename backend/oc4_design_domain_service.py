@@ -13,6 +13,14 @@ from typing import Any
 from backend.tools.files import resolve_file, StoredFile
 
 
+class MeshReplanGuidedError(Exception):
+    """体网格失败且已生成 guided replan 载荷。"""
+
+    def __init__(self, message: str, *, guided: dict[str, Any]):
+        super().__init__(message)
+        self.guided = guided
+
+
 def upload_cad_stem_from_upload_name(filename: str) -> str:
     """与 ``examples/beso/BESO3-Compound.iges`` 命名对齐：``{stem}-Compound.iges`` 的 stem 段。"""
     stem = Path(str(filename or "")).stem
@@ -416,10 +424,19 @@ def run_mesh(
     mesh_inp = sdir / "02_mesh_body.inp"
     cl_max = float(char_length_max) if char_length_max is not None else float(default_coarse_char_length_max(step))
 
+    from backend.replan.checklist_bridge import (
+        load_checklist_from_session,
+        retry_max_from_checklist,
+    )
     from backend.replan.thresholds import load_thresholds
 
+    checklist = load_checklist_from_session(sdir)
     retry_cfg = load_thresholds().get("retry") or {}
-    retries_left = int(max_replan_retries if max_replan_retries is not None else retry_cfg.get("max_retries", 3))
+    default_retries = int(retry_cfg.get("max_retries", 3))
+    if max_replan_retries is not None:
+        retries_left = int(max_replan_retries)
+    else:
+        retries_left = retry_max_from_checklist(checklist, default_retries)
     replan_events: list[str] = []
     last_err: Exception | None = None
 
@@ -452,10 +469,77 @@ def run_mesh(
 
             fb = evaluate_feedback(phase="II", step="mesh", logs=err_text)
             if fb.rho_p != 1 or fb.failure_kind != "mesh" or retries_left <= 0:
+                guided_fail: dict[str, Any] | None = None
+                if fb.rho_p == 1 and fb.failure_kind == "mesh":
+                    try:
+                        from backend.replan.engine import replan as replan_theta
+                        from backend.replan.guided import attach_guided
+
+                        fail_result = replan_theta(
+                            {"characteristic_length_max": cl_max, "element_size_m": cl_max},
+                            fb,
+                            checklist=checklist,
+                            case_id="mesh_live",
+                            persist=True,
+                        )
+                        new_cl = fail_result.theta_after.get("characteristic_length_max")
+                        if new_cl is None:
+                            new_cl = max(0.5, float(cl_max) * 0.72)
+                        if fail_result.event:
+                            merge_session_meta(
+                                sdir,
+                                {
+                                    "last_replan_event_id": fail_result.event.event_id,
+                                    "mesh_replan_char_length_max": float(new_cl),
+                                },
+                            )
+                            try:
+                                meta = read_session_meta(sdir)
+                                tid = str(meta.get("task_id") or "").strip()
+                                if tid:
+                                    from backend.orchestrator.state import mark_rho_pending
+                                    from backend.replan.checklist_bridge import maybe_commit_live_replan_version
+
+                                    mark_rho_pending(tid, event_id=fail_result.event.event_id)
+                                    maybe_commit_live_replan_version(
+                                        tid,
+                                        event_id=fail_result.event.event_id,
+                                        theta_before=fail_result.theta_before,
+                                        theta_after=fail_result.theta_after,
+                                        message=f"mesh live replan (failed) · cl_max→{float(new_cl)}",
+                                        case_id="mesh_live",
+                                    )
+                            except Exception:
+                                pass
+                        guided_fail = attach_guided(
+                            {
+                                "case_id": "case1",
+                                "title": "体网格失败 · 重规划建议",
+                                "feedback_before": fb.model_dump(mode="json"),
+                                "feedback_after": {"rho_p": 1},
+                                "result": {
+                                    "actions": [a.model_dump(mode="json") for a in fail_result.actions],
+                                    "theta_before": fail_result.theta_before,
+                                    "theta_after": fail_result.theta_after,
+                                    "event": fail_result.event.model_dump(mode="json") if fail_result.event else None,
+                                },
+                                "outcome": {
+                                    "status": "failed",
+                                    "note": err_text[:400],
+                                    "suggested_characteristic_length_max": float(new_cl),
+                                },
+                                "ok": False,
+                            }
+                        )
+                    except Exception:
+                        guided_fail = None
+                if guided_fail:
+                    raise MeshReplanGuidedError(err_text, guided=guided_fail) from last_err
                 raise
             result = replan_theta(
                 {"characteristic_length_max": cl_max, "element_size_m": cl_max},
                 fb,
+                checklist=checklist,
                 case_id="mesh_live",
                 persist=True,
             )
@@ -473,6 +557,24 @@ def run_mesh(
                         "mesh_replan_char_length_max": cl_max,
                     },
                 )
+                try:
+                    meta = read_session_meta(sdir)
+                    tid = str(meta.get("task_id") or "").strip()
+                    if tid:
+                        from backend.orchestrator.state import mark_rho_pending
+                        from backend.replan.checklist_bridge import maybe_commit_live_replan_version
+
+                        mark_rho_pending(tid, event_id=result.event.event_id)
+                        maybe_commit_live_replan_version(
+                            tid,
+                            event_id=result.event.event_id,
+                            theta_before=result.theta_before,
+                            theta_after=result.theta_after,
+                            message=f"mesh live replan · cl_max→{cl_max}",
+                            case_id="mesh_live",
+                        )
+                except Exception:
+                    pass
             retries_left -= 1
 
     if last_err is not None:
@@ -605,6 +707,32 @@ def run_loads(
     return out
 
 
+def export_layout_preview_pack(session_id: str, *, out_dir: Path, workspace_root: Path | None = None) -> dict[str, Any]:
+    """MVP layout preview pack: reference existing OBJ/STEP previews + manifest."""
+    import os
+
+    root = workspace_root or Path(os.environ.get("WORKSPACE_ROOT", r"D:\python_project\beso_ai")).resolve()
+    sdir = session_dir(root, session_id)
+    if not sdir.is_dir():
+        raise FileNotFoundError(f"会话不存在: {session_id}")
+    meta = read_session_meta(sdir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    previews: list[dict[str, str]] = []
+    for key in ("design_obj_url", "source_obj_url"):
+        url = meta.get(key)
+        if url:
+            previews.append({"kind": key, "url": str(url)})
+    step = sdir / "01_design_domain.step"
+    pack = {
+        "session_id": session_id,
+        "step": str(step) if step.is_file() else None,
+        "previews": previews,
+        "note": "MVP 预览包：引用会话内 OBJ 预览 URL；完整三视图出图留待 Phase III。",
+    }
+    (out_dir / "pack_manifest.json").write_text(json.dumps(pack, ensure_ascii=False, indent=2), encoding="utf-8")
+    return pack
+
+
 __all__ = [
     "create_session_from_upload",
     "design_domain_root",
@@ -618,6 +746,7 @@ __all__ = [
     "run_export_source_preview_only",
     "run_loads",
     "run_mesh",
+    "export_layout_preview_pack",
     "runs_file_url",
     "session_dir",
     "session_progress_flags",

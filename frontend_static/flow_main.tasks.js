@@ -25,12 +25,22 @@ function taskIsGenericTitle(s) {
 /** 与侧栏列表一致：用于主页顶栏会话标题等 */
 export function taskListDisplayTitle(t) {
   const raw = String(t?.title || "").trim();
+  // Full-flow demo: orchestration used to overwrite title with the internal prompt
+  if (
+    /^【全流程演示】/.test(raw) ||
+    /BESO7\s*设计域已收尾/.test(raw) ||
+    (String(t?.file_name || "").includes("BESO7") && /全流程演示/.test(raw) && raw.length > 40)
+  ) {
+    return "全流程演示 · BESO7";
+  }
+  if (raw === "全流程演示 · BESO7" || raw.startsWith("全流程演示 ·")) return raw;
   if (raw && !taskIsGenericTitle(raw)) return raw;
   const timeStr = formatTaskTime(t.updated_at || t.created_at);
   const fileHint = String(t.file_name || "")
     .replace(/^.*[/\\]/, "")
     .trim()
     .slice(0, 42);
+  if (fileHint && /^BESO7/i.test(fileHint)) return "全流程演示 · BESO7";
   if (fileHint) return fileHint;
   const id = String(t.task_id || "").replace(/-/g, "");
   const shortId = id.length >= 6 ? id.slice(0, 6).toUpperCase() : (id.toUpperCase() || "—");
@@ -140,8 +150,13 @@ export function createTaskManager(deps) {
       );
     if (!onlyStagePersist) {
       if (body.title === undefined) {
-        const fromUi = String(refs.msgLanding?.value || refs.msgEl?.value || "").trim();
-        if (fromUi) body.title = fromUi.slice(0, 80);
+        // Never auto-promote long orchestration prompts as task title during BESO7 demo
+        if (!window.__beso7DemoActive) {
+          const fromUi = String(refs.msgLanding?.value || refs.msgEl?.value || "").trim();
+          if (fromUi && !/^【全流程演示】/.test(fromUi) && fromUi.length < 48) {
+            body.title = fromUi.slice(0, 80);
+          }
+        }
       }
       if (body.file_name === undefined) body.file_name = patch.file_name ?? state.currentFileName ?? undefined;
       if (body.file_id === undefined) body.file_id = patch.file_id ?? state.currentFileId ?? undefined;

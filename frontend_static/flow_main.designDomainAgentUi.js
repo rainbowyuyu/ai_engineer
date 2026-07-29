@@ -1563,6 +1563,15 @@ export function mountDesignDomainAgentUi(opts) {
     }
   }
 
+  /** Programmatic send for guided demos (same path as composer). */
+  async function sendMessage(text) {
+    const msg = String(text || "").trim();
+    if (!msg || !inputEl) return false;
+    inputEl.value = msg;
+    await send();
+    return true;
+  }
+
   async function consumePlanBuildStream() {
     const sid = String(getSessionId?.() || "").trim();
     if (!sid) throw new Error("缺少会话");
@@ -1728,6 +1737,7 @@ export function mountDesignDomainAgentUi(opts) {
     appendPlanActivity,
     consumePlanBuildStream,
     consumePlanDraftStream,
+    sendMessage,
     dispose() {
       try {
         flushPersist();

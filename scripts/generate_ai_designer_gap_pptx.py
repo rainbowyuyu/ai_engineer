@@ -344,15 +344,16 @@ def build() -> Path:
     s = add_blank()
     _add_bg(s)
     _bar(s)
-    _title(s, "Phase I 缺口：需求形式化不完整")
+    _title(s, "Phase I：设计清单 MVP 已接入（部分）")
     _subtitle(s, "论文：owner 意图 + 场址 sea-state + 船级社条款 → job descriptor J")
     _panel(s, Inches(0.55), Inches(1.4), Inches(6.0), Inches(4.9), C_WHITE)
     _panel_title(s, "已有", Inches(0.75), Inches(1.55), Inches(5.5), color=C_OK)
     _bullets(
         s,
         [
-            "agent.decide_params：NL → BESO 超参",
-            "oc4_nl_loads：NL → CalculiX 载荷片段",
+            "design_requirements：NL→J={phase,θ,retry_policy}",
+            "澄清 API + design_checklist_id 下游接线",
+            "agent.decide_params / oc4_nl_loads 仍保留",
             "validation_rules / dnv_clause_index：打分用条款库",
         ],
         left=Inches(0.75),
@@ -362,14 +363,13 @@ def build() -> Path:
         size=15,
     )
     _panel(s, Inches(6.8), Inches(1.4), Inches(5.9), Inches(4.9), C_PANEL_BAD)
-    _panel_title(s, "未实现 / 断点", Inches(7.0), Inches(1.55), Inches(5.5), color=C_BAD)
+    _panel_title(s, "仍缺 / 断点", Inches(7.0), Inches(1.55), Inches(5.5), color=C_BAD)
     _bullets(
         s,
         [
-            "无统一 J={phase, θ, retry_policy} 对象",
-            "无 Hs/Tp/风向错位等场址海况写入任务",
-            "入级条款未成为 Phase I 产出，只在 IV 评分消费",
-            "无 schema 校验后的跨相位任务卡流转",
+            "场址 Hs/Tp/风向错位未写入任务卡",
+            "入级条款仍以 IV 评分为消费端为主",
+            "跨相位 DAG 调度器仍为轻量闸（非完整编排器）",
         ],
         left=Inches(7.0),
         top=Inches(2.1),
@@ -378,7 +378,7 @@ def build() -> Path:
         size=15,
     )
     _footer(s, 5, total)
-    _note(s, "Phase I 是「说明书→可调度任务」；现状更像「NL 微改 BESO 旋钮」。")
+    _note(s, "Phase I 已有可调度 J；场址海况与完整 DAG 仍待补。")
     slides_meta.append("5 Phase I")
 
     # ---- 6 Phase II overview ----
@@ -395,7 +395,7 @@ def build() -> Path:
         ("⑤ 升尺度 STEP/FCStd", "黄", "mixed_platform_steel + beso7；无自治闭环"),
         ("⑥ SQP/PSO (D,t)", "红", "仅有全局 scale 的 SLSQP+pitch"),
         ("⑦ Zwind 时域极限态", "红", "zwind_adapter 只导入 envelope"),
-        ("⑧ 失败自治重规划", "黄", "工具失败可再试；无 replan(θ,Fₚ)"),
+        ("⑧ 失败自治重规划", "绿", "replan 引擎+API+mesh/BESO 真闭环；Case3 演示"),
     ]
     for i, (title, tag, detail) in enumerate(items):
         col = i % 4
@@ -474,15 +474,15 @@ def build() -> Path:
     s = add_blank()
     _add_bg(s)
     _bar(s)
-    _title(s, "关键缺口 B：失败驱动重规划未形式化")
-    _subtitle(s, "论文 Table S.1：Gmsh 翻转单元 / CalculiX 残差平台 / Zwind pitch 超限 → 自动改 θ 再跑")
+    _title(s, "重规划：Table S.1 引擎与真路径已接线（Case3 除外）")
+    _subtitle(s, "Gmsh / CalculiX 失败 → Fₚ → replan(θ) → 前端旅程 CTA 真重跑；Zwind 仍 fixture")
     rows = [
         ("案例", "论文诊断信号", "仓库现状"),
-        ("网格失败", "mesh_quality_min<τ", "可有工具失败摘要；无质量阈值→加密策略库"),
-        ("静力不收敛", "residual_norm 平台", "BESO/CalculiX 作业可重跑；无自动改步长/初值策略"),
-        ("Zwind 中止", "pitch_max>限值", "无 Zwind 子进程 → 案例整条缺失"),
-        ("反馈元组 Fₚ", "Lₚ,Mₚ,ρₚ", "无类型/无 API；无 replan(θ,Fₚ)"),
-        ("阈值 τ", "船级社+求解器文档", "散落在 validation/surrogate；未驱动编排"),
+        ("网格失败", "mesh_quality_min<τ", "run_mesh 读 checklist；失败/重试 guided + CTA mesh"),
+        ("静力不收敛", "residual_norm 平台", "jobs WS replan + /api/chat 真启动作业"),
+        ("Zwind 中止", "pitch_max>限值", "Case3 演示/fixture；无真子进程"),
+        ("反馈元组 Fₚ", "Lₚ,Mₚ,ρₚ", "replan/models + evaluate/apply API"),
+        ("阈值 τ", "船级社+求解器文档", "replan_thresholds.yaml + checklist 合并"),
     ]
     table = s.shapes.add_table(len(rows), 3, Inches(0.55), Inches(1.4), Inches(12.2), Inches(5.0)).table
     table.columns[0].width = Inches(2.4)
@@ -546,8 +546,8 @@ def build() -> Path:
     s = add_blank()
     _add_bg(s)
     _bar(s)
-    _title(s, "关键缺口 C：S≥85 尚未成为探索终止门")
-    _subtitle(s, "打分体系已校准；缺少「生成环」读取分数并停搜/归档")
+    _title(s, "终止门：S≥85 已接线 halt_and_archive（生成环可读分）")
+    _subtitle(s, "validation/run 返回 halt_gate；workflow 归档 + ρₚ 相位闸；编排页仍待更深集成")
     # two columns big claim
     _panel(s, Inches(0.55), Inches(1.4), Inches(6.0), Inches(2.2), C_PANEL)
     _panel_title(s, "已实现", Inches(0.75), Inches(1.55), Inches(5.5), color=C_OK)
@@ -564,14 +564,14 @@ def build() -> Path:
         height=Inches(1.4),
         size=14,
     )
-    _panel(s, Inches(6.8), Inches(1.4), Inches(5.9), Inches(2.2), C_PANEL_BAD)
-    _panel_title(s, "未实现（叙事关键）", Inches(7.0), Inches(1.55), Inches(5.5), color=C_BAD)
+    _panel(s, Inches(6.8), Inches(1.4), Inches(5.9), Inches(2.2), C_PANEL)
+    _panel_title(s, "本轮新增", Inches(7.0), Inches(1.55), Inches(5.5), color=C_OK)
     _bullets(
         s,
         [
-            "编排器不读 overall_score 决定停探索",
-            "无「任一子分 <60 → 拒绝放行」闸",
-            "Validation 是独立 API/UI，非环内闸",
+            "evaluate_halt_gate + halt_and_archive API",
+            "验证页终止门卡片 + 一键归档",
+            "orchestrator：ρₚ≠0 阻塞 finalize",
         ],
         left=Inches(7.0),
         top=Inches(2.05),
@@ -584,9 +584,9 @@ def build() -> Path:
     _bullets(
         s,
         [
-            "① ρₚ=0 各相无 pending 重试 —— 无统一相位状态机",
+            "① ρₚ=0 各相无 pending —— orchestrator 轻量闸（finalize/编排）",
             "② W(x) 相对降幅 <10⁻⁴ 连续三步 —— 尺寸优环不存在，无从谈起",
-            "③ S≥85 且 sᵢ≥60 —— 仅标签与报告；无 halt_and_archive()",
+            "③ S≥85 且 sᵢ≥60 —— halt_gate + 归档目录（audit SHA-256）",
         ],
         left=Inches(0.75),
         top=Inches(4.55),
@@ -595,7 +595,7 @@ def build() -> Path:
         size=15,
     )
     _footer(s, 10, total)
-    _note(s, "这是最易被外审追问的点：有 Reviewer 分数，但没有「用分数关循环」。")
+    _note(s, "终止门已接入验证 API；尺寸优化环与自动停搜仍依赖未来 PSO/SQP 接入。")
     slides_meta.append("10 终止门")
 
     # ---- 11 Orchestrator ----

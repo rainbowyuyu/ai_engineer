@@ -7,10 +7,23 @@ from backend.design_requirements.models import DesignChecklist
 
 
 def apply_checklist_to_geometry(geometry: dict[str, Any], checklist: DesignChecklist) -> dict[str, Any]:
-    """Inject validation_overrides and design_checklist snapshot."""
+    """Inject validation_overrides and design_checklist snapshot.
+
+    Capacity is soft-aligned to the geometry's native target when the checklist
+    capacity drifts by more than 3 MW — otherwise AI Review capacity / steel
+    intensity scores are falsely crushed (e.g. 15 MW checklist on a 20 MW asset).
+    """
     out = dict(geometry)
+    opt0 = dict(out.get("optimization_info") or {})
+    native_power = float(opt0.get("target_power_MW") or 20.0)
+    cl_cap = float(checklist.project.target_capacity_mw or native_power)
+    score_cap = cl_cap if abs(cl_cap - native_power) <= 3.0 else native_power
+
     vo = dict(out.get("validation_overrides") or {})
-    vo["target_power_MW"] = checklist.project.target_capacity_mw
+    vo["target_power_MW"] = score_cap
+    if abs(cl_cap - native_power) > 3.0:
+        vo["checklist_capacity_mw"] = cl_cap
+        vo["capacity_aligned_from_mw"] = native_power
     if checklist.performance_targets.steel_intensity_t_per_MW:
         vo.setdefault("steel_intensity_t_per_MW", checklist.performance_targets.steel_intensity_t_per_MW)
     if checklist.performance_targets.unit_cost_cny_per_MW:
@@ -18,8 +31,8 @@ def apply_checklist_to_geometry(geometry: dict[str, Any], checklist: DesignCheck
     if checklist.performance_targets.fatigue_design_life_years:
         vo.setdefault("fatigue_life_years", checklist.performance_targets.fatigue_design_life_years)
     out["validation_overrides"] = vo
-    opt = dict(out.get("optimization_info") or {})
-    opt["target_power_MW"] = checklist.project.target_capacity_mw
+    opt = dict(opt0)
+    opt["target_power_MW"] = score_cap
     opt["wall_thickness_m"] = checklist.structural_assumptions.wall_thickness_m
     opt["scale_factor"] = checklist.structural_assumptions.scale_factor
     opt["draft_m"] = checklist.structural_assumptions.draft_m

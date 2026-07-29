@@ -808,6 +808,12 @@
           <div class="topUtilityCluster" aria-label="工具">
             <a
               class="btn resultsViewerTopBtn"
+              href="./index.html?demo=beso7-pipeline"
+              title="全流程演示：真实进入设计域/编排并引导大模型"
+              >全流程演示</a
+            >
+            <a
+              class="btn resultsViewerTopBtn"
               href="./validation.html"
               target="_blank"
               rel="noopener"
@@ -935,7 +941,7 @@
 
             <div id="chatLanding" class="chat landingChatScroll" role="log" aria-live="polite" aria-relevant="additions"></div>
 
-            <div class="landingComposerDock">
+            <div class="landingComposerDock" id="landingComposerDock">
               <div class="homeComposer landingComposer">
                 <div class="composerPill">
                   <input id="fileInputLanding" type="file" accept=".inp,.vtk,.obj,.py,.log,.igs,.iges,.stp,.step" class="hidden" />
@@ -989,7 +995,7 @@
                       class="homeTextarea composerPillTextarea"
                       id="msgLanding"
                       rows="2"
-                      placeholder="描述构型/拓扑优化、网格或载荷；也可粘贴业主设计需求，或说「演示重规划 Case1」…"
+                      placeholder="描述优化目标；拖入文件到对话框上传；用 @路径/file.inp 生成工程图预览…"
                     ></textarea>
                   </div>
                   <div class="composerPillFooter">

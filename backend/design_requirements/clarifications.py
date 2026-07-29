@@ -1,4 +1,4 @@
-"""Interactive clarification for missing design checklist fields."""
+"""Interactive clarification / post-lock edit for design checklist fields."""
 from __future__ import annotations
 
 import re
@@ -160,41 +160,110 @@ def _set_checklist_field(cl: DesignChecklist, field_id: str, value: float) -> De
     return DesignChecklist.model_validate(d)
 
 
+def _get_checklist_field(cl: DesignChecklist, field_id: str) -> Any:
+    d = cl.model_dump()
+    for spec in CLARIFICATION_SPECS:
+        if spec["field_id"] != field_id:
+            continue
+        sec, key = spec["attr"]
+        return (d.get(sec) or {}).get(key)
+    return None
+
+
+def extract_field_updates(reply: str) -> dict[str, float]:
+    """Parse explicit numeric field updates from user text (any of the known fields)."""
+    text = (reply or "").strip()
+    out: dict[str, float] = {}
+    if not text:
+        return out
+    for spec in CLARIFICATION_SPECS:
+        val = _extract_float(list(spec["patterns"]), text)
+        if val is not None:
+            out[spec["field_id"]] = float(val)
+    return out
+
+
 def apply_clarification_reply(
     checklist: DesignChecklist,
     reply: str,
     *,
     pending_field_ids: list[str] | None = None,
-) -> tuple[DesignChecklist, list[str], list[dict[str, Any]]]:
-    """Merge user clarification; return updated checklist, assumptions, remaining pending."""
+    mode: str = "clarify",
+) -> tuple[DesignChecklist, list[str], list[dict[str, Any]], list[dict[str, Any]]]:
+    """
+    Merge user clarification or post-lock edit.
+
+    ``mode``:
+    - ``clarify``: fill pending fields (numeric / 用默认); also apply any explicit
+      numeric updates found in the reply (including already-set fields).
+    - ``edit``: only apply explicit numeric updates; never auto-fill defaults for
+      unspecified pending fields.
+
+    Returns: (checklist, assumptions, remaining_pending, updated_field_records)
+    """
     text = (reply or "").strip()
+    mode_norm = str(mode or "clarify").strip().lower()
+    if mode_norm not in ("clarify", "edit"):
+        mode_norm = "clarify"
+
     pending_ids = list(pending_field_ids or [])
-    if not pending_ids:
+    if mode_norm == "clarify" and not pending_ids:
         pending_ids = [p["field_id"] for p in build_pending_clarifications(checklist.meta.source_text, checklist)]
 
     assumptions: list[str] = list(checklist.assumptions or [])
     clarified = set(checklist.clarified_field_ids or [])
-    use_all_defaults = bool(_USE_ALL_DEFAULTS_RE.search(text))
+    use_all_defaults = bool(_USE_ALL_DEFAULTS_RE.search(text)) and mode_norm == "clarify"
     cl = checklist
+    updated_records: list[dict[str, Any]] = []
 
-    for fid in pending_ids:
+    # 1) Explicit numeric updates from the whole reply (allows changing locked values)
+    explicit = extract_field_updates(text)
+    for fid, val in explicit.items():
         spec = next((s for s in CLARIFICATION_SPECS if s["field_id"] == fid), None)
         if not spec:
             continue
-        val = _extract_float(list(spec["patterns"]), text)
+        prev = _get_checklist_field(cl, fid)
+        cl = _set_checklist_field(cl, fid, float(val))
+        clarified.add(fid)
         unit = spec.get("unit") or ""
-        if val is not None:
-            cl = _set_checklist_field(cl, fid, float(val))
-            clarified.add(fid)
-            continue
-        if use_all_defaults or _SKIP_RE.search(text):
-            default = _default_for_field(fid)
-            if default is not None:
-                cl = _set_checklist_field(cl, fid, float(default))
-                assumptions.append(
-                    f"{spec['question'].rstrip('？')} 未提供，采用默认 {default} {unit}".strip()
-                )
-                clarified.add(fid)
+        updated_records.append(
+            {
+                "field_id": fid,
+                "value": float(val),
+                "previous": prev,
+                "unit": unit,
+                "source": "explicit",
+            }
+        )
+        if mode_norm == "edit" and prev is not None and float(prev) != float(val):
+            assumptions.append(f"用户修订：{spec['question'].rstrip('？')} → {val} {unit}".strip())
+
+    # 2) Clarify mode: fill remaining pending with defaults / skip phrasing
+    if mode_norm == "clarify":
+        for fid in pending_ids:
+            if fid in explicit:
+                continue
+            spec = next((s for s in CLARIFICATION_SPECS if s["field_id"] == fid), None)
+            if not spec:
+                continue
+            unit = spec.get("unit") or ""
+            if use_all_defaults or _SKIP_RE.search(text):
+                default = _default_for_field(fid)
+                if default is not None:
+                    cl = _set_checklist_field(cl, fid, float(default))
+                    assumptions.append(
+                        f"{spec['question'].rstrip('？')} 未提供，采用默认 {default} {unit}".strip()
+                    )
+                    clarified.add(fid)
+                    updated_records.append(
+                        {
+                            "field_id": fid,
+                            "value": float(default),
+                            "previous": None,
+                            "unit": unit,
+                            "source": "default",
+                        }
+                    )
 
     cl = cl.model_copy(
         update={
@@ -204,8 +273,38 @@ def apply_clarification_reply(
         }
     )
     remaining = build_pending_clarifications(cl.meta.source_text, cl)
-    return cl, assumptions, remaining
+    return cl, assumptions, remaining, updated_records
+
 
 def clarification_complete(pending: list[dict[str, Any]]) -> bool:
     return len(pending) == 0
 
+
+def checklist_context_block(checklist: DesignChecklist | None) -> str:
+    """Compact Chinese summary for assistant system prompt / tool replies."""
+    if checklist is None:
+        return ""
+    proj = checklist.project
+    site = checklist.site
+    perf = checklist.performance_targets
+    struct = checklist.structural_assumptions
+    cid = checklist.meta.checklist_id or ""
+    pending = build_pending_clarifications(checklist.meta.source_text, checklist)
+    lines = [
+        "【当前设计清单·会话上下文】",
+        f"checklist_id={cid}",
+        f"容量={proj.target_capacity_mw} MW · 型式={proj.platform_type or '—'}",
+        f"场址={site.location_name or '—'} · Hs={site.Hs_m} m · Tp={site.Tp_s} s · 水深={site.water_depth_m} m · 风速={site.wind_ref_m_s} m/s",
+        f"钢耗目标={perf.steel_intensity_t_per_MW} t/MW · 静倾≤{perf.pitch_limit_deg}° · 疲劳寿命={perf.fatigue_design_life_years} 年",
+        f"吃水假设={struct.draft_m} m · 壁厚={struct.wall_thickness_m} m",
+    ]
+    if pending:
+        qs = "；".join(p["question"] for p in pending[:6])
+        lines.append(f"待确认参数（{len(pending)}）：{qs}")
+        lines.append("用户答复后系统会写回清单；你可提醒用户用「钢耗改为 280」等方式继续修改。")
+    else:
+        lines.append(
+            "清单已可带入任务。用户可用自然语言修改参数（如「水深改成 55 m」「钢耗 280 t/MW」），"
+            "前端/工具会调用 clarify?mode=edit 写回同一 checklist_id。"
+        )
+    return "\n".join(lines)

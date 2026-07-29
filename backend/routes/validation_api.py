@@ -42,6 +42,8 @@ class ValidationOptions(BaseModel):
     use_surrogate: bool = False
     candidate_label: str = "Candidate"
     design_checklist_id: str | None = None
+    task_id: str | None = None
+    oc4_session_id: str | None = None
 
 
 class ValidationRunRequest(BaseModel):
@@ -91,10 +93,50 @@ def validation_run(body: ValidationRunRequest) -> dict[str, Any]:
 
     vid = result["validation_id"]
     urls = artifact_urls(vid, out_dir)
+
+    halt_gate = None
+    audit_manifest_url = None
+    task_id = str(body.options.task_id or "").strip() or vid
+    try:
+        from backend.orchestrator.halt import evaluate_halt_gate
+        from backend.audit.manifest import build_audit_manifest
+        import os
+
+        halt_gate = evaluate_halt_gate(
+            overall_score=float(result["overall_score"]),
+            ai_review_scores=result.get("ai_review_scores"),
+            regulatory_review_scores=result.get("regulatory_review_scores"),
+            design_checklist_id=cid,
+        ).model_dump(mode="json")
+        am = build_audit_manifest(
+            task_id=task_id,
+            validation_dir=out_dir,
+            design_checklist_id=cid,
+            oc4_session_id=body.options.oc4_session_id,
+        )
+        root = Path(os.environ.get("WORKSPACE_ROOT", r"D:\python_project\beso_ai")).resolve()
+        audit_manifest_url = f"/runs/{am.relative_to(root).as_posix()}"
+        if body.options.task_id:
+            try:
+                from backend.candidates.registry import register_candidate
+
+                register_candidate(
+                    body.options.task_id,
+                    label=body.options.candidate_label or "validation_run",
+                    validation_id=vid,
+                    overall_score=float(result["overall_score"]),
+                )
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     return {
         **result,
         "geometry_source": src,
         "artifact_urls": urls,
+        "halt_gate": halt_gate,
+        "audit_manifest_url": audit_manifest_url,
     }
 
 
