@@ -2,7 +2,7 @@
 
 本目录从 `d:\python_project\text-to-cad` 同步，供侧栏助手（Qwen 工具循环）与本地脚本使用。
 
-- **`cad_skill/`**：Cursor「cad」技能本体（`SKILL.md`、`references/`、`scripts/step|inspect|render|dxf`、`explorer/` 的 dist 与 package.json；**不含** `explorer/node_modules`，若需本地 Explorer 开发可在该目录执行 `npm install`）。
+- **`cad_skill/`**：CAD 技能与工具本体（`SKILL.md`、`references/`、`scripts/step|inspect|render|dxf`、`explorer/` 的 dist 与 package.json；**不含** `explorer/node_modules`，若需本地 Explorer 开发可在该目录执行 `npm install`）。
 - **`STEP/`**：示例 build123d 生成器与参考 STEP。
 
 ## Qwen / 后端运行 STEP 生成
