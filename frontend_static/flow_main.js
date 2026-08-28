@@ -1115,9 +1115,33 @@ async function executeReplanResume(resume, data) {
   }
 
   if (target === "zwind") {
-    layout.addLandingBubble("agent", "时域校核参数已记录（Case3 演示/fixture）。真实 Zwind 子进程不在本轮范围。", {
-      format: "plain",
-    });
+    try {
+      const resp = await fetch(`${base}/api/replan/resume`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target: "zwind",
+          theta_after: resume?.theta_after || data?.result?.theta_after || {},
+          task_id: state.currentTaskId || undefined,
+        }),
+      });
+      const j = await resp.json().catch(() => ({}));
+      const hl = j?.zwind?.highlights || {};
+      const checks = j?.zwind?.pass_checks || {};
+      const passPitch = checks.extreme_pitch_within_limit ? "通过" : "需复核";
+      const passMoor = checks.mooring_within_limit ? "通过" : "需复核";
+      layout.addLandingBubble(
+        "agent",
+        `**Zwind 时域校核已接入**（\`${j?.zwind?.mode || "paper_fig2_import"}\` · \`third_party/zwind_newmodel\`）\n\n` +
+          `- 塔架 1st FA：**${hl.tower_1st_fa_hz ?? "—"} Hz**\n` +
+          `- DLC6.1 pitch：**${hl.extreme_pitch_deg ?? "—"}°**（限值 ${hl.pitch_limit_extreme_deg ?? "—"}° · ${passPitch}）\n` +
+          `- 系泊峰值：**${hl.max_mooring_tension_kn ?? "—"} kN**（${passMoor}）\n` +
+          `- θ 已记录：dt=${resume?.theta_after?.dt_s ?? "—"} s · 系泊刚度×${resume?.theta_after?.mooring_stiffness_scale ?? "—"}`,
+        { format: "md" },
+      );
+    } catch (e) {
+      layout.addLandingBubble("agent", `Zwind 接入失败：${e?.message || e}`, { format: "plain" });
+    }
     return;
   }
   try {
@@ -1942,8 +1966,8 @@ function pushDesignDomainWorkflowCardToLandingThread(patch = {}) {
 /** 从主页进入设计域：先切换舞台再异步补全会话，避免长时间卡在主页 */
 async function openDesignDomainFromLanding(opts = {}) {
   const { autoPipeline = false, softResume = true, forceNewSession = false } = opts;
-  if (!isOc4IgesFilename(state.currentFileName)) {
-    layout.addLandingBubble("agent", "设计域仅支持已上传的 IGES 文件。");
+  if (!isOc4IgesFilename(state.currentFileName) && !canEnterDesignDomainWithoutUpload()) {
+    layout.addLandingBubble("agent", "设计域仅支持已上传的 IGES 文件，或带有设计域会话的演示任务。");
     return;
   }
   const stOpen = String(state.currentTaskStatus || "").toLowerCase();
@@ -2233,17 +2257,18 @@ function updateLandingSubflowStrip() {
   const oc = refs.landingEnterOrchestrateBtn;
   const iges = isOc4IgesFilename(state.currentFileName);
   const sidAny = String(state.oc4DesignDomainSessionId || state.oc4DesignDomainSessionIdForResume || "").trim();
-  /** 有 IGES 且（已绑定 file_id 或已有设计域会话）即可进入，避免任务 JSON 缺 file_id 时按钮永久灰显 */
-  const canDesignDomain = Boolean(iges && (state.currentFileId || sidAny));
+  /** 有 IGES 且（已绑定 file_id 或已有设计域会话）即可进入；演示 FCStd 有会话也可回溯 */
+  const canDesignDomain = Boolean((iges && (state.currentFileId || sidAny)) || sidAny);
   if (dd) {
     dd.disabled = !canDesignDomain;
-    if (!iges) dd.title = "设计域仅支持 IGES";
+    if (!iges && !sidAny) dd.title = "设计域仅支持 IGES";
     else if (!state.currentFileId && !sidAny) dd.title = "请先上传 IGES，或从含设计域会话的任务进入";
-    else dd.title = "进入设计域";
+    else dd.title = sidAny && !iges ? "回溯设计域会话" : "进入设计域";
   }
   if (oc) {
-    oc.disabled = !state.currentFileId;
-    oc.title = state.currentFileId ? "进入构型优化编排" : "请先上传文件";
+    const canOc = Boolean(state.currentFileId || sidAny || state.jobId);
+    oc.disabled = !canOc;
+    oc.title = canOc ? "进入构型优化编排 / 拓扑流程" : "请先上传文件";
   }
   syncOpenWorkDirButtonsEnabled();
 }
@@ -2518,8 +2543,38 @@ async function openTaskSubprocessFromBadge(task, kind) {
     refs.fileSummaryInline.textContent = `已上传文件：${state.currentFileName || "(未知)"}\n扫描目录：${state.uploadedSourceDir || "(未知)"}`;
   }
   await hydrateLandingFromTask(task);
+  // Normalize demo titles that were overwritten by orchestration prompts
+  if (/^【全流程演示】/.test(String(task.title || "")) || isBeso7DemoAssetName(task.file_name)) {
+    await taskManager
+      .upsertTask({ title: "全流程演示 · BESO7", file_name: task.file_name || "BESO7.FCStd" })
+      .catch(() => {});
+  }
   const k = String(kind || "");
   if (k === "design_domain") {
+    if (sid || canEnterDesignDomainWithoutUpload(task)) {
+      if (sid) {
+        state.oc4DesignDomainSessionId = sid;
+        state.oc4DesignDomainSessionIdForResume = sid;
+      }
+      await ensureOc4DesignDomainSessionForResume();
+      if (!String(state.oc4DesignDomainSessionId || "").trim()) {
+        layout.addLandingBubble("agent", "该任务尚无设计域会话，无法回溯。");
+        return;
+      }
+      await taskManager.upsertTask({ ui_stage: "design_domain" }).catch(() => {});
+      state.currentTaskUiStage = "design_domain";
+      if (!landingThreadHasDesignDomainCard()) {
+        pushDesignDomainWorkflowCardToLandingThread({ status: "回溯中", step: 2, progress: 28 });
+        persistLandingAssistantThread();
+      }
+      await enterOc4DesignDomainStage({
+        softResume: true,
+        forceNewSession: false,
+        resumeHint: "已从侧栏回溯进入设计域会话（演示产物可继续查看）。",
+      }).catch((e) => layout.addLandingBubble("agent", String(e?.message || e)));
+      await taskManager.loadTasks().catch(() => {});
+      return;
+    }
     if (!isOc4IgesFilename(state.currentFileName)) {
       layout.addLandingBubble("agent", "该任务文件不是 IGES，无法进入设计域。");
       return;
@@ -2537,11 +2592,49 @@ async function openTaskSubprocessFromBadge(task, kind) {
     return;
   }
   if (k === "orchestrate") {
-    if (!state.currentFileId) {
+    const jid = String(task.job_id || state.jobId || "").trim();
+    // Prefer topology flow backtrack when a (demo-seeded) job already exists
+    if (jid) {
+      state.jobId = jid;
+      state.oc4DesignDomainFinalized = true;
+      state.oc4OrchestrateShouldRegenerate = false;
+      state.currentTaskStatus = String(task.status || state.currentTaskStatus || "completed");
+      try {
+        layout.setStep?.(3);
+        layout.showStage?.("flow");
+      } catch {
+        layout.showStage?.("orchestrate");
+      }
+      state.currentTaskUiStage = "flow";
+      await taskManager
+        .upsertTask({
+          ui_stage: "flow",
+          job_id: jid,
+          title: isBeso7DemoAssetName(task.file_name) ? "全流程演示 · BESO7" : undefined,
+        })
+        .catch(() => {});
+      try {
+        connectWs();
+      } catch {
+        /* ignore */
+      }
+      try {
+        await hydrateDefaultImages();
+      } catch {
+        /* ignore */
+      }
+      layout.addLandingBubble?.(
+        "agent",
+        "已回溯到拓扑优化流程视图（曲线 / 3D 来自演示种子产物）。",
+      );
+      await taskManager.loadTasks().catch(() => {});
+      return;
+    }
+    if (!state.currentFileId && !canEnterOrchestrateWithoutUpload(task)) {
       layout.addLandingBubble("agent", "该对话没有已保存的上传文件，请先上传后再进入构型优化编排。");
       return;
     }
-    await openLandingOrchestrateSubflow({ skipUserBubble: true });
+    await openLandingOrchestrateSubflow({ skipUserBubble: true, allowWithoutFile: true });
   }
 }
 
@@ -2822,8 +2915,8 @@ function syncOc4OrchestrateShouldRegenerateFromTask(task) {
  * @param {{ skipUserBubble?: boolean }} opts
  */
 async function openLandingOrchestrateSubflow(opts = {}) {
-  const { skipUserBubble = true } = opts || {};
-  if (!state.currentFileId) {
+  const { skipUserBubble = true, allowWithoutFile = false } = opts || {};
+  if (!state.currentFileId && !allowWithoutFile && !canEnterOrchestrateWithoutUpload()) {
     layout.addLandingBubble("agent", "请先上传文件。");
     return;
   }
@@ -2839,15 +2932,43 @@ async function openLandingOrchestrateSubflow(opts = {}) {
     return;
   }
   const orchestrationResumeOk =
-    st === "ready_to_execute" || st === "orchestrating" || st === "completed" || st === "done";
-  const canResumeOrchestrate = !state.oc4OrchestrateShouldRegenerate && orchestrationResumeOk;
+    st === "ready_to_execute" ||
+    st === "orchestrating" ||
+    st === "completed" ||
+    st === "done" ||
+    st === "running";
+  const canResumeOrchestrate =
+    (!state.oc4OrchestrateShouldRegenerate && orchestrationResumeOk) ||
+    (allowWithoutFile && canEnterOrchestrateWithoutUpload());
   if (canResumeOrchestrate) {
     await layout.playLandingSubflowBridge({ kind: "orchestrate", minMs: 720 });
-    layout.showStage("orchestrate");
-    if (refs.executePlannedTask) refs.executePlannedTask.disabled = st === "orchestrating";
-    if (state.currentTaskId) {
+    // If job exists, prefer flow stage for topology backtrack
+    const jid = String(state.jobId || "").trim();
+    if (jid) {
+      try {
+        layout.setStep?.(3);
+        layout.showStage("flow");
+      } catch {
+        layout.showStage("orchestrate");
+      }
+      state.currentTaskUiStage = "flow";
+      try {
+        connectWs();
+      } catch {
+        /* ignore */
+      }
+      try {
+        await hydrateDefaultImages();
+      } catch {
+        /* ignore */
+      }
+    } else {
+      layout.showStage("orchestrate");
+      if (refs.executePlannedTask) refs.executePlannedTask.disabled = st === "orchestrating" || window.__beso7DemoActive;
       state.currentTaskUiStage = "orchestrate";
-      await taskManager.upsertTask({ ui_stage: "orchestrate" }).catch(() => {});
+    }
+    if (state.currentTaskId) {
+      await taskManager.upsertTask({ ui_stage: state.currentTaskUiStage || "orchestrate" }).catch(() => {});
     }
     await taskManager.loadTasks().catch(() => {});
     return;
@@ -3541,6 +3662,37 @@ document.addEventListener("visibilitychange", () => {
 
 function isOc4IgesFilename(name) {
   return /\.(igs|iges)$/i.test(String(name || ""));
+}
+
+function isBeso7DemoAssetName(name) {
+  const n = String(name || "");
+  return /BESO7/i.test(n) || /\.fcstd$/i.test(n);
+}
+
+function taskDesignDomainSessionId(task = null) {
+  return String(
+    task?.oc4_design_domain_session_id ||
+      state.oc4DesignDomainSessionId ||
+      state.oc4DesignDomainSessionIdForResume ||
+      "",
+  ).trim();
+}
+
+/** 演示 / 已有会话：可不依赖重新上传即可回溯设计域 */
+function canEnterDesignDomainWithoutUpload(task = null) {
+  if (taskDesignDomainSessionId(task)) return true;
+  if (isBeso7DemoAssetName(task?.file_name || state.currentFileName)) return true;
+  if (window.__beso7DemoActive || window.__beso7DemoSeededJobId) return true;
+  return false;
+}
+
+/** 演示 / 已有 job 或会话：可不依赖重新上传即可回溯编排/拓扑 */
+function canEnterOrchestrateWithoutUpload(task = null) {
+  if (String(task?.job_id || state.jobId || "").trim()) return true;
+  if (taskDesignDomainSessionId(task)) return true;
+  if (isBeso7DemoAssetName(task?.file_name || state.currentFileName)) return true;
+  if (window.__beso7DemoActive || window.__beso7DemoSeededJobId) return true;
+  return false;
 }
 
 function disposeDesignDomainViewer() {
@@ -5038,17 +5190,17 @@ async function beginOrchestrationAfterLanding(opts = {}) {
 async function handleLandingWorkflowCardClick(kind) {
   const k = String(kind || "");
   if (k === "orchestrate") {
-    if (!state.currentFileId) {
+    if (!state.currentFileId && !canEnterOrchestrateWithoutUpload()) {
       layout.addLandingBubble("agent", "请先上传文件。");
       layout.showStage("landing");
       return;
     }
-    await openLandingOrchestrateSubflow({ skipUserBubble: true });
+    await openLandingOrchestrateSubflow({ skipUserBubble: true, allowWithoutFile: true });
     return;
   }
   if (k === "design_domain") {
-    if (!isOc4IgesFilename(state.currentFileName)) {
-      layout.addLandingBubble("agent", "设计域需要 IGES 文件。");
+    if (!isOc4IgesFilename(state.currentFileName) && !canEnterDesignDomainWithoutUpload()) {
+      layout.addLandingBubble("agent", "设计域需要 IGES 文件，或带有设计域会话的演示任务。");
       return;
     }
     /** 与顶栏「设计域」入口一致，避免漏 persist / 会话分支与重复逻辑导致点击无反应 */
@@ -7252,6 +7404,8 @@ void maybeRunBeso7LiveDemo({
   beginOrchestrationAfterLanding,
   ensureDesignDomainIde,
   ensureDdPlanRailStepsIfEmpty,
+  pushDesignDomainWorkflowCardToLandingThread,
+  landingThreadHasDesignDomainCard,
   get designDomainAgentUi() {
     return designDomainAgentUi;
   },

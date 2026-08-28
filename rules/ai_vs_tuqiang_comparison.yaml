@@ -4,12 +4,14 @@
 
 meta:
   title: "AI vs Tuqiang — key performance comparison"
-  updated: "2026-07-05"
+  updated: "2026-08-28"
   capacity_mw: 20.0
+  paper_fig2_source: "third_party/zwind_newmodel/paper_fig2_metrics.json"
   footnote: >
     Steel mass and unit cost refer to the 20 MW floating foundation.
-    Structural metrics are Zwind limit-state / fatigue envelopes (H1–H6).
-    Frequency panel: structural modes shall not overlap 1P (0.08–0.12 Hz) or 3P (0.24–0.35 Hz) bands.
+    Fig. 2b–e structural / motion / load panels are sourced from the integrated
+    Zwind–OpenSees bundle (third_party/zwind_newmodel). Frequency panel: modes
+    shall not overlap the 20 MW 1P/3P excitation bands used in the paper figures.
 
 platforms:
   ai:
@@ -54,42 +56,43 @@ metrics:
     icon: "frequency"
     chart: avoidance
     unit: "Hz"
-    x_max: 0.5
+    x_max: 0.55
     subtitle: "Modes outside 1P / 3P excitation bands"
     excitation_bands:
       - label: "1P range"
-        hz_min: 0.08
-        hz_max: 0.12
+        hz_min: 0.05
+        hz_max: 0.110
         color: "#3C5488"
       - label: "3P range"
-        hz_min: 0.24
-        hz_max: 0.35
+        hz_min: 0.150
+        hz_max: 0.330
         color: "#E64B35"
     ai_modes:
       - label: "1st SS"
-        hz: 0.42
+        hz: 0.481
         ls: ":"
       - label: "1st FA"
-        hz: 0.44
+        hz: 0.487
         ls: "-"
     tuqiang_modes:
       - label: "1st SS"
-        hz: 0.39
+        hz: 0.415
         ls: ":"
       - label: "1st FA"
-        hz: 0.41
+        hz: 0.424
         ls: "-"
-    source: "Zwind modal analysis · tower 1st modes vs rotor 1P/3P bands"
+    source: "third_party/zwind_newmodel · Fig. 2b-I tower modes"
 
   - id: platform_motion
     label: "Platform motion"
     icon: "motion"
     unit: "deg"
-    subtitle: "Peak pitch · extreme load case"
-    ai: 3.58
-    tuqiang: 4.05
+    subtitle: "Peak pitch · extreme DLC 6.1 (Fig. 2d-II)"
+    ai: 9.56
+    tuqiang: 8.02
     lower_is_better: true
-    source: "Zwind H5 combined storm · pitch limit 4.2 deg"
+    limit: 10.0
+    source: "third_party/zwind_newmodel/paper_fig2_metrics.json · fig2d.pitch_deg"
 
   - id: structural_strength
     label: "Structural strength"
@@ -115,8 +118,9 @@ metrics:
     label: "Mooring tension"
     icon: "mooring"
     unit: "kN"
-    subtitle: "Peak line tension"
-    ai: 4380
-    tuqiang: 4710
+    subtitle: "Peak line tension · extreme DLC 6.1 (Fig. 2e-I)"
+    ai: 13037
+    tuqiang: 14185
     lower_is_better: true
-    source: "Zwind mooring model · H5 storm envelope"
+    limit: 20165.9
+    source: "third_party/zwind_newmodel/paper_fig2_metrics.json · fig2e.max_mooring_tension_kn"

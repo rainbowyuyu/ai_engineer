@@ -1,0 +1,23 @@
+------- HydroDyn Driver Input File --------------------------------------------
+File for test0820 hardcode moored free-decay surge (still water)
+FALSE         Echo                - Echo input data
+---------------------- ENVIRONMENTAL CONDITIONS -------------------------------
+    9.80665   Gravity             - Gravity (m/s^2)
+       1025   WtrDens             - Water density (kg/m^3)
+         51   WtrDpth             - Water depth (m)
+          0   MSL2SWL             - Still-water offset (m)
+---------------------- HYDRODYN -----------------------------------------------
+"_HydroDyn_script_geometry.dat" HDInputFile       - HydroDyn input file
+"_SeaState0.dat"                SeaStateInputFile - Still-water SeaState (WaveMod=0)
+"driver_test0820_decay_surge"   OutRootName       - Case-private HydroDyn output root
+FALSE         Linearize           - Linearization flag
+      30000   NSteps              - 300 s at 0.01 s
+       0.01   TimeInterval        - Coupling time step (s)
+---------------------- PRP INPUTS (Platform Reference Point) ------------------
+         -1   PRPInputsMod        - test0820 native HydroLoad PRP coupling mode
+         12   PtfmRefzt           - PRP/node 1 elevation (m)
+"OpenFAST_Displacement.dat" PRPInputsFile - Required NBody initialization record
+---------------------- PRP STEADY STATE INPUTS --------------------------------
+          0,          0,          0,          0,          0,          0 uPRPInSteady
+          0,          0,          0,          0,          0,          0 uDotPRPInSteady
+          0,          0,          0,          0,          0,          0 uDotDotPRPInSteady

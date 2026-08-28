@@ -1,0 +1,26 @@
+{
+  "title": "The AI Engineer — companion data and code for certifiable engineering design",
+  "upload_type": "software",
+  "description": "Flagship validation outputs, fleet benchmark tables, and reproduction scripts for the manuscript Closed-loop AI achieves certifiable engineering design. Code mirror: https://github.com/rainbowyuyu/ai_engineer",
+  "creators": [
+    {"name": "Yu, Tianyi", "affiliation": "Zhejiang University"},
+    {"name": "Tao, Chengxing", "affiliation": "Zhejiang University"},
+    {"name": "Wang, Lilin", "affiliation": "Zhejiang University", "orcid": ""}
+  ],
+  "keywords": [
+    "floating offshore wind",
+    "agentic AI",
+    "Automated Reviewer",
+    "BESO",
+    "certification"
+  ],
+  "license": "mit-license",
+  "access_right": "open",
+  "related_identifiers": [
+    {
+      "relation": "isSupplementTo",
+      "identifier": "https://github.com/rainbowyuyu/ai_engineer",
+      "scheme": "url"
+    }
+  ]
+}

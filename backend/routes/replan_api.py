@@ -204,4 +204,32 @@ def replan_resume(body: ResumeIn) -> dict[str, Any]:
             "api_path": "/api/chat",
         }
 
+    if target == "zwind":
+        from backend.replan.zwind_adapter import run_zwind_subprocess_placeholder
+
+        eval_out = run_zwind_subprocess_placeholder(
+            platform="ai",
+            prefer_live=False,
+            run_dir=None,
+        )
+        hl = eval_out.get("highlights") or {}
+        return {
+            "ok": True,
+            "target": "zwind",
+            "api_path": "/api/demo/beso7-live-pipeline/zwind",
+            "zwind": {
+                "mode": eval_out.get("mode"),
+                "bundle_rel": eval_out.get("bundle_rel"),
+                "highlights": hl,
+                "envelope": eval_out.get("envelope"),
+                "pass_checks": eval_out.get("pass_checks"),
+                "theta_after": theta,
+            },
+            "message": (
+                f"已接入 third_party/zwind_newmodel（{eval_out.get('mode')}）："
+                f"DLC6.1 pitch={hl.get('extreme_pitch_deg')}° · "
+                f"系泊={hl.get('max_mooring_tension_kn')} kN"
+            ),
+        }
+
     return {"ok": True, "target": target, "message": "无额外动作"}

@@ -73,13 +73,16 @@ function taskSubprocessBadges(task) {
   const ui = String(task?.ui_stage || "").toLowerCase();
   const st = String(task?.status || "").toLowerCase();
   const sid = String(task?.oc4_design_domain_session_id || "").trim();
-  const designDomain = Boolean(sid) || ui === "design_domain";
+  const demoAsset = /BESO7/i.test(String(task?.file_name || "")) || /\.fcstd$/i.test(String(task?.file_name || ""));
+  const designDomain = Boolean(sid) || ui === "design_domain" || (demoAsset && Boolean(sid));
   const orchestrate =
     ui === "orchestrate" ||
     ui === "flow" ||
     st === "orchestrating" ||
     st === "ready_to_execute" ||
-    (st === "running" && Boolean(task?.job_id));
+    (st === "running" && (Boolean(task?.job_id) || Boolean(sid) || demoAsset)) ||
+    (st === "completed" && (Boolean(task?.job_id) || demoAsset)) ||
+    (demoAsset && (Boolean(task?.job_id) || Boolean(sid)));
   return { designDomain, orchestrate };
 }
 

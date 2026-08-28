@@ -23,6 +23,7 @@ from backend.demo.beso7_live_pipeline import (
     run_sizing_step,
     run_solver_replan_step,
     run_validation_step,
+    run_zwind_eval_step,
     seed_beso7_job_artifacts,
 )
 
@@ -168,6 +169,32 @@ def demo_beso7_sizing(body: SizingIn) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"sizing 失败: {e}") from e
+
+
+class ZwindIn(BaseModel):
+    task_id: str | None = None
+    job_id: str
+    platform: str = "ai"
+    prefer_live: bool | None = None
+
+
+@router.post("/beso7-live-pipeline/zwind")
+def demo_beso7_zwind(body: ZwindIn) -> dict[str, Any]:
+    """Size-opt → Zwind (third_party/zwind_newmodel paper Fig. 2 envelope)."""
+    try:
+        return run_zwind_eval_step(
+            _workspace_root(),
+            job_id=body.job_id,
+            task_id=body.task_id,
+            platform=body.platform,
+            prefer_live=body.prefer_live,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"zwind 失败: {e}") from e
 
 
 class SeedIn(BaseModel):
@@ -342,6 +369,7 @@ def demo_beso7_run_all(body: BootstrapIn | None = None) -> dict[str, Any]:
     sizing = demo_beso7_sizing(
         SizingIn(task_id=boot["task_id"], job_id=orch["job_id"], target_power_mw=20.0)
     )
+    zwind = demo_beso7_zwind(ZwindIn(task_id=boot["task_id"], job_id=orch["job_id"], platform="ai"))
     solver = demo_beso7_solver_replan(SolverReplanIn(task_id=boot["task_id"], job_id=orch["job_id"]))
     return {
         "ok": True,
@@ -353,6 +381,7 @@ def demo_beso7_run_all(body: BootstrapIn | None = None) -> dict[str, Any]:
         "orchestrate": orch,
         "reconstruct": recon,
         "sizing": sizing,
+        "zwind": zwind,
         "solver_replan": solver,
         "pipeline": [
             {"id": "bootstrap", "title": boot.get("process", {}).get("title"), "io": boot.get("io")},
@@ -362,6 +391,7 @@ def demo_beso7_run_all(body: BootstrapIn | None = None) -> dict[str, Any]:
             {"id": "orchestrate", "title": orch.get("process", {}).get("title"), "io": orch.get("io")},
             {"id": "reconstruct", "title": recon.get("process", {}).get("title"), "io": recon.get("io")},
             {"id": "sizing", "title": sizing.get("process", {}).get("title"), "io": sizing.get("io")},
+            {"id": "zwind", "title": zwind.get("process", {}).get("title"), "io": zwind.get("io")},
             {"id": "solver", "title": solver.get("process", {}).get("title"), "io": solver.get("io")},
         ],
     }

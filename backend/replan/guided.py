@@ -133,7 +133,7 @@ def _resume_meta(kind: str, case_id: str | None) -> dict[str, Any]:
             "target": "zwind",
             "label": "继续尺寸 / 时域校核阶段",
             "cta": "标记已恢复并继续",
-            "hint": "时域步长与系泊刚度已更新；真实 Zwind 子进程就绪后可直接重跑。",
+            "hint": "时域步长与系泊刚度已更新；可在 third_party/zwind_newmodel 重跑 test0820_hardcode.py 或导入 paper_fig2_metrics.json。",
         }
     return {
         "target": "home",

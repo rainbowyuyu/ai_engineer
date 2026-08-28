@@ -1,0 +1,26 @@
+# statistics_window: time_s >= 100.0
+# source channel time_s value_at_max_abs max_abs
+tower_top_acceleration AccX_mps2 118.150000 1.725840000e-01 1.725840000e-01
+tower_top_acceleration AccY_mps2 118.300000 -1.167640000e-01 1.167640000e-01
+tower_top_acceleration AccZ_mps2 110.010000 -9.257650000e-02 9.257650000e-02
+tower_top_acceleration AlphaX_radps2 118.260000 1.100720000e-03 1.100720000e-03
+tower_top_acceleration AlphaY_radps2 118.750000 3.047280000e-03 3.047280000e-03
+tower_top_acceleration AlphaZ_radps2 103.950000 2.512700000e-03 2.512700000e-03
+tower_base_loads TwrBsFxt_kN 113.470000 -2.945440000e+03 2.945440000e+03
+tower_base_loads TwrBsFyt_kN 100.560000 1.731620000e+02 1.731620000e+02
+tower_base_loads TwrBsFzt_kN 105.920000 2.312860000e+04 2.312860000e+04
+tower_base_loads TwrBsMxt_kNm 113.980000 -2.116110000e+04 2.116110000e+04
+tower_base_loads TwrBsMyt_kNm 114.700000 5.493750000e+05 5.493750000e+05
+tower_base_loads TwrBsMzt_kNm 103.960000 2.620690000e+04 2.620690000e+04
+mooring_fairlead_tension Line01_FairleadTension_N 120.000000 2.256306642e+06 2.256306642e+06
+mooring_fairlead_tension Line02_FairleadTension_N 120.000000 2.261605926e+06 2.261605926e+06
+mooring_fairlead_tension Line03_FairleadTension_N 120.000000 2.253985370e+06 2.253985370e+06
+mooring_fairlead_tension Line04_FairleadTension_N 120.000000 2.239367802e+06 2.239367802e+06
+mooring_fairlead_tension Line05_FairleadTension_N 108.020000 6.780899696e+05 6.780899696e+05
+mooring_fairlead_tension Line06_FairleadTension_N 107.940000 6.660204513e+05 6.660204513e+05
+mooring_fairlead_tension Line07_FairleadTension_N 108.120000 6.369494318e+05 6.369494318e+05
+mooring_fairlead_tension Line08_FairleadTension_N 108.020000 6.232525225e+05 6.232525225e+05
+mooring_fairlead_tension Line09_FairleadTension_N 108.030000 6.567502900e+05 6.567502900e+05
+mooring_fairlead_tension Line10_FairleadTension_N 107.920000 6.689143537e+05 6.689143537e+05
+mooring_fairlead_tension Line11_FairleadTension_N 108.010000 6.937626964e+05 6.937626964e+05
+mooring_fairlead_tension Line12_FairleadTension_N 108.070000 7.078945196e+05 7.078945196e+05

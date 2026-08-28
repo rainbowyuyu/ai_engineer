@@ -1,0 +1,37 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "The AI Engineer"
+type: software
+authors:
+  - family-names: Yu
+    given-names: Tianyi
+  - family-names: Tao
+    given-names: Chengxing
+  - family-names: Wang
+    given-names: Lilin
+    email: lilin.wang@zju.edu.cn
+  - family-names: Wang
+    given-names: Lizhong
+repository-code: "https://github.com/rainbowyuyu/ai_engineer"
+license: MIT
+abstract: >-
+  Companion code for Closed-loop AI achieves certifiable engineering design:
+  agentic orchestration with BESO–CalculiX, size optimization, and an Automated
+  Reviewer termination gate (S ≥ 85).
+keywords:
+  - agentic AI
+  - topology optimization
+  - floating offshore wind
+  - certification
+preferred-citation:
+  type: article
+  title: "Closed-loop AI achieves certifiable engineering design"
+  authors:
+    - family-names: Yu
+      given-names: Tianyi
+    - family-names: Tao
+      given-names: Chengxing
+    - family-names: Wang
+      given-names: Lilin
+  year: 2026
+  notes: "Nature Article submission / arXiv preprint"

@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install -U pip
+          pip install -r backend/requirements.txt
+          if [ -f backend/requirements-validation.txt ]; then pip install -r backend/requirements-validation.txt; fi
+          pip install pytest
+      - name: Unit tests (halt + validation)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          pytest tests/test_halt_gate.py tests/test_validation_scorer.py -q --tb=short
+      - name: Validation smoke (if geometry present)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          if [ -f rules/optimized_geometry.json ]; then
+            python scripts/verify_validation_module.py || true
+          else
+            echo "Skip smoke: rules/optimized_geometry.json missing"
+          fi

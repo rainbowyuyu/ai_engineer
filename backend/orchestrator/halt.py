@@ -132,10 +132,19 @@ def halt_and_archive(
     try:
         from backend.candidates.registry import register_candidate
 
-        score_path = validation_dir / "score.json"
+        # Prefer validation_score.json (pipeline output); fall back to legacy score.json
+        score_path = validation_dir / "validation_score.json"
+        if not score_path.is_file():
+            score_path = validation_dir / "score.json"
         overall = 0.0
         if score_path.is_file():
-            overall = float(json.loads(score_path.read_text(encoding="utf-8")).get("overall_score", 0))
+            payload = json.loads(score_path.read_text(encoding="utf-8"))
+            overall = float(
+                payload.get("overall_score")
+                or payload.get("S")
+                or (payload.get("score") or {}).get("overall_score")
+                or 0
+            )
         register_candidate(
             tid,
             label="archived_best",

@@ -1,0 +1,52 @@
+{
+  "meta": {
+    "title": "Paper Fig. 2b–e source metrics (AI vs TuQiang)",
+    "paper": "Closed-loop AI achieves certifiable engineering design",
+    "source": "third_party/zwind_newmodel (Zwind / OpenSees time-domain + modal)",
+    "geometry": "optimized_geometry30.json",
+    "updated": "2026-08-28",
+    "notes": [
+      "Panel a (3D geometry) is artwork, not generated here.",
+      "Economic bars (steel intensity / unit cost) remain in rules/ai_vs_tuqiang_comparison.yaml.",
+      "Numbers below match draw.py used for Nature-style Fig. 2b–e panels."
+    ]
+  },
+  "colors": {
+    "ai": "#089981",
+    "tuqiang": "#DF4D3B"
+  },
+  "fig2b": {
+    "title": "Structural & Platform Dynamics",
+    "tower_frequencies_hz": {
+      "ai": {"1st_ss": 0.481, "1st_fa": 0.487},
+      "tuqiang": {"1st_ss": 0.415, "1st_fa": 0.424},
+      "excitation_bands": {
+        "1P": {"hz_min": 0.05, "hz_max": 0.110},
+        "3P": {"hz_min": 0.150, "hz_max": 0.330}
+      }
+    },
+    "platform_natural_periods_s": {
+      "dofs": ["Surge", "Sway", "Heave", "Roll", "Pitch", "Yaw"],
+      "ai": [51.87, 49.87, 15.54, 21.37, 20.13, 61.11],
+      "tuqiang": [58.47, 58.70, 18.26, 22.86, 22.89, 75.91],
+      "wave_energy_range_s": [0, 15]
+    }
+  },
+  "fig2c": {
+    "title": "Deformation & Motion (Operating DLC1.1)",
+    "surge_m": {"ai": 5.10, "tuqiang": 6.92, "limit": null},
+    "pitch_deg": {"ai": 3.42, "tuqiang": 2.47, "limit": 5.0, "limit_label": "5°"},
+    "tower_top_acc_mps2": {"ai": 1.12, "tuqiang": 0.82, "limit": 2.94, "limit_label": "2.94 m/s²"}
+  },
+  "fig2d": {
+    "title": "Deformation & Motion (Extreme DLC 6.1)",
+    "surge_m": {"ai": 12.38, "tuqiang": 8.53, "limit": null},
+    "pitch_deg": {"ai": 9.56, "tuqiang": 8.02, "limit": 10.0, "limit_label": "10°"},
+    "tower_top_acc_mps2": {"ai": 3.22, "tuqiang": 3.44, "limit": 5.899, "limit_label": "5.89 m/s²"}
+  },
+  "fig2e": {
+    "title": "Structural Load (Extreme DLC 6.1)",
+    "max_mooring_tension_kn": {"ai": 13037, "tuqiang": 14185, "limit": 20165.9, "limit_label": "20165.9"},
+    "tower_base_my_mnm": {"ai": 1372, "tuqiang": 1139.26, "limit": null}
+  }
+}

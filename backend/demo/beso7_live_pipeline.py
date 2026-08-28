@@ -54,7 +54,8 @@ _MINIMAL_OBJ = (
 BESO7_NL = (
     "BESO7 半潜式平台拓扑优化演示：目标容量 20 MW，场址水深 50 m，Hs 12 m，Tp 14 s。"
     "概念阶段刚度拓扑优化，质量保留比 mass_goal_ratio=0.15，过滤半径 2.0，"
-    "优化目标 stiffness，入级 AIP/CCS 审查门槛 S≥85。"
+    "优化目标 stiffness；尺寸优化后接 Zwind 时域校核（third_party/zwind_newmodel / Fig. 2b–e）；"
+    "入级 AIP/CCS 审查门槛 S≥85。"
     "几何资产：examples/beso/beso7/BESO7.FCStd。"
 )
 
@@ -1074,8 +1075,12 @@ def run_candidate_select_step(task_id: str, *, auto_select: bool = False) -> dic
             curve_url=curve_url,
             score_dims=spec["dims"],
             notes=spec["notes"],
-            score_source="ai_agent_predicted",
-            prediction_label="AI Review 智能体预测分（非 Phase V 实测验证分）",
+            score_source="demo_predicted_not_measured",
+            prediction_label=(
+                "UI demo predicted scores for Phase IV candidate cards; "
+                "not Phase V Automated Reviewer measured validation_score.json. "
+                "Paper claims use measured validation / flagship archive only."
+            ),
             score_basis=_basis(spec["dims"], metrics=spec["metrics"], evidence=spec["evidence"]),
             rationale=spec.get("rationale") or "",
         )
@@ -1762,6 +1767,120 @@ def run_sizing_step(
     }
 
 
+def run_zwind_eval_step(
+    workspace_root: str | Path,
+    *,
+    job_id: str,
+    task_id: str | None = None,
+    platform: str = "ai",
+    prefer_live: bool | None = None,
+) -> dict[str, Any]:
+    """Phase III · Zwind aero-hydro-servo-elastic check after size optimization.
+
+    Imports ``third_party/zwind_newmodel`` paper Fig. 2 metrics (default) and
+    stages Fig. 2b–e panels into the job run directory for the demo gallery.
+    """
+    from backend.jobs.manager import jobs
+    from backend.tools.zwind_eval import evaluate_zwind_bundle
+
+    root = Path(workspace_root).resolve()
+    jid = str(job_id or "").strip()
+    if not jid:
+        raise ValueError("job_id required")
+    job = jobs.get_job(jid)
+    if job is None or not getattr(job, "run_dir", None):
+        raise FileNotFoundError(f"job not found: {jid}")
+    run_dir = Path(job.run_dir)
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    result = evaluate_zwind_bundle(
+        run_dir=run_dir,
+        platform=platform,
+        prefer_live=prefer_live,
+    )
+    hl = result.get("highlights") or {}
+    write_job_context(
+        run_dir,
+        demo_zwind=True,
+        zwind_mode=result.get("mode"),
+        zwind_platform=platform,
+        zwind_extreme_pitch_deg=hl.get("extreme_pitch_deg"),
+        zwind_mooring_kn=hl.get("max_mooring_tension_kn"),
+        task_id=task_id,
+    )
+
+    panel_urls = [
+        {
+            "label": p.get("label"),
+            "url": f"/runs/{jid}/{p.get('rel')}",
+            "kind": "img",
+        }
+        for p in (result.get("panels") or [])
+        if p.get("rel")
+    ]
+    checks = result.get("pass_checks") or {}
+    detail_bits = [
+        f"mode={result.get('mode')}",
+        f"1st FA={hl.get('tower_1st_fa_hz')} Hz",
+        f"DLC6.1 pitch={hl.get('extreme_pitch_deg')}°",
+        f"mooring={hl.get('max_mooring_tension_kn')} kN",
+    ]
+    return {
+        "ok": True,
+        "job_id": jid,
+        "task_id": task_id,
+        "mode": result.get("mode"),
+        "bundle_rel": result.get("bundle_rel"),
+        "platform": platform,
+        "highlights": hl,
+        "envelope": result.get("envelope"),
+        "pass_checks": checks,
+        "panel_urls": panel_urls,
+        "metrics_url": f"/runs/{jid}/zwind_fig2_metrics.json",
+        "envelope_url": f"/runs/{jid}/zwind_envelope.json",
+        "report_url": f"/runs/{jid}/zwind_report.json",
+        "live": result.get("live"),
+        "process": {
+            "title": "Phase III · Zwind 时域校核（尺寸优化后）",
+            "detail": (
+                "尺寸优化完成后接入 third_party/zwind_newmodel："
+                + " · ".join(detail_bits)
+                + (" · 极限包络通过" if checks.get("extreme_pitch_within_limit") and checks.get("mooring_within_limit") else "")
+            ),
+        },
+        "io": {
+            "inputs": [
+                {
+                    "name": "optimized_geometry / sized_geometry",
+                    "role": "size_opt_result",
+                    "rel": f"runs/{jid}/sized_geometry.json",
+                    "exists": (run_dir / "sized_geometry.json").is_file(),
+                },
+                {
+                    "name": "paper_fig2_metrics.json",
+                    "role": "zwind_bundle",
+                    "rel": "third_party/zwind_newmodel/paper_fig2_metrics.json",
+                    "exists": True,
+                },
+            ],
+            "outputs": [
+                {
+                    "name": "zwind_report.json",
+                    "role": "zwind_report",
+                    "rel": f"runs/{jid}/zwind_report.json",
+                    "exists": True,
+                },
+                {
+                    "name": "zwind_fig2/",
+                    "role": "fig2_panels",
+                    "rel": f"runs/{jid}/zwind_fig2",
+                    "exists": bool(panel_urls),
+                },
+            ],
+        },
+    }
+
+
 def run_solver_replan_step(task_id: str, *, job_id: str | None = None) -> dict[str, Any]:
     """Case2 solver replan + ρₚ + version commit."""
     tid = str(task_id or "").strip()
@@ -2268,9 +2387,13 @@ def run_drawing_step(
         layout="ga",
         silhouette_mode="solid" if use_solid else "mesh",
     )
-    detail = "原始边柱+桩靴 + 优化光滑结构（斜撑/顶盘）实体轮廓出图。"
+    detail = "OC4 边立柱+垂荡板 + 优化光滑结构（斜撑/顶盘）实体轮廓出图。"
     if assembly_meta and assembly_meta.get("mode"):
-        detail = f"{detail} assembly={assembly_meta.get('mode')}。"
+        src_note = assembly_meta.get("columns_source") or ""
+        detail = f"{detail} assembly={assembly_meta.get('mode')}"
+        if src_note:
+            detail = f"{detail}; columns={src_note}"
+        detail = f"{detail}。"
     return {
         "ok": True,
         "task_id": tid,
@@ -2370,6 +2493,13 @@ def build_pipeline_deliverables_summary(
             add_file(run_dir / name, phase="III 重构", role="reconstruction")
         for name in ("sizing_report.json", "sized_geometry.json", "sizing_curve.png"):
             add_file(run_dir / name, phase="III 尺寸优化", role="sizing")
+        for name in ("zwind_report.json", "zwind_fig2_metrics.json", "zwind_envelope.json"):
+            add_file(run_dir / name, phase="III Zwind 时域", role="zwind")
+        zwind_dir = run_dir / "zwind_fig2"
+        if zwind_dir.is_dir():
+            for p in sorted(zwind_dir.glob("*.png")):
+                add_file(p, phase="III Zwind 时域", role="fig2_panel")
+                add_img(p.stem.replace("fig2", "Fig.2 "), f"/runs/{jid}/zwind_fig2/{p.name}", phase="III")
         for name, label in (("Mass.png", "Mass 曲线"), ("FI_mean.png", "FI_mean")):
             p = run_dir / name
             if p.is_file():
@@ -2379,20 +2509,36 @@ def build_pipeline_deliverables_summary(
             ("sizing_curve.png", "尺寸优化曲线"),
         ):
             p = run_dir / name
-            if p.is_file():
-                if p.suffix.lower() == ".png":
-                    add_img(label, f"/runs/{jid}/{name}", phase="III")
-                else:
-                    gallery.append(
-                        {
-                            "label": f"III · {label}",
-                            "url": f"/runs/{jid}/{name}",
-                            "kind": "mesh",
-                            "phase": "III",
-                        }
-                    )
-        # evolution previews
+            if not p.is_file():
+                continue
+            if p.suffix.lower() == ".png":
+                add_img(label, f"/runs/{jid}/{name}", phase="III")
+                continue
+            # Prefer raster preview for mesh artifacts (deliverables UI uses <img>)
+            png = _ensure_obj_preview(p)
+            if png is not None and png.is_file():
+                add_img(label, f"/runs/{jid}/{png.name}", phase="III")
+            else:
+                gallery.append(
+                    {
+                        "label": f"III · {label}",
+                        "url": f"/runs/{jid}/{name}",
+                        "kind": "mesh",
+                        "phase": "III",
+                    }
+                )
+        # Also surface topology_result preview when present
+        topo = run_dir / "topology_result.obj"
+        if topo.is_file():
+            topo_png = _ensure_obj_preview(topo)
+            if topo_png is not None and topo_png.is_file():
+                add_img("拓扑终态", f"/runs/{jid}/{topo_png.name}", phase="III")
+        add_file(run_dir / "reconstructed.preview.png", phase="III 重构", role="reconstruction_preview")
+        # evolution previews (skip reconstructed/topology which are Phase III)
         for p in sorted(run_dir.glob("*.preview.png"))[:8]:
+            stem = p.name.lower()
+            if "reconstructed" in stem or "topology" in stem:
+                continue
             add_file(p, phase="II 逐步优化", role="evolution_preview")
             add_img(p.stem.replace(".preview", ""), f"/runs/{jid}/{p.name}", phase="II")
 
@@ -2460,7 +2606,7 @@ def build_pipeline_deliverables_summary(
     phases = [
         {"id": "I", "title": "设计域", "status": "done"},
         {"id": "II", "title": "拓扑优化", "status": "done"},
-        {"id": "III", "title": "重构与尺寸优化", "status": "done"},
+        {"id": "III", "title": "重构 · 尺寸优化 · Zwind", "status": "done"},
         {"id": "IIIb", "title": "重规划闭环", "status": "done"},
         {"id": "IV", "title": "方案选优", "status": "done"},
         {"id": "V", "title": "验证打分", "status": "done" if val else "skip"},

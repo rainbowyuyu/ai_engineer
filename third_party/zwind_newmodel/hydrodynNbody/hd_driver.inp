@@ -1,0 +1,23 @@
+------- HydroDyn Driver Input File --------------------------------------------
+File for NRELOffshrBsline5MW_OC4DeepCwindSemi_HydroDyn
+FALSE         Echo                - Echo the input file data (flag)
+---------------------- ENVIRONMENTAL CONDITIONS -------------------------------
+    9.80665   Gravity             - Gravity (m/s^2)
+       1025   WtrDens             - Water density (kg/m^3)
+         51   WtrDpth             - Water depth (m)
+          0   MSL2SWL             - Offset between still-water level and mean sea level (m) [positive upward]
+---------------------- HYDRODYN -----------------------------------------------
+"_HydroDyn_script_geometry.dat"    HDInputFile       - Primary HydroDyn input file name (quoted string)
+"_SeaState12.dat"    SeaStateInputFile       - Primary SeaState input file name (quoted string)
+"./driver"    OutRootName       - The name which prefixes all HydroDyn generated files (quoted string)
+FALSE         Linearize         - Flag to enable linearization
+         100000   NSteps            - Number of time steps in the simulations (-)   [10 seconds]
+     0.01   TimeInterval      - TimeInterval for the simulation (sec)
+---------------------- PRP INPUTS (Platform Reference Point) ------------------
+         -1   PRPInputsMod      - Model for the PRP (principal reference point) inputs {0: all inputs are zero for every timestep, 1: steadystate inputs, 2: read inputs from a file (InputsFile)} (switch)
+         12   PtfmRefzt         - Vertical distance from the ground level to the platform reference point (m)
+"OpenFAST_Displacement.dat"    PRPInputsFile     - Filename for the PRP HydroDyn input InputsMod = 2 (quoted string)
+---------------------- PRP STEADY STATE INPUTS  -------------------------------
+          1,          2,         -3,          0,          0,          0    uPRPInSteady         - PRP Steady-state (3) displacements and (3) rotations at the platform reference point (m, m, m, rad, rad, rad)
+          0,          0,          0,          0,          0,          0    uDotPRPInSteady      - PRP Steady-state (3) translational and (3) rotational velocities at the platform reference point (m/s, rads/s)
+          0,          0,          0,          0,          0,          0    uDotDotPRPInSteady   - PRP Steady-state (3) translational and (3) rotational accelerations at the platform reference point (m/s^2, rads/s^2)

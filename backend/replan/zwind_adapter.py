@@ -1,6 +1,7 @@
-"""Zwind abort adapter (parse + θ patch); real subprocess left as future hook."""
+"""Zwind abort adapter (parse + θ patch) + envelope evaluation via zwind_newmodel."""
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from backend.replan.diagnostics import parse_diagnostics
@@ -21,6 +22,20 @@ def apply_zwind_replan(theta: dict[str, Any], sig: DiagnosticSignals | None = No
     return out
 
 
-def run_zwind_subprocess_placeholder(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
-    """Reserved for real Zwind 3.0 integration — not invoked in Phase I replan demos."""
-    raise NotImplementedError("Zwind subprocess not wired; use simulate_cases.case3_demo()")
+def run_zwind_subprocess_placeholder(
+    *args: Any,
+    run_dir: str | Path | None = None,
+    platform: str = "ai",
+    prefer_live: bool | None = None,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Evaluate Zwind envelope from ``third_party/zwind_newmodel`` (paper Fig. 2).
+
+    Replaces the old NotImplemented hook so Case3 resume / demo can import
+    metrics without requiring a full OpenSees campaign. Set ``BESO_ZWIND_LIVE=1``
+    or ``prefer_live=True`` to attempt ``test0820_hardcode.py``.
+    """
+    from backend.tools.zwind_eval import evaluate_zwind_bundle
+
+    rd = Path(run_dir) if run_dir else None
+    return evaluate_zwind_bundle(run_dir=rd, platform=platform, prefer_live=prefer_live)

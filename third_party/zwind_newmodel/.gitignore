@@ -1,0 +1,5 @@
+# Regenerable / cache only — full Zwind binaries + OPSout are tracked.
+**/__pycache__/
+*.pyc
+.opstool.output/
+figures/generated/

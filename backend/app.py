@@ -574,7 +574,9 @@ def _assistant_messages_for_qwen(body: AssistantChatRequest) -> list[dict[str, A
         "若用户讨论 **OC4 半潜式浮式风机** 概念阶段拓扑优化：回答须与后端定标一致——设计域几何、INP 荷载边界、"
         "`design_space`/`nondesign_space` 划分、BESO 参数以 `backend/oc4_methodology_chen2026.py` 的 `LLM_CONTEXT_BLOCK_ZH` 为唯一基准"
         "（含 `01_…`→`03_for_beso.inp` 会话链与 `examples/beso/Analysis-beso.inp` FCStd 基准）；勿混杂互相矛盾的「自创流程」。"
-        "拓扑之后水动力重构用 OpenFAST/AQWA 等另建模型，本工具链交付可算 INP + BESO。"
+        "拓扑与参数化尺寸优化之后，时域校核走 **Zwind**（`third_party/zwind_newmodel`，论文 Fig. 2b–e）；"
+        "演示默认导入 paper_fig2_metrics.json，可选 `BESO_ZWIND_LIVE=1` 重跑 OpenSees 耦合 campaign。"
+        "拓扑之后水动力重构用 OpenFAST/AQWA 等另建模型，本工具链交付可算 INP + BESO + Zwind 包络。"
     )
     if not msgs or msgs[0]["role"] != "system":
         msgs = [{"role": "system", "content": file_ctx + base_system}, *msgs]

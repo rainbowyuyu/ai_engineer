@@ -292,8 +292,10 @@ def _radar_score_table(
     ax_tbl: plt.Axes,
     fleet_points: list[FleetReviewPoint],
     cats: list[str],
+    *,
+    compact: bool = False,
 ) -> None:
-    """Bottom panel: full fleet five-dimension scores."""
+    """Fleet five-dimension score table (side panel when compact=True)."""
     T = NATURE_TYPE
     ax_tbl.axis("off")
     dim_headers = ["Cap.", "Steel", "Cost", "Sched.", "Life"]
@@ -307,34 +309,53 @@ def _radar_score_table(
             + [_score_cell(pt.scores.get(c)) for c in cats]
         )
 
+    if compact:
+        col_widths = [0.045, 0.30, 0.095, 0.092, 0.092, 0.092, 0.092, 0.092]
+        row_scale = 1.72
+        font_body = T["table"] - 0.5
+        font_head = T["table_header"] - 0.3
+    else:
+        col_widths = [0.034, 0.26, 0.078, 0.078, 0.078, 0.078, 0.078, 0.078]
+        row_scale = 1.95
+        font_body = T["table"]
+        font_head = T["table_header"]
+
     table = ax_tbl.table(
         cellText=rows,
         colLabels=header,
         loc="center",
         cellLoc="center",
-        colWidths=[0.034, 0.26, 0.078, 0.078, 0.078, 0.078, 0.078, 0.078],
+        colWidths=col_widths,
     )
     table.auto_set_font_size(False)
-    table.set_fontsize(T["table"])
-    table.scale(1.0, 1.95)
+    table.set_fontsize(font_body)
+    table.scale(1.0, row_scale)
 
     for (r, c), cell in table.get_celld().items():
-        cell.set_edgecolor("#D8DEE6")
-        cell.set_linewidth(0.45)
+        cell.set_edgecolor("#E2E8F0")
+        cell.set_linewidth(0.4)
         if r == 0:
-            cell.set_facecolor("#EEF2F7")
-            cell.set_text_props(fontweight="bold", fontsize=T["table_header"], color=NATURE_COLORS["text"])
+            cell.set_facecolor("#F1F5F9")
+            cell.set_text_props(fontweight="bold", fontsize=font_head, color=NATURE_COLORS["text"])
             continue
+        if r % 2 == 0:
+            cell.set_facecolor("#FAFBFC")
+        else:
+            cell.set_facecolor("#FFFFFF")
         if c == 0 and r > 0:
             color = rows[r - 1][0]
             if color:
                 cell.set_facecolor(color)
             cell.get_text().set_text("")
+            cell.set_edgecolor(color)
         elif c == 1:
-            cell.set_text_props(ha="left", fontsize=T["table"], color=NATURE_COLORS["text"])
-            cell.PAD = 0.06
+            cell.set_text_props(ha="left", fontsize=font_body, color=NATURE_COLORS["text"])
+            cell.PAD = 0.05
+        elif c == 2:
+            weight = "bold" if r <= 3 else "normal"
+            cell.set_text_props(fontsize=font_body, fontweight=weight, color=NATURE_COLORS["text"])
         else:
-            cell.set_text_props(fontsize=T["table"], color=NATURE_COLORS["text"])
+            cell.set_text_props(fontsize=font_body, color=NATURE_COLORS["text"])
 
 
 def configure_nature_style() -> None:
@@ -582,6 +603,200 @@ def plot_all_benchmark_positions(
     return artifacts
 
 
+def _fleet_median_scores(fleet_points: list[FleetReviewPoint], cats: list[str]) -> list[float]:
+    ordered = list(fleet_points)
+    med: list[float] = []
+    for c in cats:
+        series = [float(pt.scores.get(c, 0) or 0) for pt in ordered]
+        med.append(float(np.median(series)) if series else 0.0)
+    return med
+
+
+def _style_mini_radar(
+    ax: plt.Axes,
+    angles: list[float],
+    *,
+    show_labels: bool = False,
+    labels: list[str] | None = None,
+) -> None:
+    ax.set_theta_offset(np.pi / 2)
+    ax.set_theta_direction(-1)
+    ax.set_ylim(0, 100)
+    ax.set_xticks(angles)
+    ax.set_xticklabels([])
+    ax.set_yticks([40, 70, 100])
+    ax.set_yticklabels([])
+    ax.yaxis.grid(False)
+    ax.xaxis.grid(False)
+    ax.spines["polar"].set_visible(False)
+    ring = np.linspace(0, 2 * np.pi, 180)
+    # Quiet disk: present but not loud
+    ax.fill(ring, np.full_like(ring, 100.0), color="#F3F6F9", alpha=0.85, zorder=0, linewidth=0)
+    for r, lw, col in (
+        (40.0, 0.55, "#E2E8F0"),
+        (70.0, 0.60, "#D5DCE6"),
+        (100.0, 0.95, "#B8C2CF"),
+    ):
+        ax.plot(ring, np.full_like(ring, r), color=col, linewidth=lw, zorder=0)
+    for ang in angles:
+        ax.plot([ang, ang], [0, 100], color="#E8ECF2", linewidth=0.55, zorder=0)
+    if show_labels and labels:
+        _ = labels
+
+
+def _plot_one_profile(
+    ax: plt.Axes,
+    angles: list[float],
+    values: list[float],
+    median: list[float],
+    *,
+    color: str,
+    planned: bool = False,
+    linewidth: float = 2.2,
+    markersize: float = 4.0,
+) -> None:
+    angles_c = angles + [angles[0]]
+    med_c = median + [median[0]]
+    vals_c = values + [values[0]]
+    ax.fill(angles_c, med_c, color="#94A3B8", alpha=0.14, zorder=1, linewidth=0)
+    ax.plot(
+        angles_c,
+        med_c,
+        color="#64748B",
+        linewidth=max(1.25, linewidth * 0.52),
+        linestyle=(0, (2.5, 1.8)),
+        zorder=2,
+        alpha=0.92,
+    )
+    ax.fill(angles_c, vals_c, color=color, alpha=0.32, zorder=3, linewidth=0)
+    ax.plot(
+        angles_c,
+        vals_c,
+        color=color,
+        linewidth=linewidth,
+        linestyle="--" if planned else "-",
+        marker="o",
+        markersize=markersize,
+        markerfacecolor=color,
+        markeredgecolor="white",
+        markeredgewidth=0.75,
+        zorder=4,
+        solid_capstyle="round",
+        solid_joinstyle="round",
+    )
+
+
+def _add_first_radar_spoke_labels(ax: plt.Axes, angles: list[float], labels: list[str]) -> None:
+    """Spoke labels outside the fill; Cap. clear of the centred panel title."""
+    # Clockwise from top: Cap → Steel → Cost → Sched → Life
+    # Cap. sits left of the top spoke (not under the centred title).
+    align = [
+        dict(ha="center", va="bottom"),
+        dict(ha="left", va="center"),
+        dict(ha="left", va="top"),
+        dict(ha="right", va="top"),
+        dict(ha="right", va="center"),
+    ]
+    radii = [110.0, 112.0, 112.0, 112.0, 112.0]
+    # Cap. angle nudged toward Life side → leaves title band empty
+    ang_nudge = [-0.62, 0.0, 0.0, 0.0, 0.0]
+    short = {"Capacity": "Cap.", "Steel": "Steel", "Cost": "Cost", "Sched.": "Sched.", "Life": "Life"}
+    for ang, lab, kw, r, dn in zip(angles, labels, align, radii, ang_nudge):
+        ax.text(
+            ang + dn,
+            r,
+            short.get(lab, lab),
+            fontsize=10.5,
+            fontweight="700",
+            color=NATURE_COLORS["text"],
+            clip_on=False,
+            zorder=8,
+            **kw,
+        )
+
+
+def _plot_delta_heatmap(
+    ax: plt.Axes,
+    fleet_points: list[FleetReviewPoint],
+    cats: list[str],
+    median: list[float],
+    *,
+    ax_row: plt.Axes | None = None,
+) -> tuple[Any, list[str], list[float]]:
+    """Diverging heatmap: score − fleet median (makes pairwise differences obvious).
+    Returns (AxesImage, dim_labels, median_values). Overall is a plain numeric column.
+    """
+    from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
+
+    ordered = _radar_fleet_order(fleet_points)
+    names = [_chart_project_name(pt.short_name) for pt in ordered]
+    overalls = np.array([float(pt.overall) for pt in ordered], dtype=float)
+    dim_labels = ["Cap.", "Steel", "Cost", "Sched.", "Life", "Overall"]
+    raw5 = np.array([[float(pt.scores.get(c, 0) or 0) for c in cats] for pt in ordered], dtype=float)
+    delta5 = raw5 - np.asarray(median, dtype=float)
+    # Overall column: white (Δ=0) so colour scale stays metric-only
+    raw = np.column_stack([raw5, overalls])
+    delta = np.column_stack([delta5, np.zeros(len(ordered))])
+
+    cmap = LinearSegmentedColormap.from_list(
+        "fleet_delta",
+        ["#3C5488", "#8FA4C4", "#F7F7F7", "#E8A090", "#E64B35"],
+    )
+    vmax = float(max(12.0, np.nanmax(np.abs(delta5))))
+    norm = TwoSlopeNorm(vmin=-vmax, vcenter=0.0, vmax=vmax)
+    im = ax.imshow(delta, aspect="auto", cmap=cmap, norm=norm, interpolation="nearest")
+
+    ax.set_xticks([])
+    ax.set_xticklabels([])
+    ax.set_yticks(range(len(names)))
+    ax.set_yticklabels([])
+    ax.tick_params(axis="y", length=0, left=False, labelleft=False)
+    ax.set_xticks(np.arange(-0.5, len(dim_labels), 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, len(names), 1), minor=True)
+    ax.grid(which="minor", color="white", linestyle="-", linewidth=1.05)
+    ax.tick_params(which="minor", bottom=False, left=False, top=False)
+
+    for i in range(raw.shape[0]):
+        for j in range(raw.shape[1]):
+            d = float(delta[i, j])
+            txt_color = "#1A1A1A" if (j == len(dim_labels) - 1 or abs(d) < 0.45 * vmax) else "#FFFFFF"
+            ax.text(
+                j,
+                i,
+                f"{raw[i, j]:.0f}",
+                ha="center",
+                va="center",
+                fontsize=13.0,
+                fontweight="700" if i < 3 else "600",
+                color=txt_color,
+            )
+
+    ax.set_xlim(-0.5, len(dim_labels) - 0.5)
+    ax.set_ylim(len(names) - 0.5, -0.5)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    if ax_row is not None:
+        ax_row.set_xlim(0, 1)
+        ax_row.set_ylim(len(names) - 0.5, -0.5)
+        ax_row.axis("off")
+        for i, (pt, name) in enumerate(zip(ordered, names)):
+            col = _scheme_style(pt.short_name)["color"]
+            ax_row.scatter([0.06], [i], c=[col], s=85, marker="s", linewidths=0, zorder=3)
+            ax_row.text(
+                0.16,
+                i,
+                name,
+                ha="left",
+                va="center",
+                fontsize=12.8,
+                color=NATURE_COLORS["text"],
+                fontweight="600" if i < 3 else "normal",
+            )
+
+    return im, dim_labels, [float(m) for m in median]
+
+
 def plot_score_radar(
     score: ValidationScore,
     out_dir: Path,
@@ -589,101 +804,263 @@ def plot_score_radar(
     fleet_points: list[FleetReviewPoint] | None = None,
     candidate_label: str = "Proposed",
 ) -> list[str]:
+    """Fleet five-metric figure: small-multiple radars + Δ-median heatmap.
+
+    Overlaying 11 polygons on one radar is unreadable; each project gets its own
+    panel against a shared median ghost, while the heatmap exposes numeric gaps.
+    """
     configure_nature_style()
     T = NATURE_TYPE
-    _ = score  # fleet-only chart; candidate scores shown in validity table instead
+    _ = score
     _ = candidate_label
     cats = list(DIMENSION_KEYS)
-    labels = [RADAR_SHORT_LABELS.get(c, c) for c in cats]
+    spoke_labels = ["Capacity", "Steel", "Cost", "Sched.", "Life"]
     fleet_points = fleet_points or score_fleet_benchmarks()
     if not fleet_points:
         return []
+
+    ordered = _radar_fleet_order(fleet_points)
+    median = _fleet_median_scores(ordered, cats)
     angles = np.linspace(0, 2 * np.pi, len(cats), endpoint=False).tolist()
-    angles_c = angles + [angles[0]]
 
-    fig = plt.figure(figsize=(14.0, 13.4))
-    gs = fig.add_gridspec(2, 1, height_ratios=[1.15, 1.05], hspace=0.42)
-    ax = fig.add_subplot(gs[0], projection="polar")
-    ax_tbl = fig.add_subplot(gs[1])
-    ax.set_theta_offset(np.pi / 2)
-    ax.set_theta_direction(-1)
+    n = len(ordered)
+    # 3 columns → larger radars; 4 rows (11 charts + legend)
+    ncols = 3
+    nrows = int(np.ceil((n + 1) / ncols))  # reserve last cell for legend
 
-    compare_handles: list[Line2D] = []
-    for pt in _radar_fleet_order(fleet_points):
-        vals = [float(pt.scores.get(c, 0) or 0) for c in cats]
-        vals_c = vals + [vals[0]]
+    fig = plt.figure(figsize=(18.8, 12.0))
+    outer = fig.add_gridspec(
+        1,
+        2,
+        width_ratios=[1.18, 1.22],
+        wspace=0.18,
+        left=0.028,
+        right=0.985,
+        top=0.88,
+        bottom=0.14,
+    )
+    # Horizontal gap large; vertical gap for titles tucked under each panel
+    left = outer[0].subgridspec(nrows, ncols, wspace=0.36, hspace=0.28)
+    right = outer[1].subgridspec(1, 2, width_ratios=[0.30, 0.70], wspace=0.014)
+    ax_row = fig.add_subplot(right[0, 0])
+    ax_heat = fig.add_subplot(right[0, 1])
+
+    radar_axes: list[plt.Axes] = []
+    for idx, pt in enumerate(ordered):
+        r, c = divmod(idx, ncols)
+        ax = fig.add_subplot(left[r, c], projection="polar")
+        radar_axes.append(ax)
         style = _scheme_style(pt.short_name)
-        ls = "--" if pt.year_status == "planned" else style["ls"]
-        color = style["color"]
-        ax.fill(angles_c, vals_c, color=color, alpha=0.08, zorder=2)
-        ax.plot(
-            angles_c,
-            vals_c,
-            ls=ls,
-            linewidth=1.7,
-            color=color,
-            marker=style["marker"],
-            markersize=5.0,
-            alpha=0.92,
-            zorder=3,
+        vals = [float(pt.scores.get(k, 0) or 0) for k in cats]
+        _style_mini_radar(ax, angles)
+        _plot_one_profile(
+            ax,
+            angles,
+            vals,
+            median,
+            color=style["color"],
+            planned=(pt.year_status == "planned"),
+            linewidth=2.8,
+            markersize=5.2,
         )
-        compare_handles.append(
-            Line2D(
-                [0],
-                [0],
-                color=color,
-                lw=1.7,
-                ls=ls,
-                marker=style["marker"],
-                markersize=4.5,
-                label=_chart_project_name(pt.short_name),
-            )
+        if idx == 0:
+            _add_first_radar_spoke_labels(ax, angles, spoke_labels)
+            ax.set_zorder(6)
+        name = _chart_project_name(pt.short_name)
+        planned_mark = "*" if pt.year_status == "planned" else ""
+        # Identical pad → all titles share one baseline; room above Cap. on panel 1
+        ax.set_title(
+            f"{name}  {pt.overall:.0f}{planned_mark}",
+            fontsize=12.5,
+            fontweight="bold",
+            color=NATURE_COLORS["text"],
+            pad=12,
         )
 
-    ax.set_xticks(angles)
-    ax.set_xticklabels(labels, fontsize=T["radar_spoke"], fontweight="600", color=NATURE_COLORS["text"])
-    ax.tick_params(axis="x", pad=36)
-    ax.set_ylim(0, 100)
-    ax.set_yticks([20, 40, 60, 80])
-    ax.set_yticklabels(["20", "40", "60", "80"], fontsize=T["radar_ring"], color=NATURE_COLORS["muted"])
-    ax.grid(color="#D0D6DE", linewidth=0.65, alpha=0.9)
-    ax.spines["polar"].set_color("#C5CCD6")
-    ax.set_title(
-        "AI Review — fleet five-metric comparison",
-        fontsize=T["title"],
+    # Legend in the first empty cell after the last project
+    legend_idx = n
+    r, c = divmod(legend_idx, ncols)
+    axk = fig.add_subplot(left[r, c])
+    axk.axis("off")
+    axk.text(
+        0.06,
+        0.88,
+        "How to read",
+        fontsize=13.5,
         fontweight="bold",
-        pad=28,
         color=NATURE_COLORS["text"],
+        transform=axk.transAxes,
     )
-    ax.legend(
-        handles=compare_handles,
-        loc="upper left",
-        bbox_to_anchor=(1.04, 1.08),
-        fontsize=T["legend"],
-        frameon=True,
-        fancybox=False,
-        edgecolor="#D8DEE6",
-        facecolor="white",
-        ncol=2,
-        title="Fleet (n={})".format(len(fleet_points)),
-        title_fontsize=T["legend_title"],
-        columnspacing=1.0,
-        handletextpad=0.5,
-        labelspacing=0.55,
-        borderpad=0.6,
+    axk.plot(
+        [0.08, 0.28],
+        [0.66, 0.66],
+        color="#94A3B8",
+        lw=2.2,
+        ls=(0, (2.5, 1.8)),
+        transform=axk.transAxes,
+    )
+    axk.text(
+        0.32,
+        0.66,
+        "Fleet median",
+        fontsize=12.0,
+        va="center",
+        color=NATURE_COLORS["text"],
+        transform=axk.transAxes,
+    )
+    axk.plot([0.08, 0.28], [0.42, 0.42], color="#E64B35", lw=3.0, transform=axk.transAxes)
+    axk.plot(
+        0.18,
+        0.42,
+        "o",
+        color="#E64B35",
+        markersize=7.0,
+        markeredgecolor="white",
+        transform=axk.transAxes,
+    )
+    axk.text(
+        0.32,
+        0.42,
+        "This project",
+        fontsize=12.0,
+        va="center",
+        color=NATURE_COLORS["text"],
+        transform=axk.transAxes,
+    )
+    axk.text(
+        0.06,
+        0.14,
+        "Spokes (CW from top):\nCap. · Steel · Cost · Sched. · Life",
+        fontsize=10.0,
+        color=NATURE_COLORS["text"],
+        transform=axk.transAxes,
+        linespacing=1.2,
+        clip_on=True,
+    )
+    axk.text(
+        0.06,
+        0.01,
+        "* planned",
+        fontsize=10.0,
+        color=NATURE_COLORS["muted"],
+        transform=axk.transAxes,
+        clip_on=True,
+    )
+    # Hide any remaining empty cells
+    for idx in range(legend_idx + 1, nrows * ncols):
+        r, c = divmod(idx, ncols)
+        ax_empty = fig.add_subplot(left[r, c])
+        ax_empty.axis("off")
+
+    im, dim_labels, med_vals = _plot_delta_heatmap(ax_heat, ordered, cats, median, ax_row=ax_row)
+
+    fig.canvas.draw()
+
+    n_rows = len(ordered)
+    for a in (ax_row, ax_heat):
+        a.set_ylim(n_rows - 0.5, -0.5)
+    heat_bbox = ax_heat.get_position()
+    pos = ax_row.get_position()
+    ax_row.set_position([pos.x0, heat_bbox.y0, pos.width, heat_bbox.height])
+
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+    divider = make_axes_locatable(ax_heat)
+    cax = divider.append_axes("right", size="3.0%", pad=0.06)
+    cbar = fig.colorbar(im, cax=cax)
+    cbar.ax.tick_params(labelsize=10.0, pad=1, length=3, width=0.8)
+    cbar.set_label("")
+    cbar.ax.axhline(0.0, color="#64748B", linewidth=1.1, linestyle="--")
+
+    heat_bbox = ax_heat.get_position()
+    pos = ax_row.get_position()
+    ax_row.set_position([pos.x0, heat_bbox.y0, pos.width, heat_bbox.height])
+    row_bbox = ax_row.get_position()
+
+    fig.text(
+        heat_bbox.x0,
+        heat_bbox.y1 + 0.028,
+        "Δ vs fleet median",
+        ha="left",
+        va="bottom",
+        fontsize=15.0,
+        fontweight="bold",
+        color=NATURE_COLORS["text"],
+        clip_on=False,
+    )
+    hdr_y = heat_bbox.y1 + 0.005
+    hdr_kw = dict(fontsize=13.0, fontweight="700", color=NATURE_COLORS["text"], va="bottom", clip_on=False)
+    fig.text(row_bbox.x0 + 0.004, hdr_y, "Project", ha="left", **hdr_kw)
+    for j, lab in enumerate(dim_labels):
+        x = heat_bbox.x0 + (j + 0.5) / len(dim_labels) * heat_bbox.width
+        fig.text(x, hdr_y, lab, ha="center", **hdr_kw)
+
+    # Median close under the matrix; modest whitespace below via savefig pad
+    y_med = n_rows - 0.5 + 0.55
+    ax_row.text(
+        0.04,
+        y_med,
+        "Median",
+        ha="left",
+        va="top",
+        fontsize=12.0,
+        fontweight="700",
+        color=NATURE_COLORS["muted"],
+        clip_on=False,
+    )
+    for j, mv in enumerate(med_vals):
+        ax_heat.text(
+            j,
+            y_med,
+            f"{mv:.0f}",
+            ha="center",
+            va="top",
+            fontsize=12.5,
+            fontweight="700",
+            color=NATURE_COLORS["text"],
+            clip_on=False,
+        )
+    # Overall has no fleet-median cell — keep column rhythm with an em dash
+    ax_heat.text(
+        len(med_vals),
+        y_med,
+        "—",
+        ha="center",
+        va="top",
+        fontsize=12.5,
+        fontweight="700",
+        color=NATURE_COLORS["muted"],
+        clip_on=False,
     )
 
-    _radar_score_table(ax_tbl, fleet_points, cats)
-    fig.text(
-        0.5,
-        0.012,
-        "Full fleet overlay on five AI Review metrics (0–100). Dashed = planned projects.",
+    fig.suptitle(
+        "AI Review — fleet five-metric comparison",
+        fontsize=T["title"] + 4.0,
+        fontweight="bold",
+        color=NATURE_COLORS["text"],
+        x=0.5,
         ha="center",
-        fontsize=T["note"],
-        color=NATURE_COLORS["muted"],
+        y=0.975,
     )
-    fig.subplots_adjust(top=0.93, bottom=0.055, left=0.04, right=0.76)
-    return _save(fig, out_dir, "fig_score_radar")
+    # Panel index (Nature-style)
+    fig.text(
+        0.02,
+        0.975,
+        "a",
+        fontsize=T["title"] + 6.0,
+        fontweight="bold",
+        color=NATURE_COLORS["text"],
+        ha="left",
+        va="center",
+    )
+    out_dir.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for ext in (".png", ".pdf"):
+        p = out_dir / f"fig_score_radar{ext}"
+        fig.savefig(p, bbox_inches="tight", pad_inches=0.18)
+        paths.append(str(p))
+    plt.close(fig)
+    return paths
 
 
 def _metric_bar_label(key: str, metrics: dict[str, float | None]) -> str:
@@ -722,6 +1099,7 @@ def plot_fleet_metrics_bars(
         return []
 
     cats = list(DIMENSION_KEYS)
+    roman = ["I", "II", "III", "IV", "V"]
     T = NATURE_TYPE
     fig, axes = plt.subplots(2, 3, figsize=(12.4, 8.0))
     axes_list = list(axes.flat)
@@ -771,7 +1149,8 @@ def plot_fleet_metrics_bars(
         ax.set_xlabel("Performance index (0–100)", fontsize=T["tick"])
         ax.set_ylabel("Score", fontsize=T["tick"])
         ax.tick_params(axis="both", labelsize=T["tick"])
-        ax.set_title(RADAR_SHORT_LABELS.get(dim, dim), fontsize=T["subtitle"], fontweight="bold", loc="left", pad=8)
+        dim_title = RADAR_SHORT_LABELS.get(dim, dim)
+        ax.set_title(f"{roman[i]}  {dim_title}", fontsize=T["subtitle"], fontweight="bold", loc="left", pad=8)
         ax.grid(True, color=NATURE_COLORS["grid"], linewidth=0.45, alpha=0.85)
         if i == 0:
             ax.legend(loc="lower right", fontsize=T["legend"], frameon=False, labelspacing=0.4)
@@ -785,6 +1164,16 @@ def plot_fleet_metrics_bars(
         "Dashed curves: nonlinear trend of scores vs. raw performance index."
     )
     fig.suptitle("AI Review validity — raw metrics vs. scores", fontsize=T["title"], fontweight="bold", y=0.985)
+    fig.text(
+        0.02,
+        0.985,
+        "b",
+        fontsize=T["title"] + 4.0,
+        fontweight="bold",
+        color=NATURE_COLORS["text"],
+        ha="left",
+        va="center",
+    )
     fig.text(0.5, 0.018, note, ha="center", fontsize=T["note"], color=NATURE_COLORS["muted"], wrap=True)
     fig.subplots_adjust(top=0.91, bottom=0.10, left=0.07, right=0.98, hspace=0.48, wspace=0.36)
     return _save(fig, out_dir, "fig_fleet_metrics_bars")

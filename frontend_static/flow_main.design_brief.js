@@ -209,6 +209,7 @@ export function buildChecklistCardPayload(data, baseUrl) {
         ["BESO", `mg=${beso.mass_goal_ratio ?? "—"}, r=${beso.filter_radius ?? "—"}, base=${beso.optimization_base ?? "—"}`],
         ["OC4 载荷", `band=${oc4.band_scale ?? "—"}, z=${oc4.z_fix_band ?? "—"}`],
         ["尺寸优化", theta.sizing?.optimizer || "—"],
+        ["Zwind 包络", env.zwind_envelope_check === false ? "关闭" : "启用"],
         ["重试策略", `×${retry.max_retries ?? "—"} · mesh=${retry.on_mesh_fail ?? "—"}`],
       ],
     },

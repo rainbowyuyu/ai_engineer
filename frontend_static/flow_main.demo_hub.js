@@ -511,7 +511,7 @@ const CASE_DEFS = [
       { k: "智能体", v: "主页助手 + 设计域 Agent" },
     ],
     story:
-      "不是页面内假装演示：将打开主工作台，真实进入设计域与拓扑优化编排，引导大模型操作；拓扑后接参数化重构与尺寸优化，并触发 mesh/solver 重规划、相位闸、finalize θ 与 job_context 写入。",
+      "不是页面内假装演示：将打开主工作台，真实进入设计域与拓扑优化编排，引导大模型操作；拓扑后接参数化重构、尺寸优化与 Zwind 时域校核（zwind_newmodel / Fig. 2b–e），并触发 mesh/solver 重规划、相位闸、finalize θ 与 job_context 写入。",
     inputs: {
       asset: "examples/beso/beso7/BESO7.FCStd",
       entry: "index.html?demo=beso7-pipeline",

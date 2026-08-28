@@ -4,14 +4,14 @@ Companion code for the manuscript **"Closed-loop AI achieves certifiable enginee
 
 This repository implements **The AI Engineer**: an agentic orchestration stack that couples large language models with deterministic engineering backends (geometry, mesh, topology optimization, size optimization, and multi-physics verification) in a verification-closed loop. Exploration terminates only when an internal **Automated Reviewer** judges a candidate certification-ready; formal Approval in Principle (AIP) is used as an external calibration, not as the per-run objective.
 
-> Preprint / manuscript companion. High-fidelity run bundles and datasets will be deposited with a DOI upon publication; anonymized artifacts are available from the corresponding author on reasonable request.
+> Preprint / manuscript companion. Deposition package for Nature initial submission lives in [`submission/zenodo_bundle/`](submission/zenodo_bundle/) (upload to Zenodo and replace `DOI_PLACEHOLDER` in the manuscript Data Availability). Anonymized partner materials remain available from the corresponding author on reasonable request.
 
 ## What this system does
 
 | Phase | Role |
 |------|------|
 | **I — Requirements** | Parse natural-language owner intent, site constraints, and classification provisions into a structured job descriptor |
-| **II — Closed-loop design** | FreeCAD geometry → mesh → CalculiX–BESO topology optimization → parametric upscaling → PSO size optimization → Zwind aero-hydro-servo-elastic evaluation, with autonomous replan on geometric, numerical, or limit-state failures |
+| **II — Closed-loop design** | FreeCAD geometry → mesh → CalculiX–BESO topology optimization → parametric upscaling → PSO size optimization → Zwind aero-hydro-servo-elastic evaluation (`third_party/zwind_newmodel`, paper Fig. 2b–e), with autonomous replan on geometric, numerical, or limit-state failures |
 | **III — Deliverables** | Engineering drawings and structured design reports |
 | **IV — Internal gate** | Automated Reviewer scores capacity, steel intensity, unit cost, constructability, and fatigue life; halt when composite score **S ≥ 85** (grade A) and no sub-score below 60 |
 
@@ -39,7 +39,7 @@ Local run outputs (`runs/`), scratch extracts (`tmp_*`, `_tmp_*`), IDE folders, 
 - **Python**: 3.10+ (3.11/3.12 recommended) in a virtual environment
 - **CalculiX** (`ccx`): set `CCX_PATH`
 - **FreeCADCmd** (CAD → INP, mesh preview): set `FREECAD_CMD`
-- **Optional**: Node.js (CAD Explorer catalog); LLM API key for the assistant / orchestrator language layer; Zwind for full FOWT time-domain campaigns described in the paper
+- **Optional**: Node.js (CAD Explorer catalog); LLM API key for the assistant / orchestrator language layer. Full Zwind FOWT campaign (Windows drivers + `OPSout`) lives in `third_party/zwind_newmodel/` for paper Fig. 2b–e reproducibility.
 
 Pinned Python packages: see `backend/requirements.txt`.
 
@@ -79,15 +79,21 @@ Copy `.env.example` to `.env` for local overrides. **Never commit API keys.**
 
 ## Citation
 
-If you use this software, please cite the manuscript:
+See [`CITATION.cff`](CITATION.cff). Short form:
 
-> Yu, T. et al. Closed-loop AI achieves certifiable engineering design. *(preprint / in preparation)*.
+> Yu, T. et al. Closed-loop AI achieves certifiable engineering design. *(Nature Article submission / arXiv preprint)*.
 
 Corresponding author: Lilin Wang — `lilin.wang@zju.edu.cn`
 
+Zenodo DOI: **DOI_PLACEHOLDER** (insert after deposition).
+
+## Nature submission package
+
+Editorial working files (not required to run the app): [`submission/`](submission/) — manuscript draft, structure map, SI, cover letter, Extended Data legends, Zenodo bundle layout, and submit checklist.
+
 ## License and patents
 
-Source in this repository is released for research reproducibility under the terms stated in the repository license file (if present) and third-party notices. Authors are applying for national and international patents related to the system; commercial use may require a separate agreement.
+Source is released under the MIT License ([`LICENSE`](LICENSE)), excluding third-party solvers and partner-confidential data. Authors are applying for national and international patents related to the system; commercial use may require a separate agreement.
 
 ## Security
 

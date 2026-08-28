@@ -19,16 +19,35 @@ __pycache__/
 .cursor/skills/cad/
 skills/cad/
 
-# Scratch / extraction artifacts (paper drafting leftovers)
+# Scratch / extraction artifacts
 tmp/
 tmp_*
 _tmp_*
 Plane_Mesh.log
 *.log
+runs/_zwind_smoke/
 
-# Large / generated local workspaces (keep out of the public companion repo)
+# Large / generated local workspaces
 /runs/
 /examples/
 /docs/
 /third_party/text-to-cad/STEP/
 examples/base/beso_output/
+
+# Doc / slide generation helpers (local-only; not part of runtime)
+scripts/generate_ai_*.py
+scripts/generate_nature_*.py
+scripts/audit_nature_*.py
+scripts/build_nature_*.py
+scripts/export_nature_*.py
+
+# Nature drafting intermediates (local workspace; keep Fig. 2 panels only)
+/submission/**
+!/submission/figures/
+!/submission/figures/fig2_panels/
+!/submission/figures/fig2_panels/**
+
+# Zwind FOWT bundle caches only
+third_party/zwind_newmodel/**/__pycache__/
+third_party/zwind_newmodel/.opstool.output/
+third_party/zwind_newmodel/figures/generated/

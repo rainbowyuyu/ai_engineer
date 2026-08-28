@@ -764,8 +764,29 @@ function showDeliverablesPanel(baseUrl, data) {
     .slice(0, 18)
     .map((g) => {
       const u = String(g.url || "");
-      const src = u.startsWith("http") ? u : `${baseUrl}${u}`;
-      return `<figure class="beso7VizCard"><img src="${src}" alt="${g.label || ""}" loading="lazy"/><figcaption>${g.label || ""}</figcaption></figure>`;
+      const png = String(g.png || "");
+      const kind = String(g.kind || "img").toLowerCase();
+      const abs = (path) => {
+        const s = String(path || "");
+        if (!s) return "";
+        return s.startsWith("http") || s.startsWith("data:") ? s : `${baseUrl}${s}`;
+      };
+      const label = g.label || "";
+      // Prefer PNG for mesh entries; never put .obj/.stl into <img>
+      if (kind === "mesh" || /\.(obj|stl|vtk)(\?|$)/i.test(u)) {
+        if (png) {
+          return `<figure class="beso7VizCard"><img class="beso7MiniThumb" src="${abs(png)}" alt="${label}" loading="lazy"/><figcaption>${label}</figcaption></figure>`;
+        }
+        if (/\.preview\.png(\?|$)/i.test(u) || /\.png(\?|$)/i.test(u)) {
+          return `<figure class="beso7VizCard"><img class="beso7MiniThumb" src="${abs(u)}" alt="${label}" loading="lazy"/><figcaption>${label}</figcaption></figure>`;
+        }
+        return `<figure class="beso7VizCard beso7VizCard--mesh">
+          <div class="beso7MiniCanvas" data-mini-obj="${u}"></div>
+          <figcaption>${label}</figcaption>
+        </figure>`;
+      }
+      const src = abs(u);
+      return `<figure class="beso7VizCard"><img src="${src}" alt="${label}" loading="lazy"/><figcaption>${label}</figcaption></figure>`;
     })
     .join("");
   const files = (data.files || [])
@@ -793,6 +814,7 @@ function showDeliverablesPanel(baseUrl, data) {
     </table></div>
     <p class="beso7FloatHint">此页汇总 Phase I–VI 主要产物，形成从设计域到验证与出图的闭环。</p>`;
   overview.focus("deliverables");
+  setTimeout(() => mountMeshCards(dock.body, baseUrl), 80);
   return dock;
 }
 
@@ -1033,6 +1055,15 @@ export async function maybeRunBeso7LiveDemo(ctx) {
     ctx.ensureDesignDomainIde?.();
     await ctx.syncDesignDomainSessionProgress?.().catch(() => {});
     ctx.applyDesignDomainStepUi?.();
+    // Homepage workflow cards so demo steps are visible on landing
+    try {
+      if (!ctx.landingThreadHasDesignDomainCard?.()) {
+        ctx.pushDesignDomainWorkflowCardToLandingThread?.({ status: "进行中", step: 2, progress: 28 });
+      }
+      ctx.persistLandingAssistantThread?.(tid);
+    } catch {
+      /* ignore */
+    }
     await sleep(800);
     try {
       await ctx.refreshDesignDomainPreviewsFromSession?.();
@@ -1404,6 +1435,43 @@ export async function maybeRunBeso7LiveDemo(ctx) {
     );
     await sleep(3500);
 
+    // ⑤d Phase III · Zwind 时域校核（尺寸优化后）
+    setCoach("⑤d Phase III · Zwind 时域校核（zwind_newmodel · Fig. 2b–e）…");
+    const zwind = await api("/api/demo/beso7-live-pipeline/zwind", {
+      method: "POST",
+      body: JSON.stringify({ task_id: tid, job_id: orch.job_id, platform: "ai" }),
+    });
+    const zhl = zwind.highlights || {};
+    const zchk = zwind.pass_checks || {};
+    setCoach(
+      `⑤d Zwind 完成 · FA ${zhl.tower_1st_fa_hz ?? "—"} Hz · DLC6.1 pitch ${zhl.extreme_pitch_deg ?? "—"}°`,
+      zwind.io,
+    );
+    const zwindItems = (zwind.panel_urls || []).map((p) => ({
+      label: p.label || "Fig.2",
+      url: p.url,
+      kind: "img",
+    }));
+    if (zwindItems.length) {
+      showVizGallery(base(), {
+        title: "Phase III · Zwind 时域校核（AI vs TuQiang）",
+        items: zwindItems,
+      });
+    }
+    ctx.layout.addBubble?.(
+      "agent",
+      `**Zwind 时域校核**：尺寸优化后接入 \`third_party/zwind_newmodel\`（\`${zwind.mode || "paper_fig2_import"}\`）。\n\n` +
+        `| 指标 | 数值 |\n|---|---|\n` +
+        `| 塔架 1st FA | **${zhl.tower_1st_fa_hz ?? "—"} Hz** |\n` +
+        `| 发电工况 pitch | ${zhl.operating_pitch_deg ?? "—"}°（限 ${zhl.pitch_limit_operating_deg ?? "—"}°） |\n` +
+        `| 极限 DLC6.1 pitch | **${zhl.extreme_pitch_deg ?? "—"}°**（限 ${zhl.pitch_limit_extreme_deg ?? "—"}° · ${zchk.extreme_pitch_within_limit ? "通过" : "复核"}） |\n` +
+        `| 系泊峰值张力 | **${zhl.max_mooring_tension_kn ?? "—"} kN**（${zchk.mooring_within_limit ? "通过" : "复核"}） |\n` +
+        `| 塔基 My | ${zhl.tower_base_my_mnm ?? "—"} MN·m |\n\n` +
+        `报告：\`${zwind.report_url || `/runs/${orch.job_id}/zwind_report.json`}\``,
+      { format: "md" },
+    );
+    await sleep(4000);
+
     setCoach("⑥ 求解侧 Fₚ 信号 → 弹窗播放 replan 旅程…");
     try {
       ensureOverview().hideAll();
@@ -1646,6 +1714,7 @@ export async function maybeRunBeso7LiveDemo(ctx) {
             `- 设计清单已锁定（容量 20 MW）\n` +
             `- 设计域检查与 BESO 逐步回放完成\n` +
             `- 拓扑重构 + 尺寸优化（钢耗 ${sizing?.steel_intensity_t_per_MW ?? "—"} t/MW）\n` +
+            `- Zwind 时域（DLC6.1 pitch ${zwind?.highlights?.extreme_pitch_deg ?? "—"}° · 系泊 ${zwind?.highlights?.max_mooring_tension_kn ?? "—"} kN）\n` +
             `- Automated Reviewer 选定 **${selected.label || "方案"}**\n` +
             `- 验证 S=**${validation?.overall_score ?? "—"}**（${validation?.grade || "—"}）` +
             `${validation?.halt_gate?.ok ? "，终止门通过" : ""}\n` +

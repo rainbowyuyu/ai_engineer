@@ -1,7 +1,8 @@
 """BESO7 GA drawing assembly: original edge columns + optimized smooth braces.
 
 Builds a solid-like triangle mesh for engineering drawings (not topology voxel mesh):
-- nondesign edge columns + heave-plate footings (from BESO3 / optimized_geometry.json)
+- nondesign edge columns + heave-plate footings (prefer ``examples/oc4/oc4.igs``,
+  else BESO3 / optimized_geometry.json)
 - method-1 reconstructed diagonal braces + hub top plate (FreeCAD STL when available,
   else parametric cylinders from geometry JSON)
 """
@@ -13,6 +14,9 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+_OC4_IGES_REL = Path("examples") / "oc4" / "oc4.igs"
+_OC4_EDGE_CACHE_REL = Path("runs") / "_cache" / "oc4_edge_columns_for_ga.json"
 
 
 def _cylinder_mesh(
@@ -184,6 +188,131 @@ def _column_radius_mm(col: dict[str, Any], stats: dict[str, Any] | None = None) 
     return float(mean_r or 6000.0)
 
 
+def _append_column_parts_from_spec(
+    parts: list[tuple[np.ndarray, np.ndarray]],
+    columns: list[dict[str, Any]],
+) -> None:
+    for col in columns:
+        cx, cy = float(col["cx"]), float(col["cy"])
+        z0 = float(col["z0"])
+        z1 = float(col["z1"])
+        r = max(float(col["r"]), 1.0)
+        parts.append(_cylinder_mesh([cx, cy, z0], [cx, cy, z1], r, n_circ=48, n_len=10))
+        foot = col.get("foot")
+        if isinstance(foot, dict) and foot.get("r"):
+            fx = float(foot.get("cx", cx))
+            fy = float(foot.get("cy", cy))
+            fz0 = float(foot["z0"])
+            fz1 = float(foot["z1"])
+            fr = max(float(foot["r"]), 1.0)
+            parts.append(_cylinder_mesh([fx, fy, fz0], [fx, fy, fz1], fr, n_circ=48, n_len=4))
+
+
+def _oc4_edge_column_spec_from_geom(geom: Any) -> list[dict[str, Any]]:
+    """Map Oc4CutGeometry → shaft + heave-plate cylinders (image-2 style)."""
+    columns: list[dict[str, Any]] = []
+    z_hi = float(geom.z_col_hi)
+    outers = list(geom.outer_xy_ccw or [])
+    radii = list(geom.outer_shaft_rs or [])
+    pontoons = list(geom.outer_pontoons or [])
+    while len(radii) < len(outers):
+        radii.append(float(radii[-1]) if radii else 3000.0)
+    while len(pontoons) < len(outers):
+        pontoons.append(None)
+    for oxy, r_shaft, op in zip(outers, radii, pontoons):
+        cx, cy = float(oxy[0]), float(oxy[1])
+        foot: dict[str, Any] | None = None
+        z0 = float(geom.z_col_lo)
+        if op is not None:
+            fx, fy, fr, fz0, fz1 = (
+                float(op[0]),
+                float(op[1]),
+                float(op[2]),
+                float(op[3]),
+                float(op[4]),
+            )
+            # Shaft sits on heave plate (垂荡板顶面 → 柱顶), matching demo figure 2.
+            z0 = float(fz1)
+            foot = {"cx": fx, "cy": fy, "r": fr, "z0": fz0, "z1": fz1}
+        columns.append({"cx": cx, "cy": cy, "r": float(r_shaft), "z0": z0, "z1": z_hi, "foot": foot})
+    return columns
+
+
+def _load_oc4_edge_column_spec(root: Path) -> tuple[list[dict[str, Any]], str] | None:
+    """Prefer cached OC4 edge columns; parse ``examples/oc4/oc4.igs`` on miss."""
+    iges = root / _OC4_IGES_REL
+    if not iges.is_file():
+        return None
+    cache_path = root / _OC4_EDGE_CACHE_REL
+    try:
+        iges_mtime = float(iges.stat().st_mtime)
+    except OSError:
+        return None
+    try:
+        if cache_path.is_file():
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if (
+                float(cached.get("iges_mtime") or 0) == iges_mtime
+                and isinstance(cached.get("columns"), list)
+                and len(cached["columns"]) >= 3
+            ):
+                return list(cached["columns"]), str(_OC4_IGES_REL).replace("\\", "/") + " (cache)"
+    except Exception:
+        pass
+
+    try:
+        from backend.tools.oc4_design_domain_iges import _try_oc4_cut_geometry_from_beams
+
+        geom = _try_oc4_cut_geometry_from_beams(iges)
+    except Exception:
+        return None
+    if geom is None or len(geom.outer_xy_ccw or []) < 3:
+        return None
+    columns = _oc4_edge_column_spec_from_geom(geom)
+    if len(columns) < 3:
+        return None
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(
+            json.dumps(
+                {
+                    "source": str(_OC4_IGES_REL).replace("\\", "/"),
+                    "iges_mtime": iges_mtime,
+                    "columns": columns,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+    return columns, str(_OC4_IGES_REL).replace("\\", "/")
+
+
+def _json_edge_column_spec(geometry: dict[str, Any]) -> list[dict[str, Any]]:
+    ref = geometry.get("beso3_reference_from_fcstd") or {}
+    stats = ref.get("edge_columns_statistics") or {}
+    columns: list[dict[str, Any]] = []
+    for col in ref.get("edge_columns_nondesign") or []:
+        cx, cy = float(col["center_xy_mm"][0]), float(col["center_xy_mm"][1])
+        z0 = float(col.get("z_bottom_mm") or -14000.0)
+        z1 = float(col.get("z_top_mm") or 12000.0)
+        r = _column_radius_mm(col, stats)
+        foot_spec: dict[str, Any] | None = None
+        foot = col.get("footing") or {}
+        if foot:
+            foot_spec = {
+                "cx": float(foot["center_xy_mm"][0]),
+                "cy": float(foot["center_xy_mm"][1]),
+                "r": float(foot.get("equivalent_radius_mm") or r * 1.15),
+                "z0": float(foot.get("z_bottom_mm") or -20000.0),
+                "z1": float(foot.get("z_top_mm") or z0),
+            }
+        columns.append({"cx": cx, "cy": cy, "r": r, "z0": z0, "z1": z1, "foot": foot_spec})
+    return columns
+
+
 def build_platform_ga_assembly(
     workspace_root: Path,
     *,
@@ -191,11 +320,13 @@ def build_platform_ga_assembly(
     geometry_path: Path | None = None,
     out_dir: Path | None = None,
     prefer_reconstructed_stl: bool = False,
+    oc4_iges_path: Path | None = None,
 ) -> dict[str, Any]:
     """
     Write ``drawing_assembly.stl`` (+ ``.obj``) for Phase VI GA drawing.
 
     Composition: original side columns + heave plates + optimized braces/top plate.
+    Side pillars prefer ``examples/oc4/oc4.igs`` (cached) so GA matches demo figure 2.
 
     Default prefers parametric cylinders (smooth outlines) over dense FreeCAD STL
     tessellation — better for engineering drawing silhouette projection.
@@ -215,23 +346,33 @@ def build_platform_ga_assembly(
     parts: list[tuple[np.ndarray, np.ndarray]] = []
     mode = "parametric_columns_and_braces"
     recon_used: str | None = None
+    columns_source = "optimized_geometry.json"
 
-    # Original columns + footings always from JSON
+    # Side pillars + heave plates: prefer OC4.igs (demo figure 2), else JSON fallback
+    oc4_spec: list[dict[str, Any]] | None = None
+    if oc4_iges_path is not None:
+        try:
+            from backend.tools.oc4_design_domain_iges import _try_oc4_cut_geometry_from_beams
+
+            geom = _try_oc4_cut_geometry_from_beams(Path(oc4_iges_path))
+            if geom is not None and len(geom.outer_xy_ccw or []) >= 3:
+                oc4_spec = _oc4_edge_column_spec_from_geom(geom)
+                columns_source = str(Path(oc4_iges_path)).replace("\\", "/")
+        except Exception:
+            oc4_spec = None
+    if oc4_spec is None:
+        loaded = _load_oc4_edge_column_spec(root)
+        if loaded is not None:
+            oc4_spec, columns_source = loaded
+
+    if oc4_spec:
+        _append_column_parts_from_spec(parts, oc4_spec)
+    else:
+        ref_cols = _json_edge_column_spec(geometry)
+        _append_column_parts_from_spec(parts, ref_cols)
+        columns_source = "optimized_geometry.json"
+
     ref = geometry.get("beso3_reference_from_fcstd") or {}
-    stats = ref.get("edge_columns_statistics") or {}
-    for col in ref.get("edge_columns_nondesign") or []:
-        cx, cy = float(col["center_xy_mm"][0]), float(col["center_xy_mm"][1])
-        z0 = float(col.get("z_bottom_mm") or -14000.0)
-        z1 = float(col.get("z_top_mm") or 12000.0)
-        r = _column_radius_mm(col, stats)
-        parts.append(_cylinder_mesh([cx, cy, z0], [cx, cy, z1], r, n_circ=48, n_len=10))
-        foot = col.get("footing") or {}
-        if foot:
-            fx, fy = float(foot["center_xy_mm"][0]), float(foot["center_xy_mm"][1])
-            fz0 = float(foot.get("z_bottom_mm") or -20000.0)
-            fz1 = float(foot.get("z_top_mm") or z0)
-            fr = float(foot.get("equivalent_radius_mm") or r * 1.15)
-            parts.append(_cylinder_mesh([fx, fy, fz0], [fx, fy, fz1], fr, n_circ=48, n_len=4))
 
     # Optimized smooth structure: prefer FreeCAD reconstructed STL from Phase III
     recon_candidates: list[Path] = []
@@ -254,7 +395,7 @@ def build_platform_ga_assembly(
             loaded_recon = _load_tri_mesh(cand)
             if loaded_recon is not None:
                 recon_used = str(cand)
-                mode = "columns_plus_reconstructed_stl"
+                mode = "oc4_columns_plus_reconstructed_stl" if oc4_spec else "columns_plus_reconstructed_stl"
                 parts.append(loaded_recon)
                 break
 
@@ -292,17 +433,17 @@ def build_platform_ga_assembly(
                     n_len=4,
                 )
             )
-        mode = "parametric_columns_and_braces"
+        mode = "oc4_columns_plus_parametric_braces" if oc4_spec else "parametric_columns_and_braces"
 
     if not parts:
-        raise RuntimeError("GA assembly empty — check optimized_geometry.json")
+        raise RuntimeError("GA assembly empty — check optimized_geometry.json / oc4.igs")
 
     points, faces = _merge_meshes(parts)
     stl_path = out_dir / "drawing_assembly.stl"
     obj_path = out_dir / "drawing_assembly.obj"
 
     with obj_path.open("w", encoding="utf-8") as f:
-        f.write("# BESO7 GA assembly: original columns + optimized smooth structure\n")
+        f.write("# BESO7 GA assembly: OC4 edge columns + optimized smooth structure\n")
         for v in points:
             f.write(f"v {v[0]:.4f} {v[1]:.4f} {v[2]:.4f}\n")
         for tri in faces:
@@ -321,6 +462,7 @@ def build_platform_ga_assembly(
 
     manifest = {
         "mode": mode,
+        "columns_source": columns_source,
         "reconstructed_source": recon_used,
         "n_points": int(len(points)),
         "n_faces": int(len(faces)),
@@ -338,6 +480,7 @@ def build_platform_ga_assembly(
         "stl_path": stl_path if stl_path.suffix.lower() == ".stl" and stl_path.is_file() else None,
         "obj_path": obj_path,
         "mode": mode,
+        "columns_source": columns_source,
         "manifest": manifest,
         "n_points": int(len(points)),
         "n_faces": int(len(faces)),
