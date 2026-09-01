@@ -11,8 +11,22 @@ class ChecklistMeta(BaseModel):
     checklist_id: str = ""
     created_at: str = ""
     source_text: str = ""
-    parser: Literal["qwen", "rule_fallback"] = "rule_fallback"
+    parser: Literal["qwen", "qwen_structured", "rule_fallback"] = "rule_fallback"
     reasoning_summary: str = ""
+
+    @field_validator("parser", mode="before")
+    @classmethod
+    def normalize_parser(cls, v: Any) -> str:
+        s = str(v or "").strip().lower() or "rule_fallback"
+        # Map structured / future variants onto known literals
+        if s in ("qwen_structured", "structured", "langchain", "langgraph"):
+            return "qwen_structured"
+        if s in ("qwen", "llm"):
+            return "qwen"
+        if s in ("rule_fallback", "rule", "fallback"):
+            return "rule_fallback"
+        # Unknown → treat as qwen path so clarify/finalize never 500
+        return "qwen"
 
 
 class ProjectSpec(BaseModel):

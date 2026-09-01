@@ -30,9 +30,14 @@ runs/_zwind_smoke/
 # Large / generated local workspaces
 /runs/
 /examples/
-/docs/
+/docs/*
+!/docs/assets/
+!/docs/assets/**
 /third_party/text-to-cad/STEP/
 examples/base/beso_output/
+
+# Local RAG index
+.beso_rag/
 
 # Doc / slide generation helpers (local-only; not part of runtime)
 scripts/generate_ai_*.py
@@ -51,3 +56,42 @@ scripts/export_nature_*.py
 third_party/zwind_newmodel/**/__pycache__/
 third_party/zwind_newmodel/.opstool.output/
 third_party/zwind_newmodel/figures/generated/
+docs/assets/浙江大学AIP证书-1.png
+docs/assets/浙江大学AIP证书-1.psd
+docs/assets/浙江大学AIP证书-2.png
+docs/assets/浙江大学AIP证书-2.psd
+docs/assets/原型图.png
+docs/assets/建工.png
+docs/assets/wuqiang.png
+docs/assets/tuqiang_xibo.png
+docs/assets/tuqiang_sea.png
+docs/assets/tuqiang-raw.png
+docs/assets/tuqiang-raw-nodata.psd
+docs/assets/tuqiang-raw-nodata.png
+docs/assets/tuqiang-notu.png
+docs/assets/jiangong_xibo.png
+docs/assets/jiangong_sea.png
+docs/assets/human engineer.psd
+docs/assets/f1a.png
+docs/assets/f1a.psd
+docs/assets/f1b.png
+docs/assets/f1b.psd
+docs/assets/f1c.png
+docs/assets/f1c.psd
+docs/assets/f1-make.png
+docs/assets/f1.png
+docs/assets/cad.png
+docs/assets/all.psd
+docs/assets/ai_xibo.png
+docs/assets/ai_sea.psd
+docs/assets/ai_sea.png
+docs/assets/ai_2.png
+docs/assets/ai.png
+docs/assets/ai engineer.psd
+docs/assets/ai tuqiang.png
+docs/assets/ai tuqiang.psd
+docs/assets/ai-notu.png
+docs/assets/ai-raw.png
+docs/assets/ai-raw.psd
+docs/assets/AIP.png
+docs/assets/abstract.png

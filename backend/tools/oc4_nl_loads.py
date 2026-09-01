@@ -146,6 +146,22 @@ def parse_loads_natural_language(
         f"默认参数（用户未指定时可沿用）: band_scale={band_scale}, z_fix_band={z_fix_band}, cload_mag={cload_mag}\n\n"
         f"用户载荷描述:\n{text}"
     )
+    from backend.llm.routing import use_langgraph_structured
+
+    if use_langgraph_structured():
+        from backend.agents.structured import invoke_oc4_loads_structured
+
+        parsed = invoke_oc4_loads_structured(
+            system_prompt=system,
+            user_content=user,
+            temperature=temperature,
+        )
+        if parsed is not None:
+            reply = str(parsed.reply or "已根据描述生成载荷参数。")
+            lc_raw = parsed.load_case if isinstance(parsed.load_case, dict) else {}
+            lc = _clamp_load_case(lc_raw, default_band=band_scale, default_zfix=z_fix_band, default_cload=cload_mag)
+            return reply, lc
+
     resp = qwen.chat(
         [{"role": "system", "content": system}, {"role": "user", "content": user}],
         temperature=temperature,

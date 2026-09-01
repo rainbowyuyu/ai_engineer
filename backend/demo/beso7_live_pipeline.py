@@ -392,6 +392,39 @@ def bootstrap_beso7_live_demo(
         )
     link_oc4_session_to_task(sid, sdir, task_id=tid, design_checklist_id=cid)
 
+    pipeline_sync: dict[str, Any] = {"ok": False, "skipped": True}
+    try:
+        from backend.llm.routing import use_langgraph_pipeline
+
+        if use_langgraph_pipeline():
+            from backend.graph.pipeline.master_graph import get_master_graph, pipeline_config
+            from backend.orchestrator.models import WorkflowState
+            from backend.orchestrator.state import save_workflow_state
+
+            ws = WorkflowState(
+                task_id=tid,
+                workflow_phase="II",
+                design_checklist_id=cid,
+                oc4_session_id=sid,
+                rho_pending=0,
+            )
+            save_workflow_state(ws)
+            graph = get_master_graph()
+            graph.update_state(
+                pipeline_config(tid),
+                {
+                    "task_id": tid,
+                    "workflow_phase": "II",
+                    "design_checklist_id": cid,
+                    "oc4_session_id": sid,
+                    "rho_pending": 0,
+                    "events": [{"type": "demo_bootstrap", "session_id": sid}],
+                },
+            )
+            pipeline_sync = {"ok": True, "skipped": False, "stack": "langgraph_pipeline", "phase": "II"}
+    except Exception as e:
+        pipeline_sync = {"ok": False, "skipped": False, "error": str(e)[:400]}
+
     theta = beso_theta_defaults_from_checklist(checklist)
     flags = session_progress_flags(sdir)
     io = _session_io_snapshot(sdir, fcstd, analysis)
@@ -413,9 +446,10 @@ def bootstrap_beso7_live_demo(
         "beso_theta": theta,
         "progress": flags,
         "io": io,
+        "pipeline_sync": pipeline_sync,
         "process": {
             "title": "任务 + 设计清单 → 设计域会话",
-            "detail": "解析 Phase I 清单，用 BESO7.FCStd 资产种子 OC4 会话并自动 link-task。",
+            "detail": "解析 Phase I 清单，用 BESO7.FCStd 资产种子 OC4 会话并自动 link-task；同步 LangGraph MasterGraph 状态。",
         },
         "story": [
             "主页任务 + 设计清单",

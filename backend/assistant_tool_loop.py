@@ -1,4 +1,9 @@
-"""侧栏助手：多轮 JSON 工具循环（与 OC4 设计域智能体同族协议）。"""
+"""侧栏助手：多轮 JSON 工具循环（与 OC4 设计域智能体同族协议）。
+
+.. deprecated::
+    默认由 ``backend.agents.assistant_graph``（LangGraph）接管；
+    设置 ``USE_LANGGRAPH_ASSISTANT=false`` 可回退本模块。
+"""
 from __future__ import annotations
 
 import json

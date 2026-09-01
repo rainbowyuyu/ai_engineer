@@ -66,6 +66,8 @@ from backend.routes.cad_drawing_api import router as cad_drawing_router
 from backend.routes.workspace_download_api import router as workspace_download_router
 from backend.routes.versions_api import router as versions_router
 from backend.routes.demo_pipeline_api import router as demo_pipeline_router
+from backend.routes.security_api import router as security_router
+from backend.routes.rag_api import router as rag_router
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +152,8 @@ app.include_router(cad_drawing_router, prefix="/api/cad")
 app.include_router(workspace_download_router, prefix="/api/workspace")
 app.include_router(versions_router, prefix="/api/versions")
 app.include_router(demo_pipeline_router, prefix="/api/demo")
+app.include_router(security_router, prefix="/api/security")
+app.include_router(rag_router, prefix="/api/rag")
 
 app.add_middleware(
     CORSMiddleware,
@@ -480,17 +484,39 @@ def assistant_chat(body: AssistantChatRequest):
     msgs = _assistant_messages_for_qwen(body)
     temp = _effective_assistant_temperature(body)
     if body.tools_enabled:
-        from backend.assistant_tool_loop import run_assistant_tool_loop
+        from backend.llm.routing import use_langgraph_assistant
 
         try:
-            out = run_assistant_tool_loop(
-                qwen,
-                msgs,
-                temperature=temp,
-                workspace_root=WORKSPACE_ROOT,
-                runs_root=RUNS_ROOT,
-                design_checklist_id=str(body.design_checklist_id or "").strip() or None,
-            )
+            if use_langgraph_assistant():
+                from backend.agents.assistant_graph import run_assistant_graph
+
+                raw = run_assistant_graph(
+                    qwen,
+                    msgs,
+                    temperature=temp,
+                    workspace_root=WORKSPACE_ROOT,
+                    runs_root=RUNS_ROOT,
+                    design_checklist_id=str(body.design_checklist_id or "").strip() or None,
+                )
+                from backend.assistant_tool_loop import AssistantToolLoopResult
+
+                out = AssistantToolLoopResult(
+                    reply=raw["reply"],
+                    client_actions=raw["client_actions"],
+                    tool_trace=raw["tool_trace"],
+                    model=raw.get("model"),
+                )
+            else:
+                from backend.assistant_tool_loop import run_assistant_tool_loop
+
+                out = run_assistant_tool_loop(
+                    qwen,
+                    msgs,
+                    temperature=temp,
+                    workspace_root=WORKSPACE_ROOT,
+                    runs_root=RUNS_ROOT,
+                    design_checklist_id=str(body.design_checklist_id or "").strip() or None,
+                )
         except RuntimeError as e:
             raise HTTPException(status_code=503, detail=str(e)) from e
         except Exception as e:
@@ -680,7 +706,7 @@ def assistant_chat_stream_tools(body: AssistantChatRequest):
     工具模式下的 NDJSON/SSE：推送 thought、工具调用、产物路径，并对最终 ``final_reply`` 分块输出。
     请求体与 ``POST /api/assistant/chat`` 相同，且 **必须** ``tools_enabled=true``。
     """
-    from backend.assistant_tool_loop import iter_assistant_tool_loop_events
+    from backend.llm.routing import use_langgraph_assistant
 
     if not body.tools_enabled:
         raise HTTPException(
@@ -703,14 +729,29 @@ def assistant_chat_stream_tools(body: AssistantChatRequest):
         msgs = _assistant_messages_for_qwen(body)
         temp = _effective_assistant_temperature(body)
         try:
-            for ev in iter_assistant_tool_loop_events(
-                qwen,
-                msgs,
-                temperature=temp,
-                workspace_root=WORKSPACE_ROOT,
-                runs_root=RUNS_ROOT,
-                design_checklist_id=str(body.design_checklist_id or "").strip() or None,
-            ):
+            if use_langgraph_assistant():
+                from backend.agents.assistant_graph import iter_assistant_graph_events
+
+                event_iter = iter_assistant_graph_events(
+                    qwen,
+                    msgs,
+                    temperature=temp,
+                    workspace_root=WORKSPACE_ROOT,
+                    runs_root=RUNS_ROOT,
+                    design_checklist_id=str(body.design_checklist_id or "").strip() or None,
+                )
+            else:
+                from backend.assistant_tool_loop import iter_assistant_tool_loop_events
+
+                event_iter = iter_assistant_tool_loop_events(
+                    qwen,
+                    msgs,
+                    temperature=temp,
+                    workspace_root=WORKSPACE_ROOT,
+                    runs_root=RUNS_ROOT,
+                    design_checklist_id=str(body.design_checklist_id or "").strip() or None,
+                )
+            for ev in event_iter:
                 yield "data: " + json.dumps(ev, ensure_ascii=False) + "\n\n"
         except Exception as e:
             logger.exception("assistant_chat_stream_tools failed")

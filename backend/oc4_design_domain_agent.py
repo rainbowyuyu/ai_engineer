@@ -1,4 +1,9 @@
-"""设计域会话内智能体：严格 JSON 协议 + 白名单工具，NDJSON 事件输出。"""
+"""设计域会话内智能体：严格 JSON 协议 + 白名单工具，NDJSON 事件输出。
+
+.. deprecated::
+    默认由 ``backend.agents.design_domain_graph``（LangGraph + checkpoint）接管；
+    设置 ``USE_LANGGRAPH_OC4_AGENT=false`` 可回退本模块。
+"""
 from __future__ import annotations
 
 import json

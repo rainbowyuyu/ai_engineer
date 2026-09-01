@@ -65,6 +65,30 @@ def parse_design_checklist(
     user = f"系统默认（未提及字段可沿用）:\n{defaults_hint}\n\n用户设计需求:\n{t}"
 
     try:
+        from backend.llm.routing import use_langgraph_structured
+
+        if use_langgraph_structured():
+            from backend.agents.structured import invoke_phase_i_partial_structured
+
+            parsed = invoke_phase_i_partial_structured(
+                system_prompt=system,
+                user_content=user,
+                temperature=0.15,
+            )
+            if parsed is not None:
+                partial = parsed.model_dump(mode="json")
+                partial = {k: v for k, v in partial.items() if v not in (None, "", [], {})}
+                merged = merge_partial_dict(base, partial)
+                merged.meta.parser = "qwen"
+                rs = parsed.reasoning_summary or merged.meta.reasoning_summary
+                merged.meta = merged.meta.model_copy(
+                    update={
+                        "reasoning_summary": str(rs) if rs else merged.meta.reasoning_summary,
+                        "checklist_id": cid,
+                    }
+                )
+                return merged
+
         resp = qwen.chat(
             [{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=0.15,

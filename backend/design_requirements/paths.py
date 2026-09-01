@@ -48,7 +48,25 @@ def load_checklist(checklist_id: str) -> DesignChecklist | None:
     if d is None:
         return None
     data = json.loads((d / "design_checklist.json").read_text(encoding="utf-8"))
-    return DesignChecklist.model_validate(data)
+    # Harden: coerce meta.parser before validate (old servers / unknown values)
+    meta = data.get("meta") if isinstance(data, dict) else None
+    if isinstance(meta, dict):
+        p = str(meta.get("parser") or "").strip()
+        if p and p not in ("qwen", "qwen_structured", "rule_fallback"):
+            meta["parser"] = "qwen"
+        elif p == "qwen_structured":
+            # Keep as-is; model accepts it. Also rewrite disk for older processes.
+            pass
+    try:
+        return DesignChecklist.model_validate(data)
+    except Exception:
+        if isinstance(meta, dict):
+            meta["parser"] = "qwen"
+            try:
+                return DesignChecklist.model_validate(data)
+            except Exception:
+                return None
+        return None
 
 
 def artifact_urls(checklist_id: str) -> dict[str, str]:

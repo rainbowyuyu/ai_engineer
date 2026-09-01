@@ -44,16 +44,37 @@ def generate_rationales(
         return _fallback_rationales(score)
 
     out: dict[str, str] = {}
+    prompts: dict[str, str] = {}
     for r in score.rule_results:
         if r.status not in ("fail", "warn"):
             continue
         clause = _clause_text(r.clause_ref)
-        prompt = (
+        prompts[r.id] = (
             f"你是海上风电漂浮式基础验船师助手。规则「{r.description_zh}」状态为 {r.status}。\n"
             f"实测: {r.measured}\n阈值: {r.threshold}\n来源: {r.source}\n"
             f"相关条款:\n{clause or '（无摘录）'}\n\n"
             "请用 2–4 句中文说明：为何出现 warn/fail、工程改进建议；不要改变数值结论。"
         )
+
+    try:
+        from backend.llm.routing import use_langgraph_structured
+
+        if use_langgraph_structured() and prompts:
+            from backend.agents.structured import generate_rationales_parallel
+
+            parallel = generate_rationales_parallel(prompts)
+            for rid, txt in parallel.items():
+                out[rid] = txt or _fallback_line(next(x for x in score.rule_results if x.id == rid))
+            return out
+    except Exception as e:
+        logger.info("parallel rationale path failed: %s", e)
+
+    for r in score.rule_results:
+        if r.status not in ("fail", "warn"):
+            continue
+        prompt = prompts.get(r.id)
+        if not prompt:
+            continue
         try:
             resp = qwen.chat(
                 [

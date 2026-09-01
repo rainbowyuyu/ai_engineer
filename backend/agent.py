@@ -71,6 +71,26 @@ def decide_params(
     user_content = "\n\n".join(user_blocks)
 
     try:
+        from backend.llm.routing import use_langgraph_structured
+
+        if use_langgraph_structured():
+            from backend.agents.structured import invoke_beso_params_structured
+
+            parsed = invoke_beso_params_structured(
+                system_prompt=SYSTEM_PROMPT,
+                user_content=user_content,
+                temperature=0.2,
+            )
+            if parsed is not None:
+                return AgentDecision(
+                    reasoning_summary=parsed.reasoning_summary or None,
+                    inp_path=parsed.inp_path,
+                    mass_goal_ratio=float(parsed.mass_goal_ratio),
+                    filter_radius=float(parsed.filter_radius),
+                    optimization_base=str(parsed.optimization_base),
+                    save_every=int(parsed.save_every),
+                )
+
         resp = qwen.chat(
             [
                 {"role": "system", "content": SYSTEM_PROMPT},

@@ -1,6 +1,7 @@
 """BESO7 live pipeline demo API — drives main workbench end-to-end story."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +74,34 @@ def demo_beso7_bootstrap(body: BootstrapIn | None = None) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"bootstrap 失败: {e}") from e
+
+
+@router.post("/beso7-live-pipeline/pipeline-stream")
+def demo_beso7_pipeline_stream(body: BootstrapIn | None = None):
+    """NDJSON stream of MasterGraph for the demo task (LangGraph Phase I–IV)."""
+    from fastapi.responses import StreamingResponse
+
+    from backend.llm.routing import use_langgraph_pipeline
+
+    if not use_langgraph_pipeline():
+        raise HTTPException(status_code=400, detail="LangGraph pipeline 未启用")
+
+    body = body or BootstrapIn()
+    tid = str(body.task_id or "").strip()
+    if not tid:
+        raise HTTPException(status_code=400, detail="task_id required")
+
+    from backend.graph.pipeline.master_graph import iter_pipeline_stream
+
+    def gen():
+        for ev in iter_pipeline_stream(tid):
+            yield json.dumps(ev, ensure_ascii=False) + "\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/beso7-live-pipeline/mesh-replan")

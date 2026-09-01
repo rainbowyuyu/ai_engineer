@@ -2,46 +2,183 @@
 
 Companion code for the manuscript **"Closed-loop AI achieves certifiable engineering design"**.
 
-This repository implements **The AI Engineer**: an agentic orchestration stack that couples large language models with deterministic engineering backends (geometry, mesh, topology optimization, size optimization, and multi-physics verification) in a verification-closed loop. Exploration terminates only when an internal **Automated Reviewer** judges a candidate certification-ready; formal Approval in Principle (AIP) is used as an external calibration, not as the per-run objective.
+[![language](https://img.shields.io/badge/language-English-blue)](README.md)
+[![language](https://img.shields.io/badge/language-中文-blue)](README-ch.md)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-green)](backend/requirements.txt)
+[![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-> Preprint / manuscript companion. Deposition package for Nature initial submission lives in [`submission/zenodo_bundle/`](submission/zenodo_bundle/) (upload to Zenodo and replace `DOI_PLACEHOLDER` in the manuscript Data Availability). Anonymized partner materials remain available from the corresponding author on reasonable request.
+---
 
-## What this system does
+**The AI Engineer** is an agentic orchestration stack that couples large language models with deterministic engineering backends (geometry, mesh, topology optimization, size optimization, multi-physics verification) in a **verification-closed loop**. Exploration stops only when an internal **Automated Reviewer** judges a candidate certification-ready; formal Approval in Principle (AIP) is used as external calibration, not as the per-run objective.
+
+> Preprint / manuscript companion. Deposition package: [`submission/zenodo_bundle/`](submission/zenodo_bundle/). Replace `DOI_PLACEHOLDER` after Zenodo upload.
+
+---
+
+## Human engineer vs AI Engineer
+
+Closed-loop design mirrors a professional workflow: requirements → fundamentals → optimization → drawings/report → review, with **logs / metrics / retry** feeding back into the LLM orchestrator (Qwen + AI Engineer).
+
+![The AI Engineer — human vs AI closed loop](docs/assets/f1-2.png)
+
+---
+
+## End-to-end workflow (nine artifacts)
+
+From natural-language requirements through OC4 reference geometry, design/non-design space, BESO topology, dimension upscaling & optimization, CAD drawings, to AI review reports.
+
+![The AI Engineer workflow — nine-step closed loop](docs/assets/all.png)
+
+| Step | Artifact (illustrative) |
+|------|-------------------------|
+| 1 Requirements | `01_User_Requirements.md` |
+| 2 Orchestration | `02_AI_Orchestrator_Workflow.yaml` |
+| 3 OC4 reference | `03_OC4_Reference_Model.step` |
+| 4 Design domain | `04_Design_Space_Definition.step` |
+| 5 Topology opt. | `05_Topology_Optimization_Result.vtk` |
+| 6 Upscaling | `06_Dimension_Upscaling_Rules.json` |
+| 7 Size opt. | `07_Dimension_Optimized_Model.tcl` |
+| 8 Drawings | `08_CAD_Drawing.dwg` |
+| 9 AI review | `09_AI_Review_Report.pdf` |
+
+---
+
+## Phase model
 
 | Phase | Role |
 |------|------|
-| **I — Requirements** | Parse natural-language owner intent, site constraints, and classification provisions into a structured job descriptor |
-| **II — Closed-loop design** | FreeCAD geometry → mesh → CalculiX–BESO topology optimization → parametric upscaling → PSO size optimization → Zwind aero-hydro-servo-elastic evaluation (`third_party/zwind_newmodel`, paper Fig. 2b–e), with autonomous replan on geometric, numerical, or limit-state failures |
+| **I — Requirements** | Parse owner intent, site constraints, and classification provisions into a structured job descriptor |
+| **II — Closed-loop design** | FreeCAD → mesh → CalculiX–BESO → parametric upscaling → PSO size opt. → Zwind evaluation; autonomous replan on failures |
 | **III — Deliverables** | Engineering drawings and structured design reports |
-| **IV — Internal gate** | Automated Reviewer scores capacity, steel intensity, unit cost, constructability, and fatigue life; halt when composite score **S ≥ 85** (grade A) and no sub-score below 60 |
+| **IV — Internal gate** | Automated Reviewer; halt when composite score **S ≥ 85** (grade A) and no sub-score below 60 |
 
-Reference fleet scoring and regulatory-alignment checks (Spearman rank correlation against classification-society benchmarks) support the claim that the internal gate is a calibrated surrogate for professional review, not an arbitrary heuristic.
+```mermaid
+flowchart LR
+  subgraph P1["Phase I"]
+    NL[Natural language] --> CHK[Design checklist]
+  end
+  subgraph P2["Phase II"]
+    GEO[Geometry / mesh] --> BESO[BESO / CalculiX]
+    BESO --> SIZE[Size / PSO]
+    SIZE --> ZW[Zwind FOWT]
+    ZW -->|fail| RE[Replan]
+    RE --> GEO
+  end
+  subgraph P3["Phase III"]
+    DWG[Drawings] --> RPT[Reports]
+  end
+  subgraph P4["Phase IV"]
+    REV[Automated Reviewer] -->|S ≥ 85| DONE[Halt]
+    REV -->|retry| RE
+  end
+  CHK --> GEO
+  ZW --> DWG
+  RPT --> REV
+```
+
+---
+
+## Runtime architecture (LangGraph)
+
+```mermaid
+flowchart TB
+  UI[frontend_static /ui] --> API[FastAPI backend/app.py]
+  API --> SEC[RBAC X-Beso-Role]
+  API --> RAG[Local vector store]
+  API --> AG[LangGraph agents]
+  AG --> LLM[LLM slots + rate limit]
+  AG --> TOOLS[CAD / BESO / files]
+  AG --> CKPT[SqliteSaver checkpoints]
+  AG --> PIPE[MasterGraph Phase I–IV]
+  PIPE --> JOBS[Job manager + WS events]
+```
+
+Key packages: `backend/llm/` (config, concurrency, streaming, flags), `backend/agents/` (assistant / design-domain / structured), `backend/graph/pipeline/` (MasterGraph), `backend/security/` (RBAC), `backend/rag/` (vector index).
+
+---
+
+## Engineering platform features
+
+### Agent concurrency
+
+| Control | Env | Default | Meaning |
+|---------|-----|---------|---------|
+| LLM slots | `LLM_MAX_CONCURRENT` | 8 | Global async LLM call semaphore |
+| Agent fan-out | `AGENT_MAX_CONCURRENT` | 4 | Parallel subgraph / batch jobs (`gather_limited`, `map_agent_jobs`) |
+| RPM | `LLM_REQUESTS_PER_MIN` | 0 (off) | Sliding-window rate limit |
+| Tool pool | `LLM_TOOL_POOL_WORKERS` | 4 | Thread pool for blocking CAD/solver tools |
+
+```python
+from backend.llm.concurrency import with_llm_slot, gather_limited, map_agent_jobs
+
+await with_llm_slot(lambda: llm.ainvoke(...))
+results = await gather_limited([lambda: run_case(c) for c in cases], limit=4)
+```
+
+### Role & permission management (RBAC)
+
+Header-based actors for local/dev; enable hard mode with `BESO_AUTH_ENABLED=true`.
+
+| Role | Typical permissions |
+|------|---------------------|
+| `viewer` | read jobs, search RAG |
+| `engineer` | write jobs, run LLM, manage/search RAG |
+| `orchestrator` | + run pipeline |
+| `admin` | all |
+
+```http
+X-Beso-Role: engineer
+X-Beso-User: alice
+GET /api/security/me
+GET /api/security/roles
+```
+
+Wire route guards with `Depends(require_permissions(Permission.RUN_PIPELINE))`.
+
+### Vector database (RAG)
+
+Dependency-free **hashing embedder** + JSONL index under `WORKSPACE_ROOT/.beso_rag` (override with `BESO_VECTOR_DIR`).
+
+```http
+POST /api/rag/upsert   {"texts": ["..."], "metadatas": [{"source": "DNV"}]}
+POST /api/rag/search   {"query": "fatigue limit state", "top_k": 5}
+GET  /api/rag/stats
+```
+
+Swap `embed_fn` for OpenAI / sentence-transformers when you need denser embeddings; keep the same store API.
+
+---
 
 ## Repository layout
 
 ```
-backend/           FastAPI app, job manager, WebSocket events, orchestrator gates,
-                   Automated Reviewer / validation, OC4 design-domain services, tools
-frontend_static/   Browser UI for the design workflow (/ui/)
-beso/              BESO core scripts used by the CalculiX loop
+backend/           FastAPI, jobs, WebSocket, LangGraph LLM layer, RBAC, RAG,
+                   Automated Reviewer, OC4 services, tools
+frontend_static/   Browser UI (/ui/)
+beso/              BESO core for CalculiX loop
 graph/             Workflow / dependency graph assets
-scripts/           Reproducibility and documentation helpers
+scripts/           Reproducibility helpers
 tests/             Unit and API tests
-third_party/       Bundled CAD utilities (text-to-cad)
+docs/assets/       README figures (workflow diagrams)
+third_party/       CAD utilities (text-to-cad), Zwind bundle
 deploy/            Optional deployment notes
 ```
 
-Local run outputs (`runs/`), scratch extracts (`tmp_*`, `_tmp_*`), IDE folders, and secrets (`.env`) are **not** part of the published tree.
+Local outputs (`runs/`), scratch extracts, IDE folders, `.env`, and `.beso_rag/` are **not** published.
+
+---
 
 ## Requirements
 
-- **OS**: Windows is the primary development environment; Linux/macOS may work for API-only paths
-- **Python**: 3.10+ (3.11/3.12 recommended) in a virtual environment
-- **CalculiX** (`ccx`): set `CCX_PATH`
-- **FreeCADCmd** (CAD → INP, mesh preview): set `FREECAD_CMD`
-- **Optional**: Node.js (CAD Explorer catalog); LLM API key for the assistant / orchestrator language layer. Full Zwind FOWT campaign (Windows drivers + `OPSout`) lives in `third_party/zwind_newmodel/` for paper Fig. 2b–e reproducibility.
+- **OS**: Windows primary; Linux/macOS OK for API-only paths
+- **Python**: 3.10+ (3.11/3.12 recommended)
+- **CalculiX** (`ccx`): `CCX_PATH`
+- **FreeCADCmd**: `FREECAD_CMD`
+- **Optional**: Node.js (CAD Explorer); LLM API key; Zwind under `third_party/zwind_newmodel/`
 
-Pinned Python packages: see `backend/requirements.txt`.
+Pinned packages: [`backend/requirements.txt`](backend/requirements.txt).
+
+---
 
 ## Quick start
 
@@ -55,51 +192,48 @@ $env:PYTHONPATH = (Get-Location).Path
 .\.venv\Scripts\python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
 ```
 
-- UI: `http://127.0.0.1:8000/ui/`
+- UI: http://127.0.0.1:8000/ui/
 - Health: `GET /health`
 - OpenAPI: `/docs`
 
-Copy `.env.example` to `.env` for local overrides. **Never commit API keys.**
+Copy [`.env.example`](.env.example) → `.env`. **Never commit API keys.**
 
-### Common environment variables
+### Environment variables (selected)
 
 | Variable | Purpose |
 |----------|---------|
-| `WORKSPACE_ROOT` | Sandbox root for uploads and scan directories |
-| `CCX_PATH` | CalculiX executable |
-| `FREECAD_CMD` | FreeCADCmd executable |
-| `QWEN_API_KEY` / `QWEN_BASE_URL` / `QWEN_MODEL` | Optional LLM backend (OpenAI-compatible) |
-| `MAX_UPLOAD_BYTES` | Upload size cap (default 256 MB) |
+| `WORKSPACE_ROOT` | Sandbox root |
+| `CCX_PATH` / `FREECAD_CMD` | Solvers |
+| `QWEN_API_KEY` / `QWEN_BASE_URL` / `QWEN_MODEL` | LLM |
+| `LLM_MAX_CONCURRENT` / `AGENT_MAX_CONCURRENT` | Concurrency |
+| `BESO_AUTH_ENABLED` / `BESO_DEFAULT_ROLE` | RBAC |
+| `BESO_VECTOR_DIR` | RAG index path |
+| `USE_LANGGRAPH_*` / `USE_LEGACY_LLM` | Graph rollout / legacy opt-in |
+| `LANGSMITH_API_KEY` | Optional tracing |
 
-## Reproducibility notes (aligned with the manuscript)
+---
 
-- Solver backends (CalculiX, Zwind) are deterministic given identical inputs; orchestration decisions from the language model may vary with sampling. For regulatory-style reproduction, freeze tool schemas, pin dependency versions, and use multi-seed campaigns as described in the Methods / Statistics sections of the paper.
-- Artifacts in a complete run bundle are intended to be versioned under content hashes (SHA-256 manifests) so that clarification threads can be traced to the emitting computational step.
-- Third-party solvers retain their own licenses: CalculiX, FreeCAD, Gmsh, Zwind, etc.
+## Reproducibility
+
+Solver backends are deterministic given identical inputs; LLM orchestration may vary with sampling. Pin schemas and dependencies; use multi-seed campaigns as in the manuscript Methods. Third-party solvers keep their own licenses.
 
 ## Citation
 
-See [`CITATION.cff`](CITATION.cff). Short form:
+See [`CITATION.cff`](CITATION.cff).
 
 > Yu, T. et al. Closed-loop AI achieves certifiable engineering design. *(Nature Article submission / arXiv preprint)*.
 
-Corresponding author: Lilin Wang — `lilin.wang@zju.edu.cn`
-
-Zenodo DOI: **DOI_PLACEHOLDER** (insert after deposition).
+Corresponding author: Lilin Wang — `lilin.wang@zju.edu.cn`  
+Zenodo DOI: **DOI_PLACEHOLDER**
 
 ## Nature submission package
 
-Editorial working files (not required to run the app): [`submission/`](submission/) — manuscript draft, structure map, SI, cover letter, Extended Data legends, Zenodo bundle layout, and submit checklist.
+[`submission/`](submission/) — manuscript draft, SI, cover letter, Zenodo layout (not required to run the app).
 
 ## License and patents
 
-Source is released under the MIT License ([`LICENSE`](LICENSE)), excluding third-party solvers and partner-confidential data. Authors are applying for national and international patents related to the system; commercial use may require a separate agreement.
+MIT ([`LICENSE`](LICENSE)), excluding third-party solvers and partner-confidential data. Patent applications may apply to commercial use.
 
 ## Security
 
-- Do not commit secrets (`.env`, API keys, certificates).
-- Rotate any key that may have been exposed in chat logs or screenshots.
-
-## 中文摘要
-
-本仓库为论文《Closed-loop AI achieves certifiable engineering design》的伴生代码：**The AI Engineer** 将大语言模型与确定性工程后端（几何/网格、BESO–CalculiX、尺寸优化、Zwind 等）组成闭环；以 **Automated Reviewer**（S ≥ 85）作为内部终止门，以船级社 AIP 作为外部校准证据。本地运行产物、临时抽取文件与编辑器目录已从公开树中排除，请勿提交密钥。
+Do not commit secrets. Rotate any key exposed in logs or screenshots.

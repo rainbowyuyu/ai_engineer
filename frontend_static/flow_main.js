@@ -1725,6 +1725,105 @@ function pushAssistantToolTraceCardForTask(taskId, tool_trace) {
   }
 }
 
+/**
+ * 消费 LangGraph 工具流 SSE（/api/assistant/chat/stream-tools）。
+ * @returns {{ reply: string, tool_trace: any[], client_actions: any[], model: string|null, status: "complete"|"cancelled"|"error", errorText?: string }}
+ */
+async function consumeAssistantToolStream(response, opts = {}) {
+  const shouldContinue = typeof opts.shouldContinue === "function" ? opts.shouldContinue : null;
+  const signal = opts.signal;
+  const onThinking = typeof opts.onThinking === "function" ? opts.onThinking : null;
+  const onDelta = typeof opts.onDelta === "function" ? opts.onDelta : null;
+  const onTool = typeof opts.onTool === "function" ? opts.onTool : null;
+  if (!response.ok) {
+    const t = await response.text().catch(() => "");
+    return {
+      reply: "",
+      tool_trace: [],
+      client_actions: [],
+      model: null,
+      status: "error",
+      errorText: t.slice(0, 500) || `HTTP ${response.status}`,
+    };
+  }
+  const reader = response.body?.getReader();
+  if (!reader) {
+    return {
+      reply: "",
+      tool_trace: [],
+      client_actions: [],
+      model: null,
+      status: "error",
+      errorText: "无法读取工具流",
+    };
+  }
+  const dec = new TextDecoder();
+  let carry = "";
+  let reply = "";
+  let tool_trace = [];
+  let client_actions = [];
+  let model = null;
+  let errMsg = "";
+  while (true) {
+    if (shouldContinue && !shouldContinue()) {
+      try {
+        await reader.cancel();
+      } catch {
+        /* ignore */
+      }
+      return { reply, tool_trace, client_actions, model, status: "cancelled" };
+    }
+    let chunk;
+    try {
+      chunk = await reader.read();
+    } catch (e) {
+      if (signal?.aborted) return { reply, tool_trace, client_actions, model, status: "cancelled" };
+      return {
+        reply,
+        tool_trace,
+        client_actions,
+        model,
+        status: "error",
+        errorText: String(e?.message || e),
+      };
+    }
+    if (chunk.done) break;
+    carry += dec.decode(chunk.value, { stream: true });
+    const lines = carry.split("\n");
+    carry = lines.pop() || "";
+    for (const line of lines) {
+      const s = String(line || "").trim();
+      if (!s.startsWith("data:")) continue;
+      const payload = s.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      let ev;
+      try {
+        ev = JSON.parse(payload);
+      } catch {
+        continue;
+      }
+      const ty = ev?.type;
+      if (ty === "thinking" && ev.text) onThinking?.(String(ev.text));
+      if (ty === "tool_start" || ty === "tool_done") onTool?.(ev);
+      if (ty === "delta" && ev.text) {
+        reply += String(ev.text);
+        onDelta?.(String(ev.text));
+      }
+      if (ty === "error" && ev.message) errMsg = String(ev.message);
+      if (ty === "done") {
+        reply = String(ev.reply || reply || "");
+        tool_trace = Array.isArray(ev.tool_trace) ? ev.tool_trace : tool_trace;
+        client_actions = Array.isArray(ev.client_actions) ? ev.client_actions : client_actions;
+        model = ev.model || model;
+      }
+    }
+  }
+  if (errMsg && !reply) {
+    return { reply: "", tool_trace, client_actions, model, status: "error", errorText: errMsg };
+  }
+  return { reply, tool_trace, client_actions, model, status: "complete" };
+}
+
 function syncLandingModeToggleUi() {
   const d = refs.landingToggleDeepThink;
   const w = refs.landingToggleWebSearch;
@@ -3453,6 +3552,65 @@ async function sendLandingAssistantChat() {
       };
 
       const preferStream = readAssistantPreferStream() && !state.landingAssistantTools;
+      if (state.landingAssistantTools) {
+        let rTools;
+        try {
+          rTools = await fetch(`${normalizedBaseUrl()}/api/assistant/chat/stream-tools`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              messages,
+              temperature: 0.6,
+              ...landingAssistantAttachedFilesPayload(myTaskId),
+              ...landingAssistantOptionsPayload(),
+            }),
+            signal: ac.signal,
+          });
+        } catch (fe) {
+          if (!flightLive()) return;
+          if (ac.signal.aborted) return;
+          if (thinkingEl?.isConnected) layout.removeLandingThinking(thinkingEl);
+          commitAgentTurnForTask(myTaskId, {
+            role: "assistant",
+            content: `网络错误：${fe?.message || fe}`,
+            format: "plain",
+          });
+          persistMyTaskIfViewing();
+          return;
+        }
+        await bumpThinkWait();
+        if (!flightLive()) return;
+        openStreamSurfaceOrBail();
+        const consumed = await consumeAssistantToolStream(rTools, {
+          shouldContinue: streamMayContinue,
+          signal: ac.signal,
+          onThinking: (t) => {
+            /* thinking already visualized via stream surface */
+            void t;
+          },
+          onDelta: (d) => {
+            if (!streamMayContinue()) return;
+            streamCtrl?.appendDelta?.(d);
+          },
+        });
+        if (!flightLive()) return;
+        if (consumed.status === "cancelled" || ac.signal.aborted) return;
+        if (consumed.status === "error") {
+          if (thinkingEl?.isConnected) layout.removeLandingThinking(thinkingEl);
+          commitAgentTurnForTask(myTaskId, {
+            role: "assistant",
+            content: consumed.errorText || "工具流失败",
+            format: "plain",
+          });
+          persistMyTaskIfViewing();
+          return;
+        }
+        await finishExchange(consumed.reply, false, {
+          tool_trace: consumed.tool_trace,
+          client_actions: consumed.client_actions,
+        });
+        return;
+      }
       if (!preferStream) {
         const once = await fetchAssistantChatOnce(messages, ac.signal, myTaskId);
         if (!flightLive()) return;

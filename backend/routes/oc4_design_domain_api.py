@@ -29,6 +29,7 @@ from backend.oc4_design_domain_service import (
     session_progress_flags,
 )
 from backend.qwen_client import QwenClient
+from backend.llm.routing import use_langgraph_oc4_agent
 from backend.oc4_design_domain_agent import (
     iter_design_domain_agent_events,
     iter_design_domain_plan_build_events,
@@ -690,6 +691,42 @@ def oc4_dd_chat(body: ChatIn):
     system = f"{system.rstrip()}\n\n{LLM_CONTEXT_BLOCK_ZH}"
 
     try:
+        from backend.llm.routing import use_langgraph_structured
+
+        if use_langgraph_structured():
+            from backend.agents.structured import invoke_oc4_topic_chat_structured
+
+            parsed = invoke_oc4_topic_chat_structured(
+                system_prompt=system,
+                user_content=user,
+                temperature=0.2,
+            )
+            if parsed is not None:
+                reply = str(parsed.reply or "").strip() or "（无回复）"
+                sb = parsed.suggested_build if isinstance(parsed.suggested_build, dict) else None
+                sl = parsed.suggested_loads if isinstance(parsed.suggested_loads, dict) else None
+                sm = parsed.suggested_mesh if isinstance(parsed.suggested_mesh, dict) else None
+                se = parsed.suggested_export if isinstance(parsed.suggested_export, dict) else None
+                merge_session_meta(
+                    sdir,
+                    {
+                        "last_chat_topic": topic,
+                        "last_chat_suggested_build": sb,
+                        "last_chat_suggested_loads": sl,
+                        "last_chat_suggested_mesh": sm,
+                        "last_chat_suggested_export": se,
+                    },
+                )
+                return {
+                    "reply": reply,
+                    "topic": topic,
+                    "suggested_build": sb,
+                    "suggested_loads": sl,
+                    "suggested_mesh": sm,
+                    "suggested_export": se,
+                    "stack": "langgraph_structured",
+                }
+
         resp = qwen.chat(
             [{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=0.2,
@@ -718,6 +755,7 @@ def oc4_dd_chat(body: ChatIn):
         "suggested_loads": sl,
         "suggested_mesh": sm,
         "suggested_export": se,
+        "stack": "legacy_json",
     }
     return out
 
@@ -843,7 +881,13 @@ def oc4_dd_agent_stream(session_id: str, body: AgentStreamIn):
     _get_session(session_id)
 
     def gen():
-        for ev in iter_design_domain_agent_events(session_id, body.message):
+        if use_langgraph_oc4_agent():
+            from backend.agents.design_domain_graph import iter_design_domain_graph_agent_events
+
+            events = iter_design_domain_graph_agent_events(session_id, body.message)
+        else:
+            events = iter_design_domain_agent_events(session_id, body.message)
+        for ev in events:
             yield (json.dumps(ev, ensure_ascii=False) + "\n").encode("utf-8")
 
     return StreamingResponse(gen(), media_type="application/x-ndjson", headers=_NDJSON_STREAM_HEADERS)
@@ -876,14 +920,27 @@ def oc4_dd_plan_build_stream(session_id: str, body: PlanBuildIn = Body(default_f
             raise HTTPException(status_code=400, detail="选择「自定义」时请填写有效的 mesh_characteristic_length_max（正数，单位 mm）")
 
     def gen():
-        for ev in iter_design_domain_plan_build_events(
-            session_id,
-            cut_center_column=body.cut_center_column,
-            include_source_geometry=body.include_source_geometry,
-            mesh_preset=mp,
-            mesh_characteristic_length_max=body.mesh_characteristic_length_max,
-            mesh_user_note=body.mesh_user_note,
-        ):
+        if use_langgraph_oc4_agent():
+            from backend.agents.design_domain_graph import iter_design_domain_graph_plan_build_events
+
+            events = iter_design_domain_graph_plan_build_events(
+                session_id,
+                cut_center_column=body.cut_center_column,
+                include_source_geometry=body.include_source_geometry,
+                mesh_preset=mp,
+                mesh_characteristic_length_max=body.mesh_characteristic_length_max,
+                mesh_user_note=body.mesh_user_note,
+            )
+        else:
+            events = iter_design_domain_plan_build_events(
+                session_id,
+                cut_center_column=body.cut_center_column,
+                include_source_geometry=body.include_source_geometry,
+                mesh_preset=mp,
+                mesh_characteristic_length_max=body.mesh_characteristic_length_max,
+                mesh_user_note=body.mesh_user_note,
+            )
+        for ev in events:
             yield (json.dumps(ev, ensure_ascii=False) + "\n").encode("utf-8")
 
     return StreamingResponse(gen(), media_type="application/x-ndjson", headers=_NDJSON_STREAM_HEADERS)
@@ -895,7 +952,13 @@ def oc4_dd_plan_draft_stream(session_id: str):
     _get_session(session_id)
 
     def gen():
-        for ev in iter_design_domain_plan_draft_events(session_id):
+        if use_langgraph_oc4_agent():
+            from backend.agents.design_domain_graph import iter_design_domain_graph_plan_draft_events
+
+            events = iter_design_domain_graph_plan_draft_events(session_id)
+        else:
+            events = iter_design_domain_plan_draft_events(session_id)
+        for ev in events:
             yield (json.dumps(ev, ensure_ascii=False) + "\n").encode("utf-8")
 
     return StreamingResponse(gen(), media_type="application/x-ndjson", headers=_NDJSON_STREAM_HEADERS)

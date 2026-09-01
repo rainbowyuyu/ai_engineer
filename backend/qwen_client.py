@@ -9,6 +9,15 @@ from urllib3.util import Timeout as Urllib3Timeout
 
 from backend.qwen_runtime_config import get_qwen_config
 
+try:
+    from backend.llm.models import get_chat_model, langchain_to_openai_response, messages_to_langchain
+    from backend.llm.routing import use_langchain_client
+except ImportError:
+    get_chat_model = None  # type: ignore[misc, assignment]
+    messages_to_langchain = None  # type: ignore[misc, assignment]
+    langchain_to_openai_response = None  # type: ignore[misc, assignment]
+    use_langchain_client = None  # type: ignore[misc, assignment]
+
 _http_session: Optional[requests.Session] = None
 
 
@@ -184,6 +193,21 @@ class QwenClient:
             return {"ok": False, "error": str(e)[:240]}
 
     def chat(self, messages: List[Dict[str, Any]], temperature: float = 0.2) -> Dict[str, Any]:
+        if use_langchain_client and get_chat_model and messages_to_langchain and langchain_to_openai_response:
+            if use_langchain_client():
+                try:
+                    llm = get_chat_model(
+                        model=self.model,
+                        temperature=temperature,
+                        read_timeout_s=float(self._http_timeout.read_timeout or 480.0),
+                    )
+                    lc_msgs = messages_to_langchain(messages)
+                    ai = llm.invoke(lc_msgs)
+                    return langchain_to_openai_response(ai)
+                except Exception as exc:
+                    if not isinstance(exc, RuntimeError):
+                        raise RuntimeError(str(exc)) from exc
+                    raise
         if not self.api_key:
             raise RuntimeError("QWEN_API_KEY is not set (use environment variable)")
         url = f"{self.base_url.rstrip('/')}/chat/completions"
@@ -209,6 +233,31 @@ class QwenClient:
         temperature: float = 0.6,
     ):
         """OpenAI-compatible SSE stream; yields raw ``str`` lines (``data: {...}`` or ``data: [DONE]``)."""
+        if use_langchain_client and get_chat_model and messages_to_langchain:
+            if use_langchain_client():
+                import json as _json
+
+                try:
+                    llm = get_chat_model(
+                        model=self.model,
+                        temperature=temperature,
+                        read_timeout_s=float(self._http_timeout.read_timeout or 480.0),
+                    )
+                    lc_msgs = messages_to_langchain(messages)
+                    for chunk in llm.stream(lc_msgs):
+                        text = getattr(chunk, "content", None) or ""
+                        if not text:
+                            continue
+                        payload = {
+                            "choices": [{"delta": {"content": text}, "index": 0, "finish_reason": None}]
+                        }
+                        yield "data: " + _json.dumps(payload, ensure_ascii=False) + "\n"
+                    yield "data: [DONE]\n"
+                    return
+                except Exception as exc:
+                    if not isinstance(exc, RuntimeError):
+                        raise RuntimeError(str(exc)) from exc
+                    raise
         if not self.api_key:
             raise RuntimeError("QWEN_API_KEY is not set (use environment variable)")
         url = f"{self.base_url.rstrip('/')}/chat/completions"

@@ -336,10 +336,23 @@ def _llm_choose_primary(bundle: InputBundle, qwen: QwenClient | None = None) -> 
         "格式: {\"primary_inp\":\"文件名或null\",\"reason\":\"一句话\"}\n"
         f"候选列表: {json.dumps(inp_files, ensure_ascii=False)}"
     )
+    system = "你是「AI Engineer」中的结构优化主 INP 路由器，只输出 JSON。"
     try:
+        from backend.llm.routing import use_langgraph_structured
+
+        if use_langgraph_structured():
+            from backend.agents.structured import invoke_primary_inp_structured
+
+            parsed = invoke_primary_inp_structured(system_prompt=system, user_content=prompt)
+            if parsed is not None and parsed.primary_inp:
+                for x in bundle.files:
+                    if Path(x.path).name == parsed.primary_inp:
+                        return x.path
+                return None
+
         resp = qwen.chat(
             [
-                {"role": "system", "content": "你是「AI Engineer」中的结构优化主 INP 路由器，只输出 JSON。"},
+                {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,
