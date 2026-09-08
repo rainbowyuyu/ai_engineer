@@ -1059,6 +1059,73 @@
     if (docxDetailedBtn && validationId) docxDetailedBtn.removeAttribute("disabled");
   }
 
+  function syncRunBtnLabel(hasResult) {
+    const label = $("#valRunBtnLabel");
+    if (label) label.textContent = hasResult ? "重新评分" : "运行验证";
+    const btn = $("#valRunBtn");
+    if (btn) btn.title = hasResult ? "基于当前几何重新跑一遍评分" : "提交几何并运行验证评分";
+  }
+
+  async function applyValidationResult(data, { scroll = true, statusMsg } = {}) {
+    lastData = data;
+    const urls = data.artifact_urls || {};
+    const vid = data.validation_id;
+
+    $("#valScoreNum").textContent = Number(data.overall_score).toFixed(1);
+    animateScoreRing(data.overall_score, data.grade);
+    renderCategoryCards(
+      data.ai_review_scores || data.category_scores,
+      data.ai_review_labels,
+      data.ai_review_metrics || data.metrics,
+    );
+    renderBenchStrip(data.benchmark_context);
+    renderValidityTable(data.validity_table);
+    renderSurrogatePanel(data.surrogate_context);
+
+    updateDownloadLinks(urls, vid);
+    updateAuditLink(data.audit_manifest_url);
+    renderHaltGate(data.halt_gate, vid);
+    const tid = getValTaskId();
+    if (tid) void loadCandidates(tid);
+
+    renderFigures(urls.figures, urls, vid);
+
+    const [fullRes, rep] = await Promise.all([
+      fetchJson(`${apiBase()}/api/validation/${vid}`),
+      fetchJson(`${apiBase()}/api/validation/${vid}/report`).catch(() => ({ markdown: "" })),
+    ]);
+    lastFull = fullRes;
+    renderRules(lastFull.rules);
+    renderCalibrationNote(lastFull.calibration_notes || data.calibration_notes);
+    if (rep?.markdown) renderReportMarkdown(rep.markdown);
+
+    if (scroll) showResults();
+    else {
+      const shell = $("#valResults");
+      shell?.classList.add("is-visible");
+    }
+    syncRunBtnLabel(true);
+    if (statusMsg) setStatus(statusMsg, "ok");
+  }
+
+  async function loadExistingValidation(validationId) {
+    const vid = String(validationId || "").trim();
+    if (!vid) return false;
+    setStatus("正在载入已有评分结果…", "busy");
+    try {
+      const data = await fetchJson(`${apiBase()}/api/validation/${vid}`);
+      await applyValidationResult(data, {
+        scroll: true,
+        statusMsg: `已载入历史评分 · ID ${vid.slice(0, 8)}…（未重新评分）`,
+      });
+      return true;
+    } catch (e) {
+      setStatus(`载入历史结果失败：${friendlyFetchError(e)}。可点「运行验证」重新评分。`, "err");
+      syncRunBtnLabel(false);
+      return false;
+    }
+  }
+
   async function runValidation() {
     const btn = $("#valRunBtn");
     const path = $("#geomPath")?.value?.trim() || "rules/optimized_geometry.json";
@@ -1097,53 +1164,39 @@
 
       setLoadingProgress(LOADING_STEPS.length - 1, 88, "加载报告与规则明细…");
 
-      lastData = data;
-      const urls = data.artifact_urls || {};
-
-      $("#valScoreNum").textContent = Number(data.overall_score).toFixed(1);
-      animateScoreRing(data.overall_score, data.grade);
-      renderCategoryCards(
-        data.ai_review_scores || data.category_scores,
-        data.ai_review_labels,
-        data.ai_review_metrics || data.metrics,
-      );
-      renderBenchStrip(data.benchmark_context);
-      renderValidityTable(data.validity_table);
-      renderSurrogatePanel(data.surrogate_context);
-
-      updateDownloadLinks(urls, data.validation_id);
-      updateAuditLink(data.audit_manifest_url);
-      renderHaltGate(data.halt_gate, data.validation_id);
-      const tid = getValTaskId();
-      if (tid) void loadCandidates(tid);
       const wordErrors = [data.word_export_error, data.word_detailed_export_error].filter(Boolean);
-      if (wordErrors.length) {
-        setStatus(`验证完成，Word 预生成部分失败：${wordErrors.join("；")}`, "err");
-      }
-
-      renderFigures(urls.figures, urls, data.validation_id);
-
-      const [fullRes, rep] = await Promise.all([
-        fetchJson(`${apiBase()}/api/validation/${data.validation_id}`),
-        fetchJson(`${apiBase()}/api/validation/${data.validation_id}/report`),
-      ]);
-      lastFull = fullRes;
-      renderRules(lastFull.rules);
-      renderCalibrationNote(lastFull.calibration_notes || data.calibration_notes);
-      renderReportMarkdown(rep.markdown);
+      await applyValidationResult(data, { scroll: false });
 
       hideLoadingOverlay(true);
       showResults();
       const wantSur = $("#useSurrogate")?.checked;
       switchTab(wantSur ? "Pinn" : "Overview");
-      if (!wordErrors.length) {
+      if (wordErrors.length) {
+        setStatus(`验证完成，Word 预生成部分失败：${wordErrors.join("；")}`, "err");
+      } else {
         const ctx = data.surrogate_context || {};
-        const wantSur = $("#useSurrogate")?.checked;
         if (wantSur && !ctx.enabled && ctx.assumptions?.length) {
-          setStatus(`验证完成（代理回退 heuristic：${ctx.assumptions[0]}）`, "err");
+          setStatus(`验证完成（代理回退 heuristic：${ctx.assumptions[0]}）`, "ok");
         } else {
-          setStatus(`验证完成 · ID ${data.validation_id.slice(0, 8)}…`, "ok");
+          setStatus(`验证完成 · ID ${String(data.validation_id).slice(0, 8)}…`, "ok");
         }
+      }
+      syncRunBtnLabel(true);
+      try {
+        const tid = getValTaskId() || "";
+        window.opener?.postMessage?.(
+          {
+            type: "beso_ai_review_done",
+            validation_id: data.validation_id,
+            overall_score: data.overall_score,
+            grade: data.grade,
+            task_id: tid || undefined,
+            artifact_urls: data.artifact_urls || {},
+          },
+          window.location.origin,
+        );
+      } catch {
+        /* ignore */
       }
     } catch (e) {
       hideLoadingOverlay(false);
@@ -1193,10 +1246,89 @@
     });
     const tidParam = new URLSearchParams(window.location.search).get("task_id");
     if (tidParam && $("#valTaskId")) $("#valTaskId").value = tidParam;
+    const qs = new URLSearchParams(window.location.search);
+    const geomParam = String(qs.get("geometry_path") || "").trim();
+    if (geomParam && $("#geomPath")) $("#geomPath").value = geomParam;
+    const vidParam = String(qs.get("validation_id") || "").trim();
+    syncRunBtnLabel(false);
     $("#geomPath")?.addEventListener("keydown", (e) => {
       if (e.key === "Enter") runValidation();
     });
-    void checkBackendHealth();
+    void checkBackendHealth().then((ok) => {
+      if (!ok) return;
+      // 默认进入只载入历史结果，不自动重跑；仅显式 ?run=1 才自动评分
+      if (vidParam) {
+        void loadExistingValidation(vidParam);
+        return;
+      }
+      if (String(qs.get("run") || "") === "1") {
+        void runValidation();
+      } else {
+        setStatus("已进入验证台。确认几何路径后点击「运行验证」开始评分。", "ok");
+      }
+    });
+
+    function sameAppOrigin(origin) {
+      try {
+        if (!origin || origin === window.location.origin) return true;
+        const a = new URL(origin);
+        const b = new URL(window.location.origin);
+        if (a.protocol !== b.protocol || a.port !== b.port) return false;
+        const hosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
+        return hosts.has(a.hostname) && hosts.has(b.hostname);
+      } catch {
+        return false;
+      }
+    }
+
+    function navigateStageFromReview(stage) {
+      const target = String(stage || "landing").trim() || "landing";
+      const tid = getValTaskId() || "";
+      try {
+        sessionStorage.setItem(
+          "beso.pendingStage",
+          JSON.stringify({ stage: target, task_id: tid, t: Date.now() }),
+        );
+      } catch {
+        /* ignore */
+      }
+      try {
+        if (window.opener && !window.opener.closed) {
+          window.opener.postMessage(
+            { type: "beso_stage_nav", stage: target, task_id: tid || undefined },
+            "*",
+          );
+          try {
+            window.opener.focus();
+          } catch {
+            /* ignore */
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+      // 始终跳回主应用，避免仅依赖 opener/postMessage 时「点了没反应」
+      const q = new URLSearchParams();
+      q.set("stage", target);
+      if (tid) q.set("task_id", tid);
+      window.location.assign(`./index.html?${q.toString()}`);
+    }
+    $("#valNavDesignBtn")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      navigateStageFromReview("design_domain");
+    });
+    $("#valNavTopoBtn")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      navigateStageFromReview("orchestrate");
+    });
+    $("#valNavAnalysisBtn")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      navigateStageFromReview("restruction");
+    });
+    $("#valNavHomeBtn")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      navigateStageFromReview("landing");
+    });
   }
 
   if (document.readyState === "loading") {

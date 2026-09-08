@@ -7,6 +7,7 @@ CAD（IGES/STEP）→ CalculiX INP：经 FreeCAD FEM + Gmsh。
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -18,20 +19,125 @@ from pathlib import Path
 OUTPUT_INP_NAME = "from_cad_gmsh.inp"
 
 
+def _extent_from_obj_preview(cad_path: Path) -> float | None:
+    """从同目录 design_preview.obj / source_preview.obj 估计包围盒对角线（mm）。"""
+    parent = cad_path.parent
+    for name in ("design_preview.obj", "source_preview.obj"):
+        obj = parent / name
+        if not obj.is_file():
+            continue
+        xmin = ymin = zmin = float("inf")
+        xmax = ymax = zmax = float("-inf")
+        n = 0
+        try:
+            with obj.open("r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    if not line.startswith("v "):
+                        continue
+                    parts = line.split()
+                    if len(parts) < 4:
+                        continue
+                    try:
+                        x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
+                    except ValueError:
+                        continue
+                    xmin, xmax = min(xmin, x), max(xmax, x)
+                    ymin, ymax = min(ymin, y), max(ymax, y)
+                    zmin, zmax = min(zmin, z), max(zmax, z)
+                    n += 1
+                    if n >= 250_000:
+                        break
+        except OSError:
+            continue
+        if n < 8 or xmax <= xmin:
+            continue
+        return float(math.sqrt((xmax - xmin) ** 2 + (ymax - ymin) ** 2 + (zmax - zmin) ** 2))
+    return None
+
+
+def _extent_from_session_meta(cad_path: Path) -> float | None:
+    """设计域会话：用 triangle_side / corner 等估计特征尺度（mm）。"""
+    sj = cad_path.parent / "session.json"
+    if not sj.is_file():
+        return None
+    try:
+        meta = json.loads(sj.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(meta, dict):
+        return None
+    try:
+        side = float(meta.get("triangle_side_mm") or 0.0)
+    except (TypeError, ValueError):
+        side = 0.0
+    if side >= 2000.0:
+        try:
+            z_span = float(meta.get("domain_z_span_mm") or 0.0)
+        except (TypeError, ValueError):
+            z_span = 0.0
+        horiz = side * (2.0 / math.sqrt(3.0))
+        if z_span > 100.0:
+            return float(math.sqrt(horiz * horiz + z_span * z_span))
+        return float(horiz)
+    try:
+        cr = float(meta.get("corner_r_mm") or 0.0)
+    except (TypeError, ValueError):
+        cr = 0.0
+    if cr >= 500.0:
+        return float(max(cr / 0.08, cr * 12.0))
+    return None
+
+
+def _prism_volume_mm3_from_session(cad_path: Path) -> float | None:
+    """等边三棱柱体积估计（mm³），供单元尺寸反算。"""
+    sj = cad_path.parent / "session.json"
+    if not sj.is_file():
+        return None
+    try:
+        meta = json.loads(sj.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(meta, dict):
+        return None
+    try:
+        side = float(meta.get("triangle_side_mm") or 0.0)
+        z_span = float(meta.get("domain_z_span_mm") or 0.0)
+    except (TypeError, ValueError):
+        return None
+    if side < 2000.0:
+        return None
+    if z_span < 100.0:
+        z_span = side * 0.28  # 缺高度时的保守占比
+    # 等边三角形面积 * 高
+    return float(0.25 * math.sqrt(3.0) * side * side * z_span)
+
+
+def estimate_domain_extent_mm(cad_path: Path) -> float | None:
+    """估计设计域特征尺度（包围盒对角线量级，mm）。"""
+    for fn in (_extent_from_session_meta, _extent_from_obj_preview):
+        try:
+            v = fn(cad_path)
+        except Exception:
+            v = None
+        if v is not None and float(v) >= 500.0:
+            return float(v)
+    return None
+
+
 def default_coarse_char_length_max(cad_path: Path) -> float:
     """
-    OC4 设计域「体网格」步骤的默认 **最粗** 尺寸：在 ``suggest_char_length_max`` 基础上放大，
-    以减少单元数，使 ``02_mesh_body.inp`` 更易落在约 10MB 以内（不保证，仅启发式）。
-    注意：Gmsh 中 **CharacteristicLengthMax 越大网格越粗**。
+    OC4 设计域「体网格」默认尺寸：面向 BESO 拓扑优化的可运行体量
+    （约数万～十几万单元），CharacteristicLengthMax **越大越粗**。
     """
     base = float(suggest_char_length_max(cad_path))
-    return min(15000.0, max(base * 2.85, base + 450.0, 120.0))
+    return float(min(35_000.0, max(base * 1.12, base + 150.0, 900.0)))
 
 
 def suggest_char_length_max(cad_path: Path) -> float:
     """
-    按 CAD 文件体量估计 Gmsh CharacteristicLengthMax 量级，避免过大模型用过小尺寸。
-    可用环境变量 ``GMSH_CHAR_LENGTH_MAX`` 覆盖（与旧 Gmsh 直连路径兼容）。
+    估计 Gmsh CharacteristicLengthMax（mm）。
+    优先按几何体积/尺度 + BESO 目标单元数；文件体量仅作弱回退。
+    可用 ``GMSH_CHAR_LENGTH_MAX`` 强制覆盖。
     """
     env = (os.environ.get("GMSH_CHAR_LENGTH_MAX") or "").strip()
     if env:
@@ -39,19 +145,40 @@ def suggest_char_length_max(cad_path: Path) -> float:
             return max(5.0, float(env))
         except ValueError:
             pass
+
+    from backend.tools.inp_mesh_scan import beso_mesh_target_elements
+
+    target = float(beso_mesh_target_elements())
+    # 正则四面体体积系数约 a³/(6√2) ≈ 0.117 a³
+    tet_coef = 0.117
+    vol = _prism_volume_mm3_from_session(cad_path)
+    if vol is not None and vol > 0.0:
+        h = (vol / (target * tet_coef)) ** (1.0 / 3.0)
+        return float(min(25_000.0, max(h, 900.0)))
+
+    extent = estimate_domain_extent_mm(cad_path)
+    if extent is not None and extent >= 2000.0:
+        # 约 55 个单元跨对角线 → 百米级域 h ~ 2m，对应约十万级单元
+        h_edge = extent / 55.0
+        v_proxy = (extent**3) * 0.08
+        h_vol = max(80.0, (v_proxy / (target * tet_coef)) ** (1.0 / 3.0))
+        h = max(h_edge, h_vol * 0.85)
+        return float(min(25_000.0, max(h, 900.0)))
+
     try:
         mb = cad_path.stat().st_size / (1024 * 1024)
     except OSError:
-        return 80.0
+        return 1200.0
+    # 设计域 STEP 往往文件小、几何大：抬高地板，避免百万级单元
     if mb >= 8.0:
-        return 600.0
+        return 2200.0
     if mb >= 2.0:
-        return 300.0
+        return 1800.0
     if mb >= 0.5:
-        return 160.0
+        return 1400.0
     if mb >= 0.1:
-        return 100.0
-    return 70.0
+        return 1200.0
+    return 1000.0
 
 
 def default_mesh_timeout_s() -> float:
@@ -247,14 +374,17 @@ def run_freecad_cad_to_inp(
 
     if check_beso:
         from backend.tools.inp_beso_compat import assert_inp_supported_by_beso
+        from backend.tools.inp_mesh_scan import assert_inp_mesh_size_reasonable
 
         assert_inp_supported_by_beso(dest_inp)
+        assert_inp_mesh_size_reasonable(dest_inp)
 
     return dest_inp
 
 
 __all__ = [
     "default_coarse_char_length_max",
+    "estimate_domain_extent_mm",
     "OUTPUT_INP_NAME",
     "default_mesh_timeout_s",
     "list_iges_in_dir",

@@ -1,0 +1,253 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "The AI Engineer · 可认证闭环",
+    "subtitle": "Closed-loop AI achieves certifiable engineering design",
+    "locale": "zh-CN",
+    "animation": "trace",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "phase-rail",
+        "label": "四阶段主轨",
+        "focus": ["req", "orch", "domain", "beso", "size", "zwind", "draw", "review", "archive"],
+        "note": "Fig.1b：I 需求 → II 闭环优化 → III 图纸报告 → IV Automated Reviewer 停机。"
+      },
+      {
+        "id": "phase-ii",
+        "label": "Phase II 闭环",
+        "focus": ["oc4", "domain", "beso", "ccx", "size", "zwind", "replan"],
+        "note": "OC4 → 设计/非设计域 → CalculiX–BESO → 升尺度·PSO → Zwind；失败重规划回设计域。"
+      },
+      {
+        "id": "cert-gate",
+        "label": "可认证门禁",
+        "focus": ["zwind", "draw", "review", "archive", "aip", "replan"],
+        "note": "五维 S≥85 且分项≥60 才归档；CCS AIP 环外校准，非日常目标函数。"
+      }
+    ],
+    "output": "frontend_static/archify/beso_pipeline_flow.html"
+  },
+  "lanes": [
+    { "id": "orch", "label": "编排与交付" },
+    { "id": "physics", "label": "几何 · 拓扑 · 尺寸" },
+    { "id": "verify", "label": "求解 · 多物理场" },
+    { "id": "gate", "label": "评审与校准", "variant": "exception" }
+  ],
+  "phases": [
+    { "id": "p1", "label": "I 需求", "fromCol": 0, "toCol": 1 },
+    { "id": "p2", "label": "II 闭环设计", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "p3", "label": "III 交付", "fromCol": 4, "toCol": 4 },
+    { "id": "p4", "label": "IV 门禁", "fromCol": 5, "toCol": 5, "variant": "dashed" }
+  ],
+  "groups": [
+    {
+      "id": "dd_topo",
+      "label": "设计域 → BESO",
+      "lane": "physics",
+      "fromCol": 1,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "cert_loop",
+      "label": "可认证门禁",
+      "lane": "gate",
+      "fromCol": 4,
+      "toCol": 5,
+      "variant": "security"
+    }
+  ],
+  "mainPath": [
+    "req",
+    "orch",
+    "domain",
+    "beso",
+    "size",
+    "zwind",
+    "draw",
+    "review",
+    "archive"
+  ],
+  "nodes": [
+    {
+      "id": "req",
+      "lane": "orch",
+      "col": 0,
+      "type": "frontend",
+      "label": "自然语言需求",
+      "sublabel": "01 业主·场址·规范",
+      "width": 140
+    },
+    {
+      "id": "orch",
+      "lane": "orch",
+      "col": 1,
+      "type": "cloud",
+      "label": "AI Orchestrator",
+      "sublabel": "02 工具链监听",
+      "tag": "agent",
+      "width": 140
+    },
+    {
+      "id": "draw",
+      "lane": "orch",
+      "col": 4,
+      "type": "frontend",
+      "label": "图纸与报告",
+      "sublabel": "08 Phase III",
+      "width": 132
+    },
+    {
+      "id": "archive",
+      "lane": "orch",
+      "col": 5,
+      "type": "database",
+      "label": "可认证归档",
+      "sublabel": "停机 · 版本链",
+      "width": 132
+    },
+    {
+      "id": "oc4",
+      "lane": "physics",
+      "col": 1,
+      "type": "external",
+      "label": "OC4 参考",
+      "sublabel": "03 布局先验",
+      "width": 128
+    },
+    {
+      "id": "domain",
+      "lane": "physics",
+      "col": 2,
+      "type": "backend",
+      "label": "设计/非设计域",
+      "sublabel": "04 FreeCAD·网格",
+      "width": 140
+    },
+    {
+      "id": "beso",
+      "lane": "physics",
+      "col": 3,
+      "type": "messagebus",
+      "label": "CalculiX–BESO",
+      "sublabel": "05 柔度·体积",
+      "tag": "拓扑",
+      "width": 140
+    },
+    {
+      "id": "size",
+      "lane": "physics",
+      "col": 4,
+      "type": "backend",
+      "label": "升尺度·PSO",
+      "sublabel": "06–07 功率·截面",
+      "width": 136
+    },
+    {
+      "id": "ccx",
+      "lane": "verify",
+      "col": 3,
+      "type": "external",
+      "label": "CalculiX",
+      "sublabel": "静力回传",
+      "width": 120
+    },
+    {
+      "id": "zwind",
+      "lane": "verify",
+      "col": 4,
+      "type": "external",
+      "label": "Zwind 校核",
+      "sublabel": "耦合极限态",
+      "width": 132
+    },
+    {
+      "id": "replan",
+      "lane": "gate",
+      "col": 2,
+      "type": "messagebus",
+      "label": "自主重规划",
+      "sublabel": "网格·极限态",
+      "tag": "θ′",
+      "width": 128
+    },
+    {
+      "id": "aip",
+      "lane": "gate",
+      "col": 4,
+      "type": "external",
+      "label": "CCS AIP",
+      "sublabel": "环外校准",
+      "width": 120
+    },
+    {
+      "id": "review",
+      "lane": "gate",
+      "col": 5,
+      "type": "security",
+      "label": "Automated Reviewer",
+      "sublabel": "09 五维 S≥85",
+      "tag": "门禁",
+      "width": 148
+    }
+  ],
+  "edges": [
+    { "id": "e-req-orch", "from": "req", "to": "orch", "label": "结构化", "variant": "emphasis" },
+    { "id": "e-orch-oc4", "from": "orch", "to": "oc4", "label": "先验", "variant": "default", "role": "branch" },
+    { "id": "e-orch-domain", "from": "orch", "to": "domain", "label": "工具链", "variant": "emphasis" },
+    { "id": "e-oc4-domain", "from": "oc4", "to": "domain", "variant": "dashed" },
+    { "id": "e-domain-beso", "from": "domain", "to": "beso", "label": "网格", "variant": "emphasis" },
+    { "id": "e-beso-ccx", "from": "beso", "to": "ccx", "label": "FEA", "variant": "default", "role": "branch" },
+    { "id": "e-ccx-beso", "from": "ccx", "to": "beso", "label": "应力", "variant": "dashed", "role": "return" },
+    { "id": "e-beso-size", "from": "beso", "to": "size", "label": "骨架", "variant": "emphasis" },
+    { "id": "e-size-zwind", "from": "size", "to": "zwind", "variant": "default" },
+    { "id": "e-zwind-draw", "from": "zwind", "to": "draw", "label": "通过", "variant": "emphasis" },
+    { "id": "e-draw-review", "from": "draw", "to": "review", "variant": "security" },
+    { "id": "e-review-archive", "from": "review", "to": "archive", "label": "S≥85", "variant": "emphasis" },
+    {
+      "id": "e-review-replan",
+      "from": "review",
+      "to": "replan",
+      "label": "重试",
+      "variant": "dashed",
+      "role": "error",
+      "route": "bottom-channel"
+    },
+    {
+      "id": "e-replan-domain",
+      "from": "replan",
+      "to": "domain",
+      "label": "回域",
+      "variant": "security",
+      "role": "return"
+    },
+    {
+      "id": "e-review-aip",
+      "from": "review",
+      "to": "aip",
+      "label": "校准",
+      "variant": "dashed",
+      "role": "branch"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "论文四阶段 · 九步产物",
+      "items": [
+        "I→01/02；II→03–07 OC4·设计域·BESO·升尺度·PSO·Zwind",
+        "III→08 图纸报告；IV→09 Reviewer；失败回重规划 θ′"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "可认证停机",
+      "items": [
+        "五维：承载力·钢耗·造价·可建造性·疲劳",
+        "S≥85 且分项≥60；CCS AIP 环外校准，非每轮目标"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+subject_count: 1
+subjects:
+  - identity: >-
+      Floating offshore wind turbine (FOWT) foundation as recurring center
+      visual anchor; teal–steel–ocean engineering light; no readable text
+style: >-
+      cinematic physical metaphor of closed-loop AI engineering; abstract
+      luminous process, not paper screenshots; no UI chrome, no typography
+motion_intent: >-
+      Scroll scrubs a one-shot film of The AI Engineer paper pipeline:
+      human multi-tool chaos → requirements formalization → design domain →
+      topology evolution → verification-closed replan → internal certifiable
+      gate → dawn deliverable inviting chat. No baked-in letters/numbers.
+background_owner: video
+scene: >-
+      Full-bleed 16:9 hero; cool teal key light; deep navy steel; soft ocean
+      haze; continuous forward dolly along FOWT optical center
+driver: scroll
+input_semantics: continuous
+time_control: scrub
+navigation: continuous
+clip_continuity: chain
+continuity:
+  - FOWT / floating foundation silhouette as center anchor
+  - teal–steel–ocean palette
+  - absolutely no readable text, logos-as-words, UI labels, or digit overlays in frames
+  - no reuse of existing paper figure PNGs
+aspect_ratio: "16:9"
+destination: index.html sticky oil intro → #landingMain LLM chat

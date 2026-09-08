@@ -93,7 +93,44 @@ flowchart TB
   PIPE --> JOBS[任务管理 + WebSocket]
 ```
 
-核心目录：`backend/llm/`（配置、并发、流式、特性开关）、`backend/agents/`、`backend/graph/pipeline/`、`backend/security/`（RBAC）、`backend/rag/`（向量索引）。
+核心目录：`backend/llm/`、`backend/agents/`、`backend/graph/pipeline/`、`backend/pipeline/`（共享 live 步骤）、`backend/presets/`（5/10/15/20 MW）、`backend/security/`、`backend/rag/`。
+
+---
+
+## 对话驱动闭环（不只是 demo）
+
+主路径：**对话工具 → 真工程链**。BESO7 教学回放保留为旁路（`?demo=beso7-pipeline` / Demo Hub「教学回放」）。
+
+| 模式 | 条件 | 行为 |
+|------|------|------|
+| **Live** | FreeCADCmd + CalculiX + gmsh 可用 | 真设计域 → BESO → 尺寸 → 评审 |
+| **Preview** | 缺求解器或 `BESO_EXECUTION_MODE=preview` | 明确标注；拒绝冒充 BESO 成功 |
+
+助手工具（开启工具模式）：`apply_turbine_preset`、`start_design_domain_session`、`run_design_domain_build`、人为介入改几何、`start_beso_job`、`run_sizing`、`run_validation`、`evaluate_halt`；以及 **beso9 式棱柱**：`run_prism_topology_demo` / `parse_prism_design_brief` / `build_prism_design_domain` / `mesh_prism_design_domain`。
+
+**10MW 演示：** Demo Hub →「对话真跑 · 10MW」，或 `index.html?live=10mw&prefill=...`。
+
+### 提示词驱动 · 三棱柱设计域（beso9 族）
+
+与 OC4/IGES 半潜路径并行。用户可用自然语言描述等边三棱柱 + 顶点挖圆柱 + 顶面载荷环，模型调用 FreeCAD 建域/网格后异步启动真实 BESO：
+
+示例提示词：
+
+1. 「按 beso9 默认几何，体积分数 5%，跑拓扑优化」
+2. 「边长改成 80 m，挖角半径 6 m，载荷仍 2.45e7 N，粗网格演示」
+3. 完成后：「打开结果查看器」或拖入 `parameters_summary.json`
+
+HTTP：`POST /api/prism-design/demo`（body: `{"text":"...","start_beso":true}`）；解析：`POST /api/prism-design/parse`。
+
+会话目录：`runs/_prism_sessions/<id>/`（`BESO_PRISM.FCStd`、`03_for_beso.inp`、`design_spec.json`）。
+
+### 机型预设（5 / 10 / 15 / 20 MW）
+
+相对 NREL 5MW 基线水平缩放，并联动载荷与验证目标；清单容量驱动评分（不再静默忽略 10 vs 20）。
+
+### 人为介入改模型
+
+mesh 前可暂停；`replace-geometry` 或结果查看器「提交到会话」写回并清下游后重跑。
 
 ---
 

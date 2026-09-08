@@ -47,6 +47,9 @@ export function taskListDisplayTitle(t) {
   return `对话 · ${shortId} · ${timeStr}`;
 }
 
+/** 构型优化编排（拓扑）总步数 1–4；尺寸时域 / AI Review 为独立子流程卡片 */
+export const ORCH_TOTAL_STEPS = 4;
+
 /** @param {string} status */
 export function formatTaskStatus(status) {
   const st = String(status || "").toLowerCase();
@@ -55,6 +58,10 @@ export function formatTaskStatus(status) {
     orchestrating: { label: "编排中", tone: "orch" },
     ready_to_execute: { label: "待执行", tone: "ready" },
     running: { label: "运行中", tone: "busy" },
+    ready_for_analysis: { label: "待分析", tone: "ready" },
+    analyzing: { label: "分析中", tone: "busy" },
+    ready_for_review: { label: "待评审", tone: "ready" },
+    reviewing: { label: "评审中", tone: "busy" },
     completed: { label: "已完成", tone: "ok" },
     done: { label: "已完成", tone: "ok" },
     failed: { label: "失败", tone: "bad" },
@@ -68,7 +75,34 @@ export function formatTaskStatus(status) {
   return { label: status || "-", tone: "muted" };
 }
 
-/** 侧栏角标：是否曾进入设计域 / 编排或拓扑分步流 */
+/** 侧栏步骤文案：编排用 N/4；后续阶段用独立标签 */
+export function formatTaskStepLabel(task) {
+  const st = String(task?.status || "").toLowerCase();
+  const ui = String(task?.ui_stage || "").toLowerCase();
+  const stepNum = Number(task?.step);
+  if (
+    ui === "validation" ||
+    ["ready_for_review", "reviewing"].includes(st) ||
+    Boolean(String(task?.validation_id || "").trim()) ||
+    Boolean(task?.reached_review)
+  ) {
+    return "AI Review";
+  }
+  if (
+    ui === "restruction" ||
+    ["ready_for_analysis", "analyzing"].includes(st) ||
+    Boolean(String(task?.restruction_session_id || "").trim()) ||
+    Boolean(task?.reached_analysis)
+  ) {
+    return "尺寸时域";
+  }
+  if (Number.isFinite(stepNum) && stepNum >= 1) {
+    return `步骤 ${Math.min(ORCH_TOTAL_STEPS, stepNum)}/${ORCH_TOTAL_STEPS}`;
+  }
+  return "";
+}
+
+/** 侧栏角标：设计域 / 编排 / 尺寸时域 / AI Review */
 function taskSubprocessBadges(task) {
   const ui = String(task?.ui_stage || "").toLowerCase();
   const st = String(task?.status || "").toLowerCase();
@@ -81,16 +115,32 @@ function taskSubprocessBadges(task) {
     st === "orchestrating" ||
     st === "ready_to_execute" ||
     (st === "running" && (Boolean(task?.job_id) || Boolean(sid) || demoAsset)) ||
-    (st === "completed" && (Boolean(task?.job_id) || demoAsset)) ||
+    (["completed", "done", "ready_for_analysis", "analyzing", "ready_for_review", "reviewing"].includes(st) &&
+      (Boolean(task?.job_id) || demoAsset)) ||
     (demoAsset && (Boolean(task?.job_id) || Boolean(sid)));
-  return { designDomain, orchestrate };
+  const hasJob = Boolean(String(task?.job_id || "").trim());
+  const analysis =
+    ui === "restruction" ||
+    ["ready_for_analysis", "analyzing", "ready_for_review", "reviewing"].includes(st) ||
+    Boolean(String(task?.restruction_session_id || "").trim()) ||
+    Boolean(task?.reached_analysis) ||
+    (hasJob && ["ready_for_analysis", "analyzing", "ready_for_review", "reviewing", "completed", "done"].includes(st));
+  // 与尺寸时域同期露出，避免分析中面板缺第四枚 AI Review 图标
+  const review =
+    analysis ||
+    ui === "validation" ||
+    Boolean(String(task?.validation_id || "").trim()) ||
+    Boolean(task?.reached_review) ||
+    ["ready_for_review", "reviewing"].includes(st) ||
+    (hasJob && ["ready_for_review", "reviewing", "completed", "done"].includes(st));
+  return { designDomain, orchestrate, analysis, review };
 }
 
 /** 是否已进入子流程/工具链（设计域、编排、分步流或已有计算 Job）；否则视为仅主对话 */
 export function taskEnteredToolSubflow(task) {
   if (String(task?.job_id || "").trim()) return true;
-  const { designDomain, orchestrate } = taskSubprocessBadges(task);
-  return Boolean(designDomain || orchestrate);
+  const { designDomain, orchestrate, analysis, review } = taskSubprocessBadges(task);
+  return Boolean(designDomain || orchestrate || analysis || review);
 }
 
 export function createTaskManager(deps) {
@@ -107,10 +157,12 @@ export function createTaskManager(deps) {
   } = deps;
 
   function taskProgressByStep(step) {
-    if (step <= 1) return 25;
-    if (step === 2) return 55;
-    if (step === 3) return 80;
-    return 100;
+    const n = Number(step);
+    if (!Number.isFinite(n) || n <= 1) return 25;
+    if (n === 2) return 50;
+    if (n === 3) return 75;
+    if (n >= 4) return 100;
+    return 25;
   }
 
   async function upsertTask(patch = {}, opts = {}) {
@@ -129,6 +181,10 @@ export function createTaskManager(deps) {
       "ui_stage",
       "oc4_design_domain_session_id",
       "oc4_activity",
+      "restruction_session_id",
+      "validation_id",
+      "reached_analysis",
+      "reached_review",
       "assistant_thread",
       "landing_session_digest",
     ];
@@ -440,21 +496,22 @@ export function createTaskManager(deps) {
         (isTerminal &&
           (Boolean(String(t.job_id || "").trim()) ||
             (Number.isFinite(stepNum) && stepNum >= 2)));
-      const stepLabel = showStepBadge
-        ? Number.isFinite(stepNum) && stepNum >= 1 && stepNum <= 4
-          ? `步骤 ${stepNum}/4`
-          : "步骤 —"
-        : "";
+      const stepLabel = showStepBadge ? formatTaskStepLabel(t) || "步骤 —" : "";
       const oc4Note = lastOc4ActivitySnippet(t.oc4_activity);
       const timeStr = formatTaskTime(t.updated_at || t.created_at);
       const rawTitle = String(t.title || "").trim();
       const displayTitle = taskListDisplayTitle(t);
       const titleDerived = taskIsGenericTitle(rawTitle);
-      const { designDomain: hasDd, orchestrate: hasOrb } = taskSubprocessBadges(t);
+      const { designDomain: hasDd, orchestrate: hasOrb, analysis: hasAna, review: hasRev } =
+        taskSubprocessBadges(t);
       const svgDd =
-        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>';
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>';
       const svgOrb =
-        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="6" r="2"/><circle cx="6" cy="16" r="2"/><circle cx="18" cy="16" r="2"/><path d="M12 8v4M8 15l-2 1m10-1l2 1"/></svg>';
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="6" r="2"/><circle cx="6" cy="16" r="2"/><circle cx="18" cy="16" r="2"/><path d="M12 8v4M10.2 14.2l-2.5 1.4m6.1-1.4l2.5 1.4"/></svg>';
+      const svgAna =
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15l3-4 3 2 4-6"/></svg>';
+      const svgRev =
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 13l2.2 2.2L16 10.4"/></svg>';
       const svgRename =
         '<svg class="taskIconSvg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
       const svgDelete =
@@ -462,7 +519,7 @@ export function createTaskManager(deps) {
       const svgFolder =
         '<svg class="taskIconSvg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>';
       const badgeHtml =
-        hasDd || hasOrb
+        hasDd || hasOrb || hasAna || hasRev
           ? `<div class="taskItemBadgeRow" role="group" aria-label="子流程快捷入口">
           ${
             hasDd
@@ -472,6 +529,16 @@ export function createTaskManager(deps) {
           ${
             hasOrb
               ? `<button type="button" class="taskBadgeBtn taskBadgeBtn--orc" data-task-badge="orchestrate" title="进入构型优化编排 / 拓扑流程">${svgOrb}</button>`
+              : ""
+          }
+          ${
+            hasAna
+              ? `<button type="button" class="taskBadgeBtn taskBadgeBtn--ana" data-task-badge="restruction" title="进入尺寸时域分析">${svgAna}</button>`
+              : ""
+          }
+          ${
+            hasRev
+              ? `<button type="button" class="taskBadgeBtn taskBadgeBtn--rev" data-task-badge="validation" title="进入 AI Review">${svgRev}</button>`
               : ""
           }
         </div>`

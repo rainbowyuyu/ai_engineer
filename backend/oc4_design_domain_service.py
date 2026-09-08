@@ -271,6 +271,10 @@ def _run_build_worker(
     sdir_resolved_str: str,
     cut_center_column: bool,
     include_source_geometry: bool,
+    column_pick_thresholds: dict | None = None,
+    domain_envelope: str | None = None,
+    corner_r_mm: float | None = None,
+    center_hole_r_mm: float | None = None,
 ) -> dict[str, Any]:
     """在 spawn 子进程内执行设计域构建。"""
     sdir = Path(sdir_resolved_str)
@@ -278,15 +282,41 @@ def _run_build_worker(
     src = source_cad_path(sdir)
     out_iges = sdir / "01_design_domain.igs"
     out_step = sdir / "01_design_domain.step"
-    from backend.tools.oc4_design_domain_iges import build_oc4_design_domain_iges
+    from backend.tools.oc4_design_domain_iges import (
+        build_oc4_design_domain_iges,
+        coerce_corner_r_mm,
+        coerce_length_r_mm,
+        normalize_domain_envelope,
+    )
 
+    meta_pre = read_session_meta(sdir)
+    th = column_pick_thresholds or meta_pre.get("column_pick_thresholds")
+    envelope = normalize_domain_envelope(
+        domain_envelope or meta_pre.get("domain_envelope") or "triangle_prism"
+    )
+    corner = coerce_corner_r_mm(corner_r_mm)
+    if corner is None:
+        corner = coerce_corner_r_mm(meta_pre.get("corner_r_mm"))
+    center_hole = coerce_length_r_mm(center_hole_r_mm)
+    if center_hole is None:
+        center_hole = coerce_length_r_mm(meta_pre.get("center_hole_r_mm"))
+    geom_info: dict[str, Any] = {}
     build_oc4_design_domain_iges(
         src,
         out_iges,
         out_step=out_step,
         cut_center_column=cut_center_column,
         include_source_geometry=include_source_geometry,
+        domain_envelope=envelope,
+        column_pick_thresholds=th if isinstance(th, dict) else None,
+        corner_r_mm=corner,
+        center_hole_r_mm=center_hole,
+        out_info=geom_info,
     )
+    if geom_info.get("corner_r_mm") is not None:
+        corner = float(geom_info["corner_r_mm"])
+    if geom_info.get("center_hole_r_mm") is not None:
+        center_hole = float(geom_info["center_hole_r_mm"])
     meta0 = read_session_meta(sdir)
     stem = str(meta0.get("upload_cad_stem") or "OC4Design").strip() or "OC4Design"
     compound_nm = f"{stem}-Compound.iges"
@@ -301,25 +331,68 @@ def _run_build_worker(
     except OSError:
         pass
     shutil.copy2(out_iges, compound_path)
-    merge_session_meta(
-        sdir,
-        {
-            "design_domain_iges": "01_design_domain.igs",
-            "design_domain_step": "01_design_domain.step",
-            "design_domain_compound_iges": compound_nm,
-            "build_ok": True,
-            "cut_center_column": cut_center_column,
-            "include_source_geometry": include_source_geometry,
-        },
-    )
-    return {
+    meta_patch: dict[str, Any] = {
+        "design_domain_iges": "01_design_domain.igs",
+        "design_domain_step": "01_design_domain.step",
+        "design_domain_compound_iges": compound_nm,
+        "build_ok": True,
+        "cut_center_column": cut_center_column,
+        "include_source_geometry": include_source_geometry,
+        "domain_envelope": envelope,
+    }
+    if corner is not None:
+        meta_patch["corner_r_mm"] = float(corner)
+        meta_patch["corner_r_m"] = float(corner) / 1000.0
+    if center_hole is not None:
+        meta_patch["center_hole_r_mm"] = float(center_hole)
+        meta_patch["center_hole_r_m"] = float(center_hole) / 1000.0
+    if geom_info.get("triangle_side_mm") is not None:
+        try:
+            meta_patch["triangle_side_mm"] = float(geom_info["triangle_side_mm"])
+        except (TypeError, ValueError):
+            pass
+    if geom_info.get("domain_z_span_mm") is not None:
+        try:
+            meta_patch["domain_z_span_mm"] = float(geom_info["domain_z_span_mm"])
+        except (TypeError, ValueError):
+            pass
+    if isinstance(geom_info.get("corner_centers_xy_mm"), list):
+        meta_patch["corner_centers_xy_mm"] = geom_info["corner_centers_xy_mm"]
+    if isinstance(geom_info.get("domain_center_xy_mm"), list):
+        meta_patch["domain_center_xy_mm"] = geom_info["domain_center_xy_mm"]
+    for k in ("load_diameter_mm", "load_radius_mm"):
+        if geom_info.get(k) is not None:
+            try:
+                meta_patch[k] = float(geom_info[k])
+            except (TypeError, ValueError):
+                pass
+    if geom_info.get("load_application"):
+        meta_patch["load_application"] = str(geom_info["load_application"])
+    merge_session_meta(sdir, meta_patch)
+    out = {
         "design_domain_iges": str(out_iges),
         "design_domain_step": str(out_step),
         "design_domain_compound_iges": str(compound_path),
+        "domain_envelope": envelope,
     }
+    if corner is not None:
+        out["corner_r_mm"] = float(corner)
+        out["corner_r_m"] = float(corner) / 1000.0
+    if center_hole is not None:
+        out["center_hole_r_mm"] = float(center_hole)
+        out["center_hole_r_m"] = float(center_hole) / 1000.0
+    return out
 
 
-def run_build(sdir: Path, *, cut_center_column: bool = True, include_source_geometry: bool = False) -> dict[str, Any]:
+def run_build(
+    sdir: Path,
+    *,
+    cut_center_column: bool = True,
+    include_source_geometry: bool = False,
+    domain_envelope: str | None = None,
+    corner_r_mm: float | None = None,
+    center_hole_r_mm: float | None = None,
+) -> dict[str, Any]:
     from backend.gmsh_spawn import run_in_spawn_process
 
     return run_in_spawn_process(
@@ -327,6 +400,10 @@ def run_build(sdir: Path, *, cut_center_column: bool = True, include_source_geom
         str(sdir.resolve()),
         cut_center_column,
         include_source_geometry,
+        None,
+        domain_envelope,
+        corner_r_mm,
+        center_hole_r_mm,
     )
 
 
@@ -465,6 +542,40 @@ def run_mesh(
         except Exception as e:
             last_err = e
             err_text = str(e)
+            # 单元过多：放大 CharacteristicLengthMax 后重划（与质量失败时的「细化」相反）
+            if "网格体量过大" in err_text:
+                from backend.tools.inp_mesh_scan import (
+                    count_nodes_and_elements_in_inp,
+                    suggest_cl_scale_to_fit_beso,
+                )
+
+                nn, ne = (0, 0)
+                if mesh_inp.is_file():
+                    try:
+                        nn, ne = count_nodes_and_elements_in_inp(mesh_inp)
+                    except Exception:
+                        nn, ne = 0, 0
+                if nn > 0 or ne > 0:
+                    scale = suggest_cl_scale_to_fit_beso(nn, ne)
+                else:
+                    scale = 1.65
+                new_cl = min(35_000.0, max(float(cl_max) * float(scale), float(cl_max) + 400.0))
+                if new_cl <= float(cl_max) * 1.02 or retries_left <= 0:
+                    raise
+                replan_events.append(
+                    f"mesh_oversize · nodes={nn} elems={ne} · cl_max {cl_max:.0f}→{new_cl:.0f} (×{scale:.2f})"
+                )
+                cl_max = float(new_cl)
+                retries_left -= 1
+                merge_session_meta(
+                    sdir,
+                    {
+                        "mesh_replan_char_length_max": cl_max,
+                        "mesh_oversize_coarsen": True,
+                    },
+                )
+                continue
+
             from backend.replan.engine import evaluate_feedback, replan as replan_theta
 
             fb = evaluate_feedback(phase="II", step="mesh", logs=err_text)
@@ -666,7 +777,41 @@ def run_loads(
         "z_fix_band": float(z_fix_band),
         "cload_mag": float(cload_mag),
     }
+    # 会话几何（BESO9 三顶角 + 顶环）写入 load_case
+    meta = read_session_meta(sdir)
+    for k in (
+        "corner_r_mm",
+        "triangle_side_mm",
+        "load_diameter_mm",
+        "load_radius_mm",
+        "corner_centers_xy_mm",
+        "domain_center_xy_mm",
+    ):
+        if meta.get(k) is not None and k not in (load_case or {}):
+            merged[k] = meta[k]
     merged.update(load_case or {})
+    if not str(merged.get("cload_mode") or "").strip():
+        merged["cload_mode"] = "beso9_ring"
+    if not str(merged.get("fix_mode") or "").strip():
+        merged["fix_mode"] = "beso9_arcs"
+    # 缺几何时由边长推断顶环半径，避免回退到尖角单点
+    if merged.get("load_radius_mm") is None and merged.get("load_diameter_mm") is None:
+        try:
+            side = float(merged.get("triangle_side_mm") or meta.get("triangle_side_mm") or 0)
+            if side > 0:
+                load_d = float(max(6000.0, min(12000.0, 0.126 * side)))
+                merged["load_diameter_mm"] = load_d
+                merged["load_radius_mm"] = load_d * 0.5
+        except (TypeError, ValueError):
+            pass
+    if merged.get("force_direction") or str(meta.get("domain_envelope") or "") == "triangle_prism":
+        from backend.tools.oc4_force_direction import merge_force_direction_into_load_case
+
+        merged = merge_force_direction_into_load_case(
+            merged,
+            str(merged.get("force_direction") or meta.get("preferred_force_direction") or "-Z"),
+            total_force_n=abs(float(merged.get("cload_mag") or cload_mag)),
+        )
     nl_reply: str | None = None
     if (loads_natural_language or "").strip():
         nl_reply, lc_nl = parse_loads_natural_language(
@@ -676,7 +821,53 @@ def run_loads(
             z_fix_band=float(merged["z_fix_band"]),
             cload_mag=float(merged.get("cload_mag", cload_mag)),
         )
-        merged.update(lc_nl)
+        # 保留工程默认环载/三底弧；仅当 NL 明确要求其它分布时覆盖
+        nl_mode = str((lc_nl or {}).get("cload_mode") or "").strip().lower()
+        allow_override = nl_mode in {
+            "top_count",
+            "top_fraction",
+            "explicit",
+            "count_top",
+            "n_top",
+            "fraction_top",
+        }
+        # 禁止 NL 默认 single_top 把三棱柱工况打回尖角单点；仅用户明确要求多点/显式时覆盖
+        if nl_mode in ("single_top", "single", "max_z", "one_node"):
+            allow_override = False
+            ut = loads_natural_language.lower()
+            if any(k in ut for k in ("单点", "尖角", "一个节点", "最高点", "single")):
+                allow_override = True
+        preserved = {
+            k: merged[k]
+            for k in (
+                "cload_mode",
+                "fix_mode",
+                "corner_r_mm",
+                "corner_centers_xy_mm",
+                "domain_center_xy_mm",
+                "load_radius_mm",
+                "load_diameter_mm",
+                "force_direction",
+            )
+            if k in merged
+        }
+        merged.update(lc_nl or {})
+        if not allow_override:
+            merged.update(preserved)
+            merged["cload_mode"] = "beso9_ring"
+            merged["fix_mode"] = "beso9_arcs"
+        # 自然语言若显式给了 force_direction，再归一 dof；分布仍优先顶环
+        if isinstance(lc_nl, dict) and lc_nl.get("force_direction"):
+            from backend.tools.oc4_force_direction import merge_force_direction_into_load_case
+
+            merged = merge_force_direction_into_load_case(
+                merged,
+                str(lc_nl.get("force_direction")),
+                total_force_n=abs(float(merged.get("cload_mag") or cload_mag)),
+            )
+            if not allow_override:
+                merged["cload_mode"] = "beso9_ring"
+                merged["fix_mode"] = "beso9_arcs"
 
     stats = partition_oc4_mesh_inp(
         mesh,

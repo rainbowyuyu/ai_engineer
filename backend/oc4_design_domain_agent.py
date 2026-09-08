@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Any, Iterator
 
 from backend.oc4_methodology_chen2026 import LLM_CONTEXT_BLOCK_ZH
 from backend.oc4_design_domain_service import (
+    invalidate_oc4_downstream_from_rail_step,
     merge_session_meta,
     read_session_meta,
     run_build,
@@ -418,12 +420,52 @@ def _run_tool(
                 "written_snippet": snip,
             }
         if name == "run_build":
+            from backend.tools.oc4_design_domain_iges import coerce_corner_r_mm, coerce_length_r_mm
+
+            corner = coerce_corner_r_mm(
+                args.get("corner_r_mm", args.get("corner_radius_mm", args.get("digout_r_mm")))
+            )
+            if corner is None:
+                # 兼容模型把米写进 corner_r_m
+                corner = coerce_corner_r_mm(args.get("corner_r_m"), unit_hint="m")
+            center_hole = coerce_length_r_mm(
+                args.get(
+                    "center_hole_r_mm",
+                    args.get("center_r_mm", args.get("center_hole_radius_mm")),
+                )
+            )
+            if center_hole is None:
+                center_hole = coerce_length_r_mm(args.get("center_hole_r_m"), unit_hint="m")
+            meta_now = read_session_meta(sdir)
+            if corner is None:
+                corner = coerce_corner_r_mm(meta_now.get("corner_r_mm"))
+            if center_hole is None:
+                center_hole = coerce_length_r_mm(meta_now.get("center_hole_r_mm"))
             out = run_build(
                 sdir,
                 cut_center_column=bool(args.get("cut_center_column", True)),
                 include_source_geometry=bool(args.get("include_source_geometry", False)),
+                domain_envelope=str(args.get("domain_envelope") or meta_now.get("domain_envelope") or "triangle_prism"),
+                corner_r_mm=corner,
+                center_hole_r_mm=center_hole,
             )
-            return True, "run_build 完成", {"result": out}
+            # 01 已变，旧 02/03 与几何脱节；必须失效，避免预览仍打开过期 03_for_beso.inp
+            try:
+                inv = invalidate_oc4_downstream_from_rail_step(sdir, rail_step=2)
+            except Exception:
+                inv = {}
+            msg = "run_build 完成"
+            bits = []
+            if out.get("corner_r_mm") is not None:
+                bits.append(f"边立柱挖去 R={float(out['corner_r_mm']) / 1000.0:.3g} m")
+            if out.get("center_hole_r_mm") is not None:
+                bits.append(f"中心孔 R={float(out['center_hole_r_mm']) / 1000.0:.3g} m")
+            if bits:
+                msg += "（" + " · ".join(bits) + "）"
+            removed = inv.get("removed") if isinstance(inv, dict) else None
+            if removed:
+                msg += f"；已清除过期 {', '.join(str(x) for x in removed[:6])}"
+            return True, msg, {"result": out, "invalidated": inv}
         if name == "run_export_source_preview":
             urls = run_export_source_preview_only(
                 sdir,
@@ -465,6 +507,17 @@ def _run_tool(
             z_fix_band = args.get("z_fix_band")
             cload_mag = args.get("cload_mag")
             nl = str(args.get("loads_natural_language")).strip() if args.get("loads_natural_language") else None
+            load_case = args.get("load_case") if isinstance(args.get("load_case"), dict) else None
+            if not load_case and isinstance(meta.get("preferred_load_case"), dict):
+                load_case = dict(meta["preferred_load_case"])
+            elif not load_case and meta.get("preferred_force_direction"):
+                from backend.tools.oc4_force_direction import merge_force_direction_into_load_case
+
+                load_case = merge_force_direction_into_load_case(
+                    None,
+                    str(meta.get("preferred_force_direction")),
+                    total_force_n=float(cload_mag) if cload_mag is not None else None,
+                )
             if checklist_id and not nl:
                 from backend.design_requirements.paths import load_checklist
 
@@ -475,14 +528,16 @@ def _run_tool(
                         band_scale = oc4.band_scale
                     if z_fix_band is None:
                         z_fix_band = oc4.z_fix_band
-                    if cload_mag is None:
+                    if cload_mag is None and (not load_case or load_case.get("cload_mag") is None):
                         cload_mag = oc4.cload_mag
+            if cload_mag is None and isinstance(load_case, dict) and load_case.get("cload_mag") is not None:
+                cload_mag = load_case.get("cload_mag")
             out = run_loads(
                 sdir,
                 band_scale=float(band_scale if band_scale is not None else 1.22),
                 z_fix_band=float(z_fix_band if z_fix_band is not None else 800.0),
                 cload_mag=float(cload_mag if cload_mag is not None else -5.0e6),
-                load_case=args.get("load_case") if isinstance(args.get("load_case"), dict) else None,
+                load_case=load_case,
                 loads_natural_language=nl,
                 design_checklist_id=str(checklist_id) if checklist_id else None,
             )
@@ -571,6 +626,177 @@ def _design_domain_agent_model() -> str | None:
     return None
 
 
+def _user_wants_more_after_corner(user_message: str) -> bool:
+    """改挖角之外是否还点名网格/载荷/约束等后续步骤。"""
+    t = str(user_message or "")
+    return bool(
+        re.search(
+            r"网格|mesh|体网格|载荷|荷载|loads?|划荷|约束|固定|boundary|cload|"
+            r"finalize|收尾|划分|BESO\s*inp|03_for_beso|方向|幅值",
+            t,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def iter_apply_corner_radius_events(
+    sdir: Path,
+    *,
+    workspace_root: Path,
+    corner_r_mm: float | None = None,
+    center_hole_r_mm: float | None = None,
+) -> Iterator[dict[str, Any]]:
+    """
+    确定性执行：run_build → run_export_obj → run_mesh → run_loads。
+    边立柱/中心孔一变，01/02/03 必须同步重生，否则网格预览仍显示旧约束与荷载。
+    只改用户点名的参数；未点名的半径沿用会话 meta，互不耦合。
+    """
+    from backend.tools.oc4_design_domain_iges import coerce_corner_r_mm, coerce_length_r_mm
+
+    patch: dict[str, Any] = {}
+    build_args: dict[str, Any] = {}
+    notes: list[str] = []
+    if corner_r_mm is not None:
+        cr = float(corner_r_mm)
+        patch.update({"corner_r_mm": cr, "corner_r_m": cr / 1000.0})
+        build_args["corner_r_mm"] = cr
+        notes.append(f"边立柱挖去半径 {cr / 1000.0:.3g} m（{cr:.0f} mm）")
+    if center_hole_r_mm is not None:
+        ch = float(center_hole_r_mm)
+        patch.update({"center_hole_r_mm": ch, "center_hole_r_m": ch / 1000.0})
+        build_args["center_hole_r_mm"] = ch
+        notes.append(f"中心孔半径 {ch / 1000.0:.3g} m（{ch:.0f} mm）")
+    if not build_args:
+        return
+    if patch:
+        merge_session_meta(sdir, patch)
+    yield {
+        "type": "activity",
+        "kind": "exec",
+        "text": (
+            f"已解析{' · '.join(notes)}，正在重建设计域，并同步重生体网格与载荷划分"
+            "（中心孔与边立柱半径相互独立）…"
+        ),
+    }
+    yield {"type": "tool", "name": "run_build", "args": build_args}
+    ok_b, sum_b, extra_b = _run_tool("run_build", build_args, sdir=sdir, workspace_root=workspace_root)
+    yield _tool_result_payload("run_build", ok_b, build_args, sum_b, extra_b)
+    for fe in _iter_tool_file_touch_events("run_build", ok_b, sdir, extra_b):
+        yield fe
+    if not ok_b:
+        yield {
+            "type": "assistant",
+            "text": f"重建设计域失败：{sum_b}。请检查源几何后重试。",
+        }
+        return
+
+    exp_args: dict[str, Any] = {"design_only": True}
+    yield {
+        "type": "activity",
+        "kind": "exec",
+        "text": "设计域已重建，正在导出 design_preview.obj…",
+    }
+    yield {"type": "tool", "name": "run_export_obj", "args": exp_args}
+    ok_e, sum_e, extra_e = _run_tool("run_export_obj", exp_args, sdir=sdir, workspace_root=workspace_root)
+    yield _tool_result_payload("run_export_obj", ok_e, exp_args, sum_e, extra_e)
+    for fe in _iter_tool_file_touch_events("run_export_obj", ok_e, sdir, extra_e):
+        yield fe
+
+    mesh_args: dict[str, Any] = {}
+    yield {
+        "type": "activity",
+        "kind": "exec",
+        "text": "几何已变，正在重新划分体网格 02_mesh_body.inp…",
+    }
+    yield {"type": "tool", "name": "run_mesh", "args": mesh_args}
+    ok_m, sum_m, extra_m = _run_tool("run_mesh", mesh_args, sdir=sdir, workspace_root=workspace_root)
+    yield _tool_result_payload("run_mesh", ok_m, mesh_args, sum_m, extra_m)
+    for fe in _iter_tool_file_touch_events("run_mesh", ok_m, sdir, extra_m):
+        yield fe
+    if not ok_m:
+        yield {
+            "type": "assistant",
+            "text": f"设计域已重建，但体网格失败：{sum_m}。请调整网格参数后重试；03_for_beso.inp 尚未更新。",
+        }
+        return
+
+    loads_args: dict[str, Any] = {}
+    yield {
+        "type": "activity",
+        "kind": "exec",
+        "text": "正在按当前约束/荷载偏好重写 03_for_beso.inp…",
+    }
+    yield {"type": "tool", "name": "run_loads", "args": loads_args}
+    ok_l, sum_l, extra_l = _run_tool("run_loads", loads_args, sdir=sdir, workspace_root=workspace_root)
+    yield _tool_result_payload("run_loads", ok_l, loads_args, sum_l, extra_l)
+    for fe in _iter_tool_file_touch_events("run_loads", ok_l, sdir, extra_l):
+        yield fe
+
+    meta_after = read_session_meta(sdir)
+    res = extra_b.get("result") if isinstance(extra_b, dict) else None
+    applied_corner = None
+    applied_center = None
+    if isinstance(res, dict):
+        try:
+            if res.get("corner_r_mm") is not None:
+                applied_corner = float(res["corner_r_mm"])
+        except (TypeError, ValueError):
+            applied_corner = None
+        try:
+            if res.get("center_hole_r_mm") is not None:
+                applied_center = float(res["center_hole_r_mm"])
+        except (TypeError, ValueError):
+            applied_center = None
+    if applied_corner is None:
+        applied_corner = coerce_corner_r_mm(meta_after.get("corner_r_mm"))
+    if applied_center is None:
+        applied_center = coerce_length_r_mm(meta_after.get("center_hole_r_mm"))
+
+    parts: list[str] = []
+    if corner_r_mm is not None and applied_corner is not None:
+        note = ""
+        if abs(applied_corner - float(corner_r_mm)) > 1.0:
+            note = f"（已钳制；请求 {float(corner_r_mm)/1000.0:.3g} m）"
+        parts.append(f"边立柱挖去 R={applied_corner/1000.0:.3g} m{note}")
+    if center_hole_r_mm is not None and applied_center is not None:
+        parts.append(f"中心孔 R={applied_center/1000.0:.3g} m")
+    elif corner_r_mm is not None and applied_center is not None:
+        parts.append(f"中心孔保持 R={applied_center/1000.0:.3g} m（未改）")
+
+    summary_txt = "、".join(parts) if parts else "几何参数"
+    tail_bits: list[str] = []
+    if ok_e:
+        tail_bits.append("design_preview.obj")
+    if ok_m:
+        tail_bits.append("02_mesh_body.inp")
+    if ok_l:
+        tail_bits.append("03_for_beso.inp")
+    refreshed = "、".join(tail_bits) if tail_bits else "部分产物"
+    if ok_l:
+        yield {
+            "type": "assistant",
+            "text": (
+                f"已更新：{summary_txt}，并同步刷新 {refreshed}。"
+                "请在左侧重新打开「网格预览 · 03_for_beso.inp」查看约束与荷载。"
+            ),
+        }
+    elif ok_m:
+        yield {
+            "type": "assistant",
+            "text": f"已更新：{summary_txt}，体网格已重生，但载荷划分失败：{sum_l}。",
+        }
+    elif ok_e:
+        yield {
+            "type": "assistant",
+            "text": f"已更新：{summary_txt}，并刷新 design_preview.obj；网格/载荷未完成。",
+        }
+    else:
+        yield {
+            "type": "assistant",
+            "text": f"设计域已按 {summary_txt} 重建，但 OBJ 导出失败：{sum_e}。",
+        }
+
+
 def iter_design_domain_agent_events(session_id: str, user_message: str) -> Iterator[dict[str, Any]]:
     ws = _workspace_root()
     try:
@@ -587,6 +813,34 @@ def iter_design_domain_agent_events(session_id: str, user_message: str) -> Itera
         return
 
     yield {"type": "meta", "model": qwen.model, "protocol": "json_tool_loop"}
+
+    from backend.tools.oc4_design_domain_iges import (
+        coerce_corner_r_mm,
+        coerce_length_r_mm,
+        parse_center_hole_r_mm_from_text,
+        parse_corner_r_mm_from_text,
+    )
+
+    parsed_corner_early = parse_corner_r_mm_from_text(user_message)
+    parsed_center_early = parse_center_hole_r_mm_from_text(user_message)
+    if parsed_corner_early is not None or parsed_center_early is not None:
+        apply_ok = True
+        for ev in iter_apply_corner_radius_events(
+            sdir,
+            workspace_root=ws,
+            corner_r_mm=float(parsed_corner_early) if parsed_corner_early is not None else None,
+            center_hole_r_mm=float(parsed_center_early) if parsed_center_early is not None else None,
+        ):
+            if ev.get("type") == "tool_result" and ev.get("name") in {
+                "run_build",
+                "run_mesh",
+                "run_loads",
+            } and not ev.get("ok"):
+                apply_ok = False
+            yield ev
+        if not _user_wants_more_after_corner(user_message):
+            yield {"type": "done", "ok": apply_ok}
+            return
 
     meta = read_session_meta(sdir)
     summ = meta.get("geometry_summary") or {}
@@ -605,14 +859,35 @@ def iter_design_domain_agent_events(session_id: str, user_message: str) -> Itera
         f"单文件不超过 {_MAX_SESSION_WRITE_BYTES // 1024}KB。\n"
         "规则：先 list_files / read_file 再改；mesh 前需已有 01_design_domain.step；loads 前需 02_mesh_body.inp；"
         "finalize 前需 03_for_beso.inp。管线内部固定使用 01_design_domain.step / 01_design_domain.igs；"
-        "run_build 默认按**源装配 OCC 包围盒**生成设计域实体（体量对齐 BESO3-Compound 一类整船包络，再减柱），"
-        "并另存 `{upload_cad_stem}-Compound.iges` 便于与主 IGES 并列扫描；体网格仍读 01_design_domain.step。"
-        "若模型不适配可用环境变量 OC4_DESIGN_DOMAIN_ENVELOPE=triangle 退回三棱柱包络。"
+        "run_build 默认按 **beso9 式等边三棱柱**生成设计域（三顶角通高圆柱挖孔 + 可选中心孔），"
+        "并另存 `{upload_cad_stem}-Compound.iges`；体网格仍读 01_design_domain.step。\n"
+        "**几何参数（必须真正调用工具，禁止只口头答应；两类半径相互独立）：**\n"
+        "- corner_r_mm：**边立柱/三顶角边缘挖去**半径（mm）。用户说「边立柱半径 15m」→ 15000。"
+        "只改边立柱时**不要**改 center_hole_r_mm。\n"
+        "- center_hole_r_mm：**中间/中心圆孔**半径（mm）。用户说「中心孔 5m」→ 5000。"
+        "只改中心孔时**不要**改 corner_r_mm。\n"
+        "- 改任一半径后：run_build（只带被改参数）→ run_export_obj({\"design_only\":true})"
+        "→ run_mesh → run_loads（01 变则 02/03 必须重生，否则预览仍是旧约束/荷载）。\n"
+        "- domain_envelope：triangle_prism（默认）或 hull_bbox。\n"
         "用户一句话可能要求多步，请分轮调用工具。\n"
         f"当前进度标记: {json.dumps(prog, ensure_ascii=False)}\n"
+        f"会话已存 corner_r_mm: {json.dumps(meta.get('corner_r_mm'), ensure_ascii=False)}；"
+        f"center_hole_r_mm: {json.dumps(meta.get('center_hole_r_mm'), ensure_ascii=False)}\n"
         f"几何摘要: {json.dumps(summ, ensure_ascii=False)[:4000]}\n"
         f"文件树摘要:\n{files_snip[:6000]}\n\n{LLM_CONTEXT_BLOCK_ZH}"
     )
+
+    parsed_corner = parsed_corner_early
+    if parsed_corner is not None or parsed_center_early is not None:
+        bits = []
+        if parsed_corner is not None:
+            bits.append(f"边立柱挖去={parsed_corner:.0f} mm")
+        if parsed_center_early is not None:
+            bits.append(f"中心孔={parsed_center_early:.0f} mm")
+        system += (
+            f"\n【系统已执行】{' · '.join(bits)}，design_preview.obj / 02_mesh_body.inp / 03_for_beso.inp 已按新几何重生。"
+            "请勿重复仅改同一半径的 run_build；若用户还要求改约束/荷载，再调用 run_loads。\n"
+        )
 
     history: list[dict[str, str]] = []
     user0 = user_message.strip()
@@ -621,6 +896,7 @@ def iter_design_domain_agent_events(session_id: str, user_message: str) -> Itera
         yield {"type": "done", "ok": False}
         return
 
+    tools_ran = parsed_corner_early is not None or parsed_center_early is not None
     for turn in range(MAX_AGENT_TURNS):
         messages = [{"role": "system", "content": system}]
         messages.extend(history)
@@ -629,6 +905,7 @@ def iter_design_domain_agent_events(session_id: str, user_message: str) -> Itera
         else:
             messages.append({"role": "user", "content": "继续：根据工具结果决定下一步（仍只输出一个 JSON）。"})
 
+        yield {"type": "thinking_start"}
         try:
             resp = qwen.chat(messages, temperature=0.15)
             content = resp["choices"][0]["message"]["content"]
@@ -657,6 +934,20 @@ def iter_design_domain_agent_events(session_id: str, user_message: str) -> Itera
 
         fr = data.get("final_reply")
         if isinstance(fr, str) and fr.strip():
+            if parsed_corner is not None and not tools_ran:
+                nudge = (
+                    f"用户已明确要求改顶角挖去半径为 {parsed_corner/1000:.3g} m。"
+                    f"请立即输出 tool.run_build，arguments 含 corner_r_mm={parsed_corner:.0f}，"
+                    "然后再 run_export_obj(design_only=true)。不要 final_reply。"
+                )
+                yield {
+                    "type": "activity",
+                    "kind": "plan",
+                    "text": "检测到几何修改意图但尚未调用工具，已催促模型执行 run_build…",
+                }
+                history.append({"role": "assistant", "content": (content or "")[:8000]})
+                history.append({"role": "user", "content": nudge})
+                continue
             yield {"type": "assistant", "text": fr.strip()}
             yield {"type": "done", "ok": True}
             return
@@ -669,9 +960,23 @@ def iter_design_domain_agent_events(session_id: str, user_message: str) -> Itera
 
         tname = str(tool.get("name") or "").strip()
         targs = tool.get("arguments") if isinstance(tool.get("arguments"), dict) else {}
+        if tname == "run_build":
+            targs = dict(targs)
+            if parsed_corner is not None and coerce_corner_r_mm(targs.get("corner_r_mm", targs.get("corner_r_m"))) is None:
+                targs["corner_r_mm"] = float(parsed_corner)
+            if parsed_center_early is not None and coerce_length_r_mm(
+                targs.get("center_hole_r_mm", targs.get("center_hole_r_m"))
+            ) is None:
+                targs["center_hole_r_mm"] = float(parsed_center_early)
+        yield {
+            "type": "activity",
+            "kind": "exec",
+            "text": f"准备执行工具 · {tname}…",
+        }
         yield {"type": "tool", "name": tname, "args": targs}
 
         ok, summary, extra = _run_tool(tname, targs, sdir=sdir, workspace_root=ws)
+        tools_ran = True
         yield _tool_result_payload(tname, ok, targs, summary, extra)
 
         for fe in _iter_tool_file_touch_events(tname, ok, sdir, extra):
@@ -686,8 +991,26 @@ def iter_design_domain_agent_events(session_id: str, user_message: str) -> Itera
     yield {"type": "done", "ok": False}
 
 
-def _default_plan_build_steps(cut_center_column: bool, include_source_geometry: bool) -> list[dict[str, Any]]:
+def _default_plan_build_steps(
+    cut_center_column: bool,
+    include_source_geometry: bool,
+    *,
+    corner_r_mm: float | None = None,
+    load_case: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     """与四步管线对齐的全流程：源预览 → 设计域 → 设计 OBJ → 体网格 → 载荷 INP。"""
+    build_args: dict[str, Any] = {
+        "cut_center_column": cut_center_column,
+        "include_source_geometry": include_source_geometry,
+        "domain_envelope": "triangle_prism",
+    }
+    if corner_r_mm is not None and float(corner_r_mm) > 0:
+        build_args["corner_r_mm"] = float(corner_r_mm)
+    loads_args: dict[str, Any] = {}
+    if isinstance(load_case, dict) and load_case:
+        loads_args["load_case"] = dict(load_case)
+        if load_case.get("cload_mag") is not None:
+            loads_args["cload_mag"] = float(load_case["cload_mag"])
     return [
         {
             "id": 1,
@@ -699,10 +1022,7 @@ def _default_plan_build_steps(cut_center_column: bool, include_source_geometry: 
             "id": 2,
             "tool": "run_build",
             "title": "2 构建设计域 STEP + Compound IGES",
-            "arguments": {
-                "cut_center_column": cut_center_column,
-                "include_source_geometry": include_source_geometry,
-            },
+            "arguments": build_args,
         },
         {
             "id": 3,
@@ -720,14 +1040,22 @@ def _default_plan_build_steps(cut_center_column: bool, include_source_geometry: 
             "id": 5,
             "tool": "run_loads",
             "title": "5 划分载荷 INP",
-            "arguments": {},
+            "arguments": loads_args,
         },
     ]
 
 
-def _normalize_plan_steps(raw: Any, *, cut_center_column: bool, include_source_geometry: bool) -> list[dict[str, Any]]:
+def _normalize_plan_steps(
+    raw: Any,
+    *,
+    cut_center_column: bool,
+    include_source_geometry: bool,
+    corner_r_mm: float | None = None,
+) -> list[dict[str, Any]]:
     if not isinstance(raw, list) or not raw:
-        return _default_plan_build_steps(cut_center_column, include_source_geometry)
+        return _default_plan_build_steps(
+            cut_center_column, include_source_geometry, corner_r_mm=corner_r_mm
+        )
     out: list[dict[str, Any]] = []
     for i, it in enumerate(raw):
         if not isinstance(it, dict):
@@ -741,10 +1069,15 @@ def _normalize_plan_steps(raw: Any, *, cut_center_column: bool, include_source_g
         if tool == "run_build":
             merged.setdefault("cut_center_column", cut_center_column)
             merged.setdefault("include_source_geometry", include_source_geometry)
+            merged.setdefault("domain_envelope", "triangle_prism")
+            if corner_r_mm is not None and float(corner_r_mm) > 0:
+                merged.setdefault("corner_r_mm", float(corner_r_mm))
         if tool == "run_export_obj":
             merged.setdefault("design_only", True)
         out.append({"id": int(it.get("id") or i + 1), "tool": tool, "title": title, "arguments": merged})
-    return out if out else _default_plan_build_steps(cut_center_column, include_source_geometry)
+    return out if out else _default_plan_build_steps(
+        cut_center_column, include_source_geometry, corner_r_mm=corner_r_mm
+    )
 
 
 def _cad_for_mesh_estimate(sdir: Path) -> Path:
@@ -771,9 +1104,9 @@ def _resolve_mesh_cl_max(sdir: Path, mesh_preset: str, mesh_custom: float | None
     if mp == "custom":
         if mesh_custom is None or float(mesh_custom) <= 0:
             return None
-        return max(10.0, min(25000.0, float(mesh_custom)))
-    mult = {"coarse": 1.22, "balanced": 1.0, "fine": 0.78, "finer": 0.56}.get(mp, 1.0)
-    return max(10.0, min(25000.0, base * mult))
+        return max(50.0, min(35000.0, float(mesh_custom)))
+    mult = {"coarse": 1.45, "balanced": 1.0, "fine": 0.82, "finer": 0.65}.get(mp, 1.0)
+    return max(50.0, min(35000.0, base * mult))
 
 
 def _merge_mesh_into_steps(steps: list[dict[str, Any]], mesh_cl: float | None) -> list[dict[str, Any]]:
@@ -802,6 +1135,16 @@ def _extract_chat_message_text(resp: dict[str, Any]) -> str:
         return str(c or "").strip()
     except Exception:
         return ""
+
+
+def _plan_build_llm_timeout_s() -> float:
+    """Plan-Build 可选 LLM 排期的短读超时（秒），避免阻塞真实工具链。"""
+    raw = (os.environ.get("OC4_DD_PLAN_BUILD_LLM_TIMEOUT_S") or "").strip()
+    try:
+        v = float(raw) if raw else 18.0
+    except ValueError:
+        v = 18.0
+    return max(5.0, min(v, 60.0))
 
 
 def _llm_plan_build_json(
@@ -964,6 +1307,8 @@ def iter_design_domain_plan_build_events(
     mesh_preset: str = "balanced",
     mesh_characteristic_length_max: float | None = None,
     mesh_user_note: str | None = None,
+    force_direction: str | None = "-Z",
+    cload_mag: float | None = None,
 ) -> Iterator[dict[str, Any]]:
     """按五步执行全流程 Build；计划可由大模型生成；成功后禁止再次 Build（由 meta 标记）。"""
     ws = _workspace_root()
@@ -980,8 +1325,33 @@ def iter_design_domain_plan_build_events(
         yield {"type": "done", "ok": False, "phase": "plan_build"}
         return
 
-    qwen = QwenClient(model=_design_domain_agent_model())
-    yield {"type": "meta", "model": qwen.model, "protocol": "plan_build"}
+    from backend.tools.oc4_force_direction import (
+        force_direction_label_zh,
+        merge_force_direction_into_load_case,
+        normalize_force_direction,
+    )
+
+    fdir = normalize_force_direction(force_direction or meta.get("preferred_force_direction") or "-Z")
+    load_case = merge_force_direction_into_load_case(
+        None,
+        fdir,
+        total_force_n=float(cload_mag) if cload_mag is not None else None,
+    )
+    merge_session_meta(
+        sdir,
+        {
+            "preferred_force_direction": fdir,
+            "preferred_load_case": load_case,
+        },
+    )
+    yield {
+        "type": "activity",
+        "kind": "plan",
+        "text": f"载荷方向已确认：{force_direction_label_zh(fdir)}（对齐 BESO9 顶环施力习惯）",
+    }
+
+    model = _design_domain_agent_model()
+    yield {"type": "meta", "model": model, "protocol": "plan_build"}
 
     mesh_cl = _resolve_mesh_cl_max(sdir, mesh_preset, mesh_characteristic_length_max)
     note = str(mesh_user_note or "").strip()
@@ -989,21 +1359,60 @@ def iter_design_domain_plan_build_events(
     if note:
         mesh_summary += f"; note={note[:500]}"
 
-    yield {"type": "activity", "kind": "plan", "text": "正在根据偏好生成执行计划（大模型）…"}
-    llm_out = _llm_plan_build_json(
-        sdir,
-        qwen,
-        cut_center_column=cut_center_column,
-        include_source_geometry=include_source_geometry,
-        mesh_summary=mesh_summary,
+    # 默认直接用内置五步，避免同步等大模型（读超时可达数分钟）导致界面长时间「卡住」。
+    # 需要 LLM 定制标题时设置 OC4_DD_PLAN_BUILD_LLM=1（仍带短超时）。
+    from backend.tools.oc4_design_domain_iges import coerce_corner_r_mm
+
+    corner = coerce_corner_r_mm(meta.get("corner_r_mm"))
+    steps = _merge_mesh_into_steps(
+        _default_plan_build_steps(
+            cut_center_column,
+            include_source_geometry,
+            corner_r_mm=corner,
+            load_case=load_case,
+        ),
+        mesh_cl,
     )
-    if llm_out:
-        rationale, steps_llm = llm_out
-        steps = _merge_mesh_into_steps(steps_llm, mesh_cl)
+    rationale = (
+        f"内置五步：源预览 → 设计域（三棱柱）→ OBJ → 体网格 → 载荷"
+        f"（{force_direction_label_zh(fdir)}）。"
+    )
+    if corner is not None:
+        rationale += f" 顶角挖去 R={corner/1000:.3g} m。"
+    use_llm = (os.environ.get("OC4_DD_PLAN_BUILD_LLM") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if use_llm:
+        yield {"type": "activity", "kind": "plan", "text": "正在用大模型微调执行计划（短超时）…"}
+        qwen = QwenClient(model=model, timeout_s=_plan_build_llm_timeout_s())
+        llm_out = _llm_plan_build_json(
+            sdir,
+            qwen,
+            cut_center_column=cut_center_column,
+            include_source_geometry=include_source_geometry,
+            mesh_summary=mesh_summary,
+        )
+        if llm_out:
+            rationale, steps_llm = llm_out
+            steps = _merge_mesh_into_steps(steps_llm, mesh_cl)
+            # 保证载荷步带上用户确认的方向
+            for st in steps:
+                if str(st.get("tool") or "") == "run_loads":
+                    args = dict(st.get("arguments") or {})
+                    args["load_case"] = load_case
+                    args["cload_mag"] = float(load_case.get("cload_mag"))
+                    st["arguments"] = args
+        else:
+            yield {
+                "type": "activity",
+                "kind": "plan",
+                "text": "大模型计划不可用，继续内置五步。",
+            }
     else:
-        steps = _default_plan_build_steps(cut_center_column, include_source_geometry)
-        steps = _merge_mesh_into_steps(steps, mesh_cl)
-        rationale = "内置五步：与四步管线及载荷一致（大模型不可用或未返回合法 JSON 时回退）。"
+        yield {"type": "activity", "kind": "plan", "text": "使用内置五步计划，开始执行…"}
 
     yield {"type": "plan", "rationale": rationale, "steps": steps}
     try:
@@ -1044,4 +1453,11 @@ def iter_design_domain_plan_build_events(
     _append_build_history(sdir, "\n---\n\n全流程结束。\n")
     merge_session_meta(sdir, {"design_domain_full_build_done": True})
     yield {"type": "refresh_tree"}
-    yield {"type": "done", "ok": True, "phase": "plan_build", "history_path": "build_history.md"}
+    yield {
+        "type": "done",
+        "ok": True,
+        "phase": "plan_build",
+        "history_path": "build_history.md",
+        "force_direction": fdir,
+        "open_preview": "03_for_beso.inp",
+    }

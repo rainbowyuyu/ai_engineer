@@ -1748,16 +1748,24 @@ def run_sizing_step(
 
     steel = report.get("steel_summary") or {}
     comp = report.get("computation") or {}
+    prest = report.get("platform_restruction") or {}
+    if isinstance(prest, dict) and prest.get("ok"):
+        (run_dir / "platform_restruction.json").write_text(
+            json.dumps(prest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
     write_job_context(
         run_dir,
         demo_sizing=True,
         sizing_optimizer=comp.get("optimizer"),
         sizing_scale=comp.get("final_horizontal_scale_factor"),
         task_id=task_id,
+        platform_restruction_x=(prest.get("extra_scale_x") if isinstance(prest, dict) else None),
     )
 
     recon_obj = run_dir / "reconstructed.obj"
     recon_png = _ensure_obj_preview(recon_obj) if recon_obj.is_file() else None
+    prest_steel = (prest.get("steel_summary") or {}) if isinstance(prest, dict) else {}
+    base_name = ((prest.get("base_platform") or {}).get("name") if isinstance(prest, dict) else None) or "平台库"
 
     return {
         "ok": True,
@@ -1770,16 +1778,30 @@ def run_sizing_step(
         "steel_intensity_t_per_MW": steel.get("steel_intensity_t_per_MW"),
         "struct_mass_t": steel.get("struct_mass_t"),
         "pitch_angle_deg": steel.get("pitch_angle_deg"),
+        "platform_restruction": {
+            "base_name": base_name,
+            "extra_scale_x": prest.get("extra_scale_x") if isinstance(prest, dict) else None,
+            "steel_intensity_t_per_MW": prest_steel.get("steel_intensity_t_per_MW"),
+            "pitch_angle_deg": prest_steel.get("pitch_angle_deg"),
+            "optimizer": prest.get("optimizer") if isinstance(prest, dict) else None,
+            "scaled_optimized": prest.get("scaled_optimized") if isinstance(prest, dict) else None,
+        },
         "report_url": f"/runs/{jid}/sizing_report.json",
         "sized_geometry_url": f"/runs/{jid}/sized_geometry.json",
+        "restruction_url": f"/runs/{jid}/platform_restruction.json"
+        if (run_dir / "platform_restruction.json").is_file()
+        else None,
         "curve_url": f"/runs/{jid}/sizing_curve.png" if curve_png.is_file() else None,
         "reconstructed_mesh_url": f"/runs/{jid}/reconstructed.obj" if recon_obj.is_file() else None,
         "reconstructed_png_url": f"/runs/{jid}/{recon_png.name}" if recon_png is not None else None,
         "process": {
-            "title": "Phase III · 尺寸优化（用钢量最小化）",
+            "title": "Phase III · 尺寸优化（用钢量 + 平台库收尾）",
             "detail": (
-                f"在 pitch≤5° 约束下优化水平缩放（{comp.get('optimizer') or 'SLSQP'}），"
-                f"钢耗强度 → {steel.get('steel_intensity_t_per_MW')} t/MW。"
+                f"几何壳用钢 SLSQP（{comp.get('optimizer') or 'SLSQP'}）→ "
+                f"{steel.get('steel_intensity_t_per_MW')} t/MW；"
+                f"平台库（{base_name}）min x³ / pitch≤5° → "
+                f"x={prest.get('extra_scale_x') if isinstance(prest, dict) else '—'}，"
+                f"{prest_steel.get('steel_intensity_t_per_MW')} t/MW。"
             ),
         },
         "io": {
@@ -1796,6 +1818,7 @@ def run_sizing_step(
                 _file_info(report_path, role="sizing_report"),
                 _file_info(sized_path, role="sized_geometry"),
                 _file_info(curve_png, role="sizing_curve"),
+                _file_info(run_dir / "platform_restruction.json", role="platform_restruction"),
             ],
         },
     }

@@ -1,0 +1,6 @@
+file 'd:/python_project/beso_ai/frontend_static/oil_motion_ai_engineer/pilot/clips/s01_K0_K1.mp4'
+file 'd:/python_project/beso_ai/frontend_static/oil_motion_ai_engineer/pilot/clips/s02_K1_K2.mp4'
+file 'd:/python_project/beso_ai/frontend_static/oil_motion_ai_engineer/pilot/clips/s03_K2_K3.mp4'
+file 'd:/python_project/beso_ai/frontend_static/oil_motion_ai_engineer/pilot/clips/s04_K3_K4.mp4'
+file 'd:/python_project/beso_ai/frontend_static/oil_motion_ai_engineer/pilot/clips/s05_K4_K5.mp4'
+file 'd:/python_project/beso_ai/frontend_static/oil_motion_ai_engineer/pilot/clips/s06_K5_K6.mp4'

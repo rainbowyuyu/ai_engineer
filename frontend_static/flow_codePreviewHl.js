@@ -87,11 +87,20 @@ export function extToHljsLang(ext) {
 
 /**
  * @param {string} ext
- * @returns {boolean} 无 highlight 语言时仍以等宽块预览（如 INP / 日志）
+ * @returns {boolean} 无 highlight 语言时仍以等宽块预览（如日志；大网格 INP 走三维预览）
  */
 export function extWantsPlainPreview(ext) {
   const e = String(ext || "").toLowerCase();
-  return e === ".txt" || e === ".log" || e === ".inp" || e === ".geo" || e === ".msh" || e === ".dat";
+  return e === ".txt" || e === ".log" || e === ".geo" || e === ".msh" || e === ".dat";
+}
+
+/**
+ * 设计域 / 结果查看器风格：几何或体网格三维预览
+ * @param {string} relPath
+ */
+export function pathWantsMesh3dPreview(relPath) {
+  const e = extOfPath(relPath);
+  return e === ".obj" || e === ".step" || e === ".stp" || e === ".inp" || e === ".vtk" || e === ".stl";
 }
 
 /**
@@ -100,7 +109,7 @@ export function extWantsPlainPreview(ext) {
  */
 export function pathWantsRichPreview(relPath) {
   const ext = extOfPath(relPath);
-  return Boolean(extToHljsLang(ext)) || extWantsPlainPreview(ext);
+  return Boolean(extToHljsLang(ext)) || extWantsPlainPreview(ext) || pathWantsMesh3dPreview(relPath);
 }
 
 function prettifyJsonIfPossible(src) {

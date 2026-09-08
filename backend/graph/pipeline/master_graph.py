@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from datetime import datetime, timezone
 from typing import Any, Iterator
 
@@ -26,15 +25,23 @@ def _emit(state: PipelineState, ev: dict[str, Any]) -> dict[str, Any]:
 
 def _phase_i_parse(state: PipelineState) -> dict[str, Any]:
     text = (state.get("design_requirements_text") or "").strip()
-    if not text:
+    preset = state.get("turbine_preset_id")
+    if not text and not state.get("design_checklist_id"):
         return {**_emit(state, {"type": "phase", "phase": "I", "status": "skipped"}), "workflow_phase": "I"}
     try:
         from backend.design_requirements.nl_parser import parse_design_checklist
+        from backend.pipeline.steps import step_apply_turbine_preset
 
-        cl = parse_design_checklist(text, checklist_id=state.get("design_checklist_id"))
+        cl_id = state.get("design_checklist_id")
+        if text:
+            cl = parse_design_checklist(text, checklist_id=cl_id)
+            cl_id = cl.meta.checklist_id
+        if preset:
+            applied = step_apply_turbine_preset(preset_id=preset, checklist_id=cl_id)
+            cl_id = applied.get("checklist_id") or cl_id
         return {
-            **_emit(state, {"type": "phase", "phase": "I", "status": "ok", "checklist_id": cl.meta.checklist_id}),
-            "design_checklist_id": cl.meta.checklist_id,
+            **_emit(state, {"type": "phase", "phase": "I", "status": "ok", "checklist_id": cl_id}),
+            "design_checklist_id": cl_id,
             "workflow_phase": "II",
         }
     except Exception as e:
@@ -43,48 +50,197 @@ def _phase_i_parse(state: PipelineState) -> dict[str, Any]:
 
 
 def _phase_ii_design_domain(state: PipelineState) -> dict[str, Any]:
+    from langgraph.types import interrupt
+
+    from backend.pipeline.steps import step_run_design_domain_build, step_start_design_domain_session
+
     sid = state.get("oc4_session_id")
+    if not sid and state.get("auto_create_session"):
+        try:
+            created = step_start_design_domain_session(
+                design_checklist_id=state.get("design_checklist_id"),
+                preset_id=state.get("turbine_preset_id"),
+                task_id=state.get("task_id"),
+            )
+            sid = created.get("session_id")
+        except Exception as e:
+            logger.info("auto create design domain session skipped: %s", e)
+
     if not sid:
         return {
             **_emit(state, {"type": "phase", "phase": "II", "step": "design_domain", "status": "skipped"}),
             "workflow_phase": "II",
         }
+
+    if state.get("hitl_pause") == "before_mesh":
+        payload = interrupt(
+            {
+                "reason": "hitl_before_mesh",
+                "session_id": sid,
+                "message": "Review or replace geometry, then resume.",
+            }
+        )
+        if not (isinstance(payload, dict) and (payload.get("continue") or payload.get("hitl_pause") is None)):
+            return {
+                **_emit(
+                    state,
+                    {"type": "phase", "phase": "II", "step": "design_domain", "status": "hitl_wait", "session_id": sid},
+                ),
+                "oc4_session_id": sid,
+                "hitl_pause": "before_mesh",
+                "workflow_phase": "II",
+            }
+
+    try:
+        result = step_run_design_domain_build(
+            session_id=sid,
+            pause_before_mesh=bool(state.get("request_hitl_before_mesh")),
+            execution_mode=state.get("execution_mode"),
+        )
+        if result.get("hitl"):
+            interrupt(
+                {
+                    "reason": "hitl_before_mesh",
+                    "session_id": sid,
+                    "message": (result.get("hitl") or {}).get("message"),
+                }
+            )
+            return {
+                **_emit(
+                    state,
+                    {"type": "phase", "phase": "II", "step": "design_domain", "status": "hitl_wait", "session_id": sid},
+                ),
+                "oc4_session_id": sid,
+                "hitl_pause": "before_mesh",
+                "workflow_phase": "II",
+            }
+        if not result.get("ok", True):
+            return {
+                **_emit(
+                    state,
+                    {
+                        "type": "phase",
+                        "phase": "II",
+                        "step": "design_domain",
+                        "status": "preview_blocked" if result.get("preview") else "error",
+                        "message": result.get("error"),
+                        "session_id": sid,
+                    },
+                ),
+                "oc4_session_id": sid,
+                "error": result.get("error"),
+                "workflow_phase": "II",
+            }
+    except Exception as e:
+        logger.exception("phase_ii_design_domain failed")
+        return {
+            **_emit(
+                state,
+                {"type": "phase", "phase": "II", "step": "design_domain", "status": "error", "message": str(e)},
+            ),
+            "error": str(e),
+            "oc4_session_id": sid,
+            "workflow_phase": "II",
+        }
+
     return {
         **_emit(
             state,
             {"type": "phase", "phase": "II", "step": "design_domain", "status": "ready", "session_id": sid},
         ),
+        "oc4_session_id": sid,
+        "hitl_pause": None,
         "workflow_phase": "II",
     }
 
 
 def _phase_ii_beso(state: PipelineState) -> dict[str, Any]:
-    """BESO long job — interrupt until external job manager marks complete."""
+    """Start live BESO via pipeline steps; interrupt until job complete."""
     from langgraph.types import interrupt
+
+    from backend.pipeline.steps import step_get_job_status, step_start_beso_job
 
     job_id = state.get("beso_job_id")
     status = (state.get("beso_status") or "").lower()
-    if status != "complete":
-        payload = interrupt(
-            {
-                "reason": "waiting_for_beso",
-                "job_id": job_id,
-                "task_id": state.get("task_id"),
-            }
-        )
-        if isinstance(payload, dict) and payload.get("beso_status") == "complete":
-            return {
-                **_emit(state, {"type": "phase", "phase": "II", "step": "beso", "status": "complete"}),
-                "beso_status": "complete",
-                "workflow_phase": "III",
-            }
+    if status == "complete":
         return {
-            **_emit(state, {"type": "phase", "phase": "II", "step": "beso", "status": "waiting"}),
-            "beso_status": "waiting",
+            **_emit(state, {"type": "phase", "phase": "II", "step": "beso", "status": "complete"}),
+            "beso_status": "complete",
+            "workflow_phase": "III",
+        }
+
+    if not job_id and state.get("oc4_session_id"):
+        try:
+            started = step_start_beso_job(
+                session_id=state.get("oc4_session_id"),
+                design_checklist_id=state.get("design_checklist_id"),
+                task_id=state.get("task_id"),
+                execution_mode=state.get("execution_mode"),
+            )
+            if not started.get("ok"):
+                return {
+                    **_emit(
+                        state,
+                        {
+                            "type": "phase",
+                            "phase": "II",
+                            "step": "beso",
+                            "status": "preview_blocked" if started.get("preview") else "error",
+                            "message": started.get("error"),
+                        },
+                    ),
+                    "error": started.get("error"),
+                    "beso_status": "blocked",
+                }
+            job_id = started.get("job_id")
+        except Exception as e:
+            logger.exception("start_beso_job failed")
+            return {
+                **_emit(state, {"type": "phase", "phase": "II", "step": "beso", "status": "error", "message": str(e)}),
+                "error": str(e),
+            }
+
+    if job_id:
+        try:
+            st = step_get_job_status(job_id=job_id)
+            if st.get("complete"):
+                return {
+                    **_emit(state, {"type": "phase", "phase": "II", "step": "beso", "status": "complete"}),
+                    "beso_job_id": job_id,
+                    "beso_status": "complete",
+                    "workflow_phase": "III",
+                }
+            if st.get("failed"):
+                return {
+                    **_emit(
+                        state,
+                        {"type": "phase", "phase": "II", "step": "beso", "status": "failed", "job_id": job_id},
+                    ),
+                    "beso_job_id": job_id,
+                    "beso_status": "failed",
+                    "rho_pending": 1,
+                }
+        except Exception:
+            pass
+
+    payload = interrupt(
+        {
+            "reason": "waiting_for_beso",
+            "job_id": job_id,
+            "task_id": state.get("task_id"),
+        }
+    )
+    if isinstance(payload, dict) and payload.get("beso_status") == "complete":
+        return {
+            **_emit(state, {"type": "phase", "phase": "II", "step": "beso", "status": "complete"}),
+            "beso_job_id": job_id or payload.get("beso_job_id"),
+            "beso_status": "complete",
+            "workflow_phase": "III",
         }
     return {
-        **_emit(state, {"type": "phase", "phase": "II", "step": "beso", "status": "complete"}),
-        "workflow_phase": "III",
+        **_emit(state, {"type": "phase", "phase": "II", "step": "beso", "status": "waiting"}),
+        "beso_job_id": job_id,
+        "beso_status": "waiting",
     }
 
 
@@ -116,20 +272,67 @@ def _phase_ii_replan(state: PipelineState) -> dict[str, Any]:
 
 
 def _phase_iii_deliverables(state: PipelineState) -> dict[str, Any]:
+    from backend.pipeline.steps import step_run_sizing
+
+    out_extra: dict[str, Any] = {}
+    try:
+        sized = step_run_sizing(
+            job_id=state.get("beso_job_id"),
+            design_checklist_id=state.get("design_checklist_id"),
+        )
+        out_extra["sizing_path"] = sized.get("sized_geometry_path")
+        status = "sized"
+        detail = {
+            "target_power_MW": sized.get("target_power_MW"),
+            "steel": sized.get("steel_intensity_t_per_MW"),
+        }
+    except Exception as e:
+        logger.info("phase_iii sizing: %s", e)
+        status = "ready"
+        detail = {"warning": str(e)}
     return {
-        **_emit(state, {"type": "phase", "phase": "III", "status": "ready"}),
+        **_emit(state, {"type": "phase", "phase": "III", "status": status, **detail}),
         "workflow_phase": "IV",
+        **out_extra,
     }
 
 
 def _phase_iv_validation(state: PipelineState) -> dict[str, Any]:
+    from backend.pipeline.steps import step_run_validation
+
     vid = state.get("validation_id")
     score = state.get("overall_score")
     ai_scores = state.get("ai_review_scores")
+    state_updates: dict[str, Any] = {}
+    geom = state.get("sizing_path")
+
+    if score is None and geom:
+        try:
+            val = step_run_validation(
+                geometry_path=geom,
+                design_checklist_id=state.get("design_checklist_id"),
+            )
+            score = val.get("overall_score")
+            ai_scores = val.get("ai_review_scores")
+            vid = val.get("validation_id") or vid
+            state_updates = {
+                "overall_score": float(score) if score is not None else None,
+                "ai_review_scores": ai_scores if isinstance(ai_scores, dict) else None,
+                "validation_id": vid,
+                "validation_dir": val.get("out_dir"),
+            }
+        except Exception as e:
+            logger.info("phase_iv validation: %s", e)
+            return {
+                **_emit(state, {"type": "phase", "phase": "IV", "status": "pending", "message": str(e)}),
+                "workflow_phase": "IV",
+            }
+
     if score is None:
         return {
             **_emit(state, {"type": "phase", "phase": "IV", "status": "pending", "validation_id": vid}),
             "workflow_phase": "IV",
+            **state_updates,
         }
     halt = evaluate_halt_gate(
         overall_score=float(score),
@@ -151,6 +354,7 @@ def _phase_iv_validation(state: PipelineState) -> dict[str, Any]:
         "halt_ok": halt.ok,
         "halt_reason": halt.reason,
         "workflow_phase": "IV",
+        **state_updates,
     }
 
 

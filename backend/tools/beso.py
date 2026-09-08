@@ -378,6 +378,52 @@ def run_beso_job(
     except Exception:
         fr_use = float(r_req)
 
+    # 启动前核对力/约束是否写入主 INP（拓扑怪形常见于缺 *CLOAD/*BOUNDARY 或滤波除零）
+    try:
+        _probe = inp_dst.read_text(encoding="utf-8", errors="ignore")
+        _up = _probe.upper()
+        n_cload = 0
+        mode = None
+        for _ln in _probe.splitlines():
+            _u = _ln.strip().upper()
+            if _u.startswith("*CLOAD"):
+                mode = "c"
+                continue
+            if _u.startswith("*"):
+                mode = None
+                continue
+            if mode == "c" and _ln.strip() and not _ln.strip().startswith("**"):
+                n_cload += 1
+        has_bound = "*BOUNDARY" in _up
+        has_fixed = "FIXED_ZMIN" in _up or "NSET=FIXED" in _up.replace(" ", "")
+        on_log(
+            f"[INFO] INP 边界核对：*CLOAD 行数={n_cload}，*BOUNDARY={'有' if has_bound else '无'}，"
+            f"固定集={'有' if has_fixed else '无'}；simple 滤波半径={fr_use:g}"
+        )
+        if n_cload <= 0 or not has_bound:
+            raise RuntimeError(
+                "主 INP 缺少有效 *CLOAD 或 *BOUNDARY：继续优化只会得到无传力路径的「噪声碎裂」拓扑。"
+                "请回到设计域完成「划分载荷」生成 03_for_beso.inp 后再启动。"
+            )
+    except RuntimeError:
+        raise
+    except Exception as _bc_exc:
+        on_log(f"[WARN] INP 边界核对跳过：{_bc_exc}")
+
+    # OC4 / 双域平台：failure_index 在应力远低于许用（FI≪1）时灵敏度近似均匀噪声，
+    # 会整域碎裂式删料；Chen2026 / 平台柔度目标应使用 stiffness。
+    opt_base = str(optimization_base or "").strip().lower()
+    if is_dual_design_nondesign_inp or is_oc4_dual_inp or is_sector120_inp:
+        if opt_base != "stiffness":
+            on_log(
+                f"[WARN] 双域/OC4 平台将 optimization_base 从 {opt_base or '空'} 纠正为 stiffness "
+                f"（failure_index 在低应力平台上易导致碎裂噪声拓扑）。"
+            )
+            opt_base = "stiffness"
+            optimization_base = "stiffness"
+    elif opt_base not in {"failure_index", "stiffness"}:
+        optimization_base = "stiffness"
+        opt_base = "stiffness"
     oc4_dual_applied = False
     if is_sector120_inp or is_dual_design_nondesign_inp:
         try:
@@ -720,6 +766,19 @@ def run_beso_job(
         proc_exit_code = proc.returncode
     if proc_exit_code not in (0, None):
         raise RuntimeError(f"beso_main exited with code {proc_exit_code}")
+
+    # 拓扑优化成功后：自动拟合末步 state1.inp → parameters_summary.json（供结果查看器 / 尺寸时域分析）
+    try:
+        from backend.tools.parameters_summary_export import maybe_export_after_beso
+
+        maybe_export_after_beso(
+            run_dir,
+            workspace_root=workspace_root,
+            on_log=on_log,
+            on_artifact=on_artifact,
+        )
+    except Exception as exc:  # noqa: BLE001
+        on_log(f"[WARN] post-BESO parameters_summary hook failed: {exc}")
 
 
 def _read_vtk_for_preview(path: Path, on_log: Callable[[str], None], attempts: int = 12, delay: float = 0.12) -> meshio.Mesh:

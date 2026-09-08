@@ -1090,6 +1090,7 @@ export async function maybeRunBeso7LiveDemo(ctx) {
     ctx.appendDesignDomainChat?.(
       "agent",
       "已进入设计域并加载 **design_preview.obj**（中栏预览页签）。" +
+        "静力工况默认：**顶面中心环载**（黄箭头）+ **三底角底圆弧固定**（红点）；Build 时可改力方向。" +
         "右侧「窗口」总览已登记可视化 / 参数 / 方案 / 版本树；点「可视化」可重看 3D。",
     );
     setCoach("② 设计域已就绪 · 请看右侧 3D 与中栏预览", boot.io);
@@ -1388,14 +1389,16 @@ export async function maybeRunBeso7LiveDemo(ctx) {
     );
     await sleep(3200);
 
-    // ⑤c Phase III · 尺寸优化
-    setCoach("⑤c Phase III · 尺寸优化（钢耗最小化 · pitch≤5°）…");
+    // ⑤c Phase III · 尺寸优化（壳用钢 + 平台库 restruction）
+    setCoach("⑤c Phase III · 尺寸优化（壳用钢 + 平台库收尾 · pitch≤5°）…");
     const sizing = await api("/api/demo/beso7-live-pipeline/sizing", {
       method: "POST",
       body: JSON.stringify({ task_id: tid, job_id: orch.job_id, target_power_mw: 20 }),
     });
+    const prest = sizing.platform_restruction || {};
     setCoach(
-      `⑤c 尺寸优化完成 · ${sizing.steel_intensity_t_per_MW ?? "—"} t/MW · pitch ${sizing.pitch_angle_deg ?? "—"}°`,
+      `⑤c 尺寸优化完成 · 壳用钢 ${sizing.steel_intensity_t_per_MW ?? "—"} t/MW · ` +
+        `平台库(${prest.base_name || "—"}) x=${prest.extra_scale_x ?? "—"} · pitch ${sizing.pitch_angle_deg ?? "—"}°`,
       sizing.io,
     );
     if (sizing.reconstructed_mesh_url) {
@@ -1406,7 +1409,7 @@ export async function maybeRunBeso7LiveDemo(ctx) {
       }
     }
     showVizGallery(base(), {
-      title: "Phase III · 尺寸优化",
+      title: "Phase III · 尺寸优化（用钢 + 平台库）",
       items: [
         {
           label: "参数化几何",
@@ -1426,11 +1429,16 @@ export async function maybeRunBeso7LiveDemo(ctx) {
         },
       ],
     });
+    const optCols = prest.scaled_optimized || {};
     ctx.layout.addBubble?.(
       "agent",
-      `**尺寸优化**：在 pitch≤5° 下用 \`${sizing.optimizer || "SLSQP"}\` 最小化钢耗强度 → ` +
-        `**${sizing.steel_intensity_t_per_MW ?? "—"} t/MW**` +
-        `（x=${sizing.extra_scale_x ?? "—"}，结构质量 ${sizing.struct_mass_t ?? "—"} t）。`,
+      `**尺寸优化（双路径）**\n` +
+        `- 壳用钢：pitch≤5° 下 \`${sizing.optimizer || "SLSQP"}\` → **${sizing.steel_intensity_t_per_MW ?? "—"} t/MW**` +
+        `（x=${sizing.extra_scale_x ?? "—"}，结构 ${sizing.struct_mass_t ?? "—"} t）\n` +
+        `- 平台库收尾（OC4/DTU/VolturnUS）：基型 **${prest.base_name || "—"}**，min x³ → x=${prest.extra_scale_x ?? "—"}，` +
+        `柱径≈${optCols.offset_col_dia != null ? Number(optCols.offset_col_dia).toFixed(2) : "—"} m，` +
+        `间距≈${optCols.spacing != null ? Number(optCols.spacing).toFixed(1) : "—"} m，` +
+        `库估钢耗 ${prest.steel_intensity_t_per_MW ?? "—"} t/MW。`,
       { format: "md" },
     );
     await sleep(3500);
@@ -1713,7 +1721,8 @@ export async function maybeRunBeso7LiveDemo(ctx) {
           `**全流程演示完成（Phase I–VI）**\n\n` +
             `- 设计清单已锁定（容量 20 MW）\n` +
             `- 设计域检查与 BESO 逐步回放完成\n` +
-            `- 拓扑重构 + 尺寸优化（钢耗 ${sizing?.steel_intensity_t_per_MW ?? "—"} t/MW）\n` +
+            `- 拓扑重构 + 尺寸优化（壳用钢 ${sizing?.steel_intensity_t_per_MW ?? "—"} t/MW` +
+            ` · 平台库 x=${sizing?.platform_restruction?.extra_scale_x ?? "—"}）\n` +
             `- Zwind 时域（DLC6.1 pitch ${zwind?.highlights?.extreme_pitch_deg ?? "—"}° · 系泊 ${zwind?.highlights?.max_mooring_tension_kn ?? "—"} kN）\n` +
             `- Automated Reviewer 选定 **${selected.label || "方案"}**\n` +
             `- 验证 S=**${validation?.overall_score ?? "—"}**（${validation?.grade || "—"}）` +

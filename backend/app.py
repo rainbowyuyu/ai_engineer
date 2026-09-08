@@ -68,6 +68,8 @@ from backend.routes.versions_api import router as versions_router
 from backend.routes.demo_pipeline_api import router as demo_pipeline_router
 from backend.routes.security_api import router as security_router
 from backend.routes.rag_api import router as rag_router
+from backend.routes.prism_design_api import router as prism_design_router
+from backend.routes.restruction_api import router as restruction_router
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +156,8 @@ app.include_router(versions_router, prefix="/api/versions")
 app.include_router(demo_pipeline_router, prefix="/api/demo")
 app.include_router(security_router, prefix="/api/security")
 app.include_router(rag_router, prefix="/api/rag")
+app.include_router(prism_design_router, prefix="/api/prism-design")
+app.include_router(restruction_router, prefix="/api/restruction")
 
 app.add_middleware(
     CORSMiddleware,
@@ -453,7 +457,8 @@ def _sanitize_optimization_base(v: str | None) -> str:
     s = (v or "").strip().lower()
     if s in {"failure_index", "stiffness"}:
         return s
-    return "failure_index"
+    # 默认刚度：OC4/平台类在低应力下用 failure_index 易碎裂
+    return "stiffness"
 
 
 def _iges_to_inp_for_job(iges_path: Path) -> str:
@@ -1433,6 +1438,11 @@ class TaskUpsertIn(BaseModel):
     oc4_design_domain_session_id: str | None = None
     # OC4 设计域：助手 / 用户轨迹（前端为 list[{"ts","role","text"}]，最多由前端裁剪）
     oc4_activity: list | None = None
+    # 尺寸时域分析会话 / AI Review 验证 ID（编排步骤 5–6 继承同一工作区）
+    restruction_session_id: str | None = None
+    validation_id: str | None = None
+    reached_analysis: bool | None = None
+    reached_review: bool | None = None
     # 主页助手多轮对话（与任务同生命周期，删任务即删）
     assistant_thread: list | None = None
     landing_session_digest: list | None = None
@@ -1643,6 +1653,99 @@ def job_images(job_id: str):
     names = ["Mass.png", "FI_mean.png", "FI_max.png", "FI_violated.png"]
     existing = [n for n in names if (run_dir / n).exists()]
     return {"job_id": job_id, "images": existing}
+
+
+@app.get("/api/jobs/{job_id}/vtk-frames")
+def job_vtk_frames(job_id: str):
+    """列出 runs/<job>/fileNNN.vtk，供前端 3D 预览手动 scrub。"""
+    import re
+
+    run_dir = RUNS_ROOT / job_id
+    if not run_dir.exists() or not run_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"run dir not found: {job_id}")
+    vtk_pat = re.compile(r"^file(\d+)\.vtk$", re.I)
+    frames: list[dict[str, object]] = []
+    for p in run_dir.glob("file*.vtk"):
+        m = vtk_pat.match(p.name)
+        if not m:
+            continue
+        n = int(m.group(1))
+        try:
+            size = int(p.stat().st_size)
+        except OSError:
+            size = 0
+        frames.append(
+            {
+                "n": n,
+                "name": p.name,
+                "url": f"/runs/{job_id}/{p.name}",
+                "bytes": size,
+            }
+        )
+    frames.sort(key=lambda x: int(x["n"]))
+    latest = frames[-1] if frames else None
+    resulting = None
+    rs = run_dir / "resulting_states.vtk"
+    if rs.is_file():
+        try:
+            size = int(rs.stat().st_size)
+        except OSError:
+            size = 0
+        resulting = {
+            "name": rs.name,
+            "url": f"/runs/{job_id}/{rs.name}",
+            "bytes": size,
+        }
+    return {
+        "job_id": job_id,
+        "count": len(frames),
+        "frames": frames,
+        "latest": latest,
+        "resulting_states": resulting,
+    }
+
+
+@app.post("/api/jobs/{job_id}/ensure-parameters-summary")
+def job_ensure_parameters_summary(job_id: str, force: bool = False):
+    """拓扑结束后补生成 / 校验 parameters_summary.json，供尺寸时域与 AI Review 继承。"""
+    run_dir = RUNS_ROOT / job_id
+    if not run_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"run dir not found: {job_id}")
+    try:
+        from backend.tools.parameters_summary_export import ensure_parameters_summary, latest_state1_inp
+
+        if latest_state1_inp(run_dir) is None and not (run_dir / "parameters_summary.json").is_file():
+            raise HTTPException(
+                status_code=404,
+                detail="run 目录中无 file*_state1.inp，无法生成参数汇总（请确认拓扑已产出末步网格）",
+            )
+        logs: list[str] = []
+        result = ensure_parameters_summary(
+            run_dir,
+            workspace_root=WORKSPACE_ROOT,
+            force=bool(force),
+            on_log=logs.append,
+        )
+    except HTTPException:
+        raise
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"ensure parameters_summary failed: {e}") from e
+
+    out = run_dir / "parameters_summary.json"
+    if not out.is_file():
+        raise HTTPException(status_code=500, detail="parameters_summary.json 仍未生成")
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "reused": bool(result.get("reused")),
+        "url": f"/runs/{job_id}/parameters_summary.json",
+        "path": str(out),
+        "legs": result.get("legs"),
+        "title": result.get("title"),
+        "log_tail": logs[-8:],
+    }
 
 
 @app.websocket("/ws/jobs/{job_id}")

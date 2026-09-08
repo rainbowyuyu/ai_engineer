@@ -75,7 +75,13 @@ function isResultsViewerFetchItem(it) {
   const ext = String(it?.ext || extOf(it?.name || "")).toLowerCase();
   if (RV_PREVIEW_EXTS.has(ext)) return true;
   const nm = String(it?.name || "").toLowerCase();
-  if (nm === "measurements.json" || nm === "design_spec.json") return true;
+  if (
+    nm === "measurements.json" ||
+    nm === "design_spec.json" ||
+    nm === "parameters_summary.json"
+  ) {
+    return true;
+  }
   return METRIC_NAMES.some((m) => m.toLowerCase() === nm);
 }
 
@@ -219,6 +225,151 @@ function findMeasurementsFile(files) {
   );
 }
 
+function findParametersSummaryFile(files) {
+  return (
+    Array.from(files || []).find((f) => {
+      const rel = (f.webkitRelativePath || f.name || "").toLowerCase();
+      const nm = f.name?.toLowerCase() || "";
+      return rel.endsWith("parameters_summary.json") || nm === "parameters_summary.json";
+    }) || null
+  );
+}
+
+/** @param {object} raw */
+function pickTopologyBlock(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const keys = Object.keys(raw);
+  const hit =
+    keys.find((k) => /method1_topology_reconstructed$/i.test(k)) ||
+    keys.find((k) => /topology_reconstructed/i.test(k));
+  const block = hit ? raw[hit] : null;
+  if (block && Array.isArray(block.legs) && block.legs.length) return block;
+  return null;
+}
+
+/** @param {object} raw */
+function pickDesignDomainBlock(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const keys = Object.keys(raw);
+  const hit =
+    keys.find((k) => /design_domain_from_fcstd$/i.test(k)) ||
+    keys.find((k) => /design_domain/i.test(k) && raw[k]?.design_domain_prism);
+  return hit ? raw[hit] : null;
+}
+
+/**
+ * 将 parameters_summary 中的拓扑重建块转为变径柱 measurements 结构。
+ * @param {object} topo
+ * @returns {object | null}
+ */
+function measurementsFromTopologyBlock(topo) {
+  if (!topo || !Array.isArray(topo.legs) || !topo.legs.length) return null;
+  const legs = topo.legs.map((leg, i) => {
+    const fracs =
+      Array.isArray(leg.station_fracs) && leg.station_fracs.length
+        ? leg.station_fracs.map(Number)
+        : [0, 1 / 3, 2 / 3, 1];
+    const radii =
+      Array.isArray(leg.station_radii_mm) && leg.station_radii_mm.length === fracs.length
+        ? leg.station_radii_mm.map(Number)
+        : fracs.map(() => Number(leg.radius_mm) || 3000);
+    return {
+      id: leg.id ?? i + 1,
+      name: leg.name || `柱 ${i + 1}`,
+      axis: Array.isArray(leg.axis_unit) ? leg.axis_unit.map(Number) : Array.isArray(leg.axis) ? leg.axis.map(Number) : [0, 0, 1],
+      base: Array.isArray(leg.base_xyz_mm) ? leg.base_xyz_mm.map(Number) : Array.isArray(leg.base) ? leg.base.map(Number) : [0, 0, 0],
+      top: Array.isArray(leg.top_xyz_mm) ? leg.top_xyz_mm.map(Number) : Array.isArray(leg.top) ? leg.top.map(Number) : null,
+      center: Array.isArray(leg.center_xyz_mm)
+        ? leg.center_xyz_mm.map(Number)
+        : Array.isArray(leg.center)
+          ? leg.center.map(Number)
+          : null,
+      radius_mm: Number(leg.radius_mm) || 3000,
+      diameter_mm: Number(leg.diameter_mm) || (Number(leg.radius_mm) || 3000) * 2,
+      length_mm: Number(leg.length_mm) || 1,
+      station_fracs: fracs,
+      station_radii_mm: radii,
+      radius_scales: fracs.map(() => 1),
+      effective_station_radii_mm: radii.slice(),
+      element_count: leg.element_count != null ? Number(leg.element_count) : null,
+      hollow: false,
+      wall_thickness_mm: 200,
+    };
+  });
+  const hubSrc = topo.hub_top_plate || topo.hub || null;
+  const hub = hubSrc
+    ? {
+        name: hubSrc.name || "顶部圆盘",
+        center_xy: Array.isArray(hubSrc.center_xy_mm)
+          ? hubSrc.center_xy_mm.map(Number)
+          : Array.isArray(hubSrc.center_xy)
+            ? hubSrc.center_xy.map(Number)
+            : [0, 0],
+        radius_mm: Number(hubSrc.radius_mm) || 1000,
+        diameter_mm: Number(hubSrc.diameter_mm) || (Number(hubSrc.radius_mm) || 1000) * 2,
+        z_bottom_mm: Number(hubSrc.z_bottom_mm) || 0,
+        z_top_mm: Number(hubSrc.z_top_mm) || Number(hubSrc.z_bottom_mm) || 0,
+        thickness_mm:
+          Number(hubSrc.thickness_mm) ||
+          Math.abs(Number(hubSrc.z_top_mm) - Number(hubSrc.z_bottom_mm)) ||
+          500,
+        element_count: hubSrc.element_count != null ? Number(hubSrc.element_count) : null,
+      }
+    : null;
+  return {
+    legs,
+    hub,
+    legs_statistics: topo.legs_statistics || null,
+    assembly_from_fcstd: topo.assembly_from_fcstd || null,
+    description: topo.description || "",
+    method: topo.method || "",
+    source: "parameters_summary.json",
+  };
+}
+
+/**
+ * 从 parameters_summary 抽取 design_spec 兼容字段，供尺寸叠加层使用。
+ * @param {object} raw
+ */
+function designSpecFromParametersSummary(raw) {
+  const dd = pickDesignDomainBlock(raw);
+  const topo = pickTopologyBlock(raw);
+  if (!dd && !topo) return null;
+  const prism = dd?.design_domain_prism || {};
+  const dig = dd?.corner_cylinder_digouts || {};
+  const load = dd?.load_ring || {};
+  const z = dd?.z_levels_mm || {};
+  const loadCtr =
+    Array.isArray(load.load_edge_from_fcstd?.center_xyz_mm)
+      ? load.load_edge_from_fcstd.center_xyz_mm.map(Number)
+      : Array.isArray(load.center_xy_mm)
+        ? [Number(load.center_xy_mm[0]) || 0, Number(load.center_xy_mm[1]) || 0, Number(load.z_top_mm) || 0]
+        : null;
+  const notes = Array.isArray(raw.comparison_notes) ? raw.comparison_notes.map(String) : [];
+  const massGoal = dd?.beso_settings?.mass_goal_ratio;
+  return {
+    title: raw.title || "参数汇总 · 设计尺寸",
+    source: "parameters_summary.json",
+    waterline_z_mm: z.waterline != null ? Number(z.waterline) : 0,
+    height_below_wl_mm: prism.height_below_waterline_mm != null ? Number(prism.height_below_waterline_mm) : null,
+    height_above_wl_mm: prism.height_above_waterline_mm != null ? Number(prism.height_above_waterline_mm) : null,
+    height_total_mm: prism.height_total_mm != null ? Number(prism.height_total_mm) : null,
+    side_length_mm: prism.side_length_mm != null ? Number(prism.side_length_mm) : null,
+    corner_circle_radius_mm: dig.radius_mm != null ? Number(dig.radius_mm) : null,
+    corner_centers_xy_mm: Array.isArray(dig.centers_xy_mm) ? dig.centers_xy_mm : null,
+    sharp_vertices_xy_mm: Array.isArray(prism.sharp_equilateral_vertices_xy_mm)
+      ? prism.sharp_equilateral_vertices_xy_mm
+      : null,
+    load_circle_diameter_mm: load.outer_diameter_mm != null ? Number(load.outer_diameter_mm) : null,
+    load_circle_center_xyz_mm: loadCtr,
+    load_force_n: load.force_n != null ? Number(load.force_n) : null,
+    load_application: load.load_application || "circumference_edge",
+    mass_goal_ratio: massGoal != null ? Number(massGoal) : null,
+    topology_volume_m3: topo?.assembly_from_fcstd?.volume_m3 != null ? Number(topo.assembly_from_fcstd.volume_m3) : null,
+    notes,
+  };
+}
+
 function clampParametric(v, lo, hi) {
   return Math.min(hi, Math.max(lo, v));
 }
@@ -355,6 +506,221 @@ function buildParametricThreeGroup(meas, legStations, legHollow, legWallMm, hubS
   return group;
 }
 
+function fmtLenMmLocal(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  if (abs >= 1000) return `${(n / 1000).toFixed(abs >= 10000 ? 1 : 2)} m`;
+  return `${n.toFixed(0)} mm`;
+}
+
+/**
+ * 三柱 + 顶盘的详细三维标注（轴、站位半径、长度、顶盘 Ø/厚）。
+ * @param {object} meas
+ * @param {{ t:number, scale:number }[][]} legStations
+ * @param {number} hubScale
+ * @param {{ massGoalRatio?: number|null, title?: string }} [meta]
+ */
+function buildTopologyAnnotationGroup(meas, legStations, hubScale, meta = {}) {
+  const group = new THREE.Group();
+  group.name = "rvTopoAnno";
+  const legs = Array.isArray(meas?.legs) ? meas.legs : [];
+  const legColors = [0x7dd3fc, 0xa5b4fc, 0x6ee7b7];
+  const labelColors = ["#7dd3fc", "#a5b4fc", "#6ee7b7"];
+  const pts = [];
+  legs.forEach((leg) => {
+    const axis = new THREE.Vector3(...(leg.axis || [0, 0, 1])).normalize();
+    const base = new THREE.Vector3(...(leg.base || [0, 0, 0]));
+    const length = Math.max(Number(leg.length_mm) || 1, 1);
+    pts.push(base.clone(), base.clone().add(axis.clone().multiplyScalar(length)));
+  });
+  const hub = meas?.hub;
+  if (hub) {
+    const hr = Math.max(Number(hub.radius_mm) * (hubScale || 1), 100);
+    const cx = Number(hub.center_xy?.[0]) || 0;
+    const cy = Number(hub.center_xy?.[1]) || 0;
+    const z0 = Number(hub.z_bottom_mm) || 0;
+    const z1 = Number(hub.z_top_mm) || z0 + (Number(hub.thickness_mm) || 500);
+    pts.push(new THREE.Vector3(cx - hr, cy, z0), new THREE.Vector3(cx + hr, cy, z1));
+  }
+  let diag = 50000;
+  if (pts.length >= 2) {
+    const box = new THREE.Box3().setFromPoints(pts);
+    diag = Math.max(box.getSize(new THREE.Vector3()).length(), 1);
+  }
+  const off = Math.max(diag * 0.03, 800);
+
+  function addSprite(text, pos, colorHex, scaleMul = 1) {
+    const canvas = document.createElement("canvas");
+    const tw = Math.min(720, Math.max(320, String(text).length * 18 + 48));
+    canvas.width = tw;
+    canvas.height = 72;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, tw, 72);
+    ctx.fillStyle = "rgba(15,23,42,0.88)";
+    const pad = 8;
+    if (ctx.roundRect) {
+      ctx.beginPath();
+      ctx.roundRect(pad, pad, tw - pad * 2, 72 - pad * 2, 12);
+      ctx.fill();
+      ctx.strokeStyle = colorHex;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.roundRect(pad, pad, tw - pad * 2, 72 - pad * 2, 12);
+      ctx.stroke();
+    } else {
+      ctx.fillRect(pad, pad, tw - pad * 2, 72 - pad * 2);
+    }
+    ctx.fillStyle = colorHex;
+    ctx.font = "bold 26px ui-sans-serif, system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(String(text), tw / 2, 37);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.needsUpdate = true;
+    const sp = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }),
+    );
+    sp.renderOrder = 14;
+    const s = Math.max(diag * 0.11, 1200) * scaleMul;
+    sp.scale.set(s * (tw / 384), s * 0.22, 1);
+    sp.position.copy(pos);
+    group.add(sp);
+  }
+
+  function addLine(positions, color, opacity = 0.95) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    const line = new THREE.LineSegments(
+      g,
+      new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthTest: false }),
+    );
+    line.renderOrder = 13;
+    group.add(line);
+  }
+
+  function addCircleXY(cx, cy, cz, radius, color, segs = 64) {
+    const circ = [];
+    for (let i = 0; i < segs; i += 2) {
+      const a0 = (i / segs) * Math.PI * 2;
+      const a1 = ((i + 1) / segs) * Math.PI * 2;
+      circ.push(
+        cx + radius * Math.cos(a0),
+        cy + radius * Math.sin(a0),
+        cz,
+        cx + radius * Math.cos(a1),
+        cy + radius * Math.sin(a1),
+        cz,
+      );
+    }
+    addLine(circ, color, 0.85);
+  }
+
+  legs.forEach((leg, li) => {
+    const axis = new THREE.Vector3(...(leg.axis || [0, 0, 1])).normalize();
+    const base = new THREE.Vector3(...(leg.base || [0, 0, 0]));
+    const length = Math.max(Number(leg.length_mm) || 1, 1);
+    const top = base.clone().add(axis.clone().multiplyScalar(length));
+    const color = legColors[li % legColors.length];
+    const labelColor = labelColors[li % labelColors.length];
+    const stations = normalizeLegStations(legStations?.[li] || defaultLegStationsFromMeas(leg));
+
+    // 轴线
+    addLine([base.x, base.y, base.z, top.x, top.y, top.z], color, 0.75);
+
+    // 长度尺寸（偏置于轴）
+    let side = new THREE.Vector3(-axis.y, axis.x, 0);
+    if (side.lengthSq() < 1e-10) side = new THREE.Vector3(1, 0, 0);
+    side.normalize().multiplyScalar(off * 1.1);
+    const a0 = base.clone().add(side);
+    const a1 = top.clone().add(side);
+    const tick = side.clone().normalize().multiplyScalar(off * 0.28);
+    addLine(
+      [
+        base.x, base.y, base.z, a0.x, a0.y, a0.z,
+        top.x, top.y, top.z, a1.x, a1.y, a1.z,
+        a0.x, a0.y, a0.z, a1.x, a1.y, a1.z,
+        a0.x - tick.x, a0.y - tick.y, a0.z - tick.z, a0.x + tick.x, a0.y + tick.y, a0.z + tick.z,
+        a1.x - tick.x, a1.y - tick.y, a1.z - tick.z, a1.x + tick.x, a1.y + tick.y, a1.z + tick.z,
+      ],
+      color,
+    );
+    const midLen = a0.clone().add(a1).multiplyScalar(0.5).add(side.clone().normalize().multiplyScalar(off * 0.35));
+    const legName = leg.name || `柱 ${leg.id ?? li + 1}`;
+    addSprite(`${legName}  L ${fmtLenMmLocal(length)}`, midLen, labelColor, 1.05);
+
+    // 站位半径环 + 标注
+    stations.forEach((st) => {
+      const r = Math.max(interpLegRadius(leg, st.t) * (st.scale ?? 1), 1);
+      const c = base.clone().add(axis.clone().multiplyScalar(st.t * length));
+      // 在垂直于轴的平面画近似圆（取两个正交基）
+      let u = new THREE.Vector3(-axis.y, axis.x, 0);
+      if (u.lengthSq() < 1e-10) u = new THREE.Vector3(1, 0, 0);
+      u.normalize();
+      const v = new THREE.Vector3().crossVectors(axis, u).normalize();
+      const circ = [];
+      const segs = 48;
+      for (let i = 0; i < segs; i += 2) {
+        const a0r = (i / segs) * Math.PI * 2;
+        const a1r = ((i + 1) / segs) * Math.PI * 2;
+        const p0 = c.clone().add(u.clone().multiplyScalar(Math.cos(a0r) * r)).add(v.clone().multiplyScalar(Math.sin(a0r) * r));
+        const p1 = c.clone().add(u.clone().multiplyScalar(Math.cos(a1r) * r)).add(v.clone().multiplyScalar(Math.sin(a1r) * r));
+        circ.push(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z);
+      }
+      addLine(circ, color, 0.55);
+      const radial = u.clone().multiplyScalar(r);
+      const tip = c.clone().add(radial);
+      addLine([c.x, c.y, c.z, tip.x, tip.y, tip.z], color, 0.7);
+      const lab = tip.clone().add(u.clone().multiplyScalar(off * 0.45));
+      addSprite(`t${(st.t * 100).toFixed(0)}%  R ${fmtLenMmLocal(r)}`, lab, labelColor, 0.85);
+    });
+
+    // 柱心名称
+    const center = base.clone().add(axis.clone().multiplyScalar(0.5 * length));
+    addSprite(
+      `Ø均 ${fmtLenMmLocal(Number(leg.diameter_mm) || Number(leg.radius_mm) * 2)}`,
+      center.clone().add(side.clone().normalize().multiplyScalar(-off * 0.6)),
+      labelColor,
+      0.9,
+    );
+  });
+
+  if (hub) {
+    const hr = Math.max(Number(hub.radius_mm) * (hubScale || 1), 100);
+    const thick = Math.max(Number(hub.thickness_mm) || 500, 100);
+    const cx = Number(hub.center_xy?.[0]) || 0;
+    const cy = Number(hub.center_xy?.[1]) || 0;
+    const z0 = Number(hub.z_bottom_mm) || 0;
+    const z1 = Number(hub.z_top_mm) || z0 + thick;
+    const zm = (z0 + z1) / 2;
+    addCircleXY(cx, cy, z1, hr, 0xfcd34d, 72);
+    addCircleXY(cx, cy, z0, hr, 0xfbbf24, 48);
+    addLine([cx - hr, cy, zm, cx + hr, cy, zm], 0xfcd34d);
+    addSprite(`顶盘 Ø ${fmtLenMmLocal(hr * 2)}`, new THREE.Vector3(cx, cy + hr + off * 0.5, z1), "#fcd34d", 1.1);
+    addLine([cx + hr + off * 0.2, cy, z0, cx + hr + off * 0.2, cy, z1], 0xfbbf24);
+    addSprite(`厚 ${fmtLenMmLocal(thick)}`, new THREE.Vector3(cx + hr + off * 0.85, cy, zm), "#fbbf24", 0.95);
+  }
+
+  const titleBits = [];
+  if (meta.title) titleBits.push(String(meta.title).slice(0, 42));
+  if (meta.massGoalRatio != null && Number.isFinite(Number(meta.massGoalRatio))) {
+    titleBits.push(`体积分数 ${(Number(meta.massGoalRatio) * 100).toFixed(0)}%`);
+  }
+  if (titleBits.length) {
+    const anchor = hub
+      ? new THREE.Vector3(
+          Number(hub.center_xy?.[0]) || 0,
+          Number(hub.center_xy?.[1]) || 0,
+          (Number(hub.z_top_mm) || 0) + off * 1.2,
+        )
+      : pts[0]?.clone() || new THREE.Vector3();
+    addSprite(titleBits.join(" · "), anchor, "#e2e8f0", 1.25);
+  }
+
+  return group;
+}
+
 function findFile(fileList, baseName) {
   const want = baseName.toLowerCase();
   return Array.from(fileList || []).find((f) => f.name?.toLowerCase() === want) || null;
@@ -392,6 +758,7 @@ export function mountResultsViewer(opts = {}) {
                     <p class="resultsViewerHelpPopoverP"><strong>播放快捷键</strong>（焦点不在输入框时）：<span class="mono">Space</span> 播放/暂停；<span class="mono">←</span> <span class="mono">→</span> 上一帧/下一帧；<span class="mono">Home</span> / <span class="mono">End</span> 首帧/末帧。拖动进度条时右侧帧号会随刻度预览；刻度确认后再加载对应帧。</p>
                     <p class="resultsViewerHelpPopoverP"><strong>约束 / 载荷</strong>：预览区右下角开关打开后，从同目录 <span class="mono">Analysis-beso.inp</span> 等解析 <span class="mono">*BOUNDARY</span>（红点固定）与 <span class="mono">*CLOAD</span>（黄箭头），并显示荷载分步摘要。</p>
                     <p class="resultsViewerHelpPopoverP"><strong>尺寸</strong>：打开尺寸开关后，优先读取同目录 <span class="mono">design_spec.json</span>（FreeCAD 实测圆心/半径/边长）。标注三凹角圆心距为边长、挖去圆 R、外轮廓跨度、水面线、水上/水下高度与载荷圆直径；无规格文件时则按包围盒与 INP 载荷点推断。</p>
+                    <p class="resultsViewerHelpPopoverP"><strong>参数汇总还原</strong>：可将 <span class="mono">parameters_summary.json</span>（如 <span class="mono">examples/beso/beso_5p/</span>）拖入预览区或「导入文件」，自动还原三柱+顶盘三维结果，并标注各柱长度、站位半径、顶盘直径/厚度与体积分数；同时用汇总内设计域信息叠加边长/水面/载荷圆。</p>
                   </div>
                 </div>
               </div>
@@ -406,7 +773,7 @@ export function mountResultsViewer(opts = {}) {
         <button type="button" class="btn btnPrimary" id="rvPickBtn">导入文件夹</button>
         <button type="button" class="btn" id="rvPickFilesBtn">导入文件</button>
         <input type="file" id="rvDirInput" class="hidden" webkitdirectory directory multiple />
-        <input type="file" id="rvFilesInput" class="hidden" multiple accept=".vtk,.inp,.obj,.step,.stp,.stl" />
+        <input type="file" id="rvFilesInput" class="hidden" multiple accept=".vtk,.inp,.obj,.step,.stp,.stl,.json" />
         <span class="resultsViewerMeta" id="rvMeta">尚未导入</span>
       </div>
       <div class="resultsViewerVtkSeq hidden" id="rvVtkSeqBar" aria-label="迭代网格序列">
@@ -476,6 +843,7 @@ export function mountResultsViewer(opts = {}) {
             <div class="resultsViewerParametricBd hidden" id="rvParametricBd"></div>
             <div class="resultsViewerParametricFt">
               <button type="button" class="btn" id="rvParametricReset" disabled title="仅调节模式可用">重置</button>
+              <button type="button" class="btn btnPrimary" id="rvParametricCommit" disabled title="提交预览到设计域会话后续跑">提交到会话</button>
               <span class="resultsViewerParametricStatus mono" id="rvParametricStatus"></span>
             </div>
           </div>
@@ -492,7 +860,7 @@ export function mountResultsViewer(opts = {}) {
                   <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M24 6L8 14v20l16 8 16-8V14L24 6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" opacity=".35"/><path d="M24 14l10 5v12l-10 5-10-5V19l10-5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
                 </div>
                 <h3 class="resultsViewerCanvasEmptyTitle">等待三维预览</h3>
-                <p class="resultsViewerCanvasEmptyLead">请先点「导入文件夹」（如 <span class="mono">beso7/addition</span> 或 <span class="mono">beso_output</span>），或「导入文件」/ 拖入 <span class="mono">.stl</span>、<span class="mono">.step</span>。</p>
+                <p class="resultsViewerCanvasEmptyLead">请先点「导入文件夹」（如 <span class="mono">beso7/addition</span> 或 <span class="mono">beso_output</span>），或「导入文件」/ 拖入 <span class="mono">.stl</span>、<span class="mono">.step</span>、<span class="mono">parameters_summary.json</span>。</p>
                 <ul class="resultsViewerCanvasEmptyList">
                   <li>网格：<span class="mono">.vtk</span>、<span class="mono">.inp</span>（C3D4）</li>
                   <li>几何：<span class="mono">.step</span>、<span class="mono">.stl</span>、<span class="mono">.obj</span></li>
@@ -686,6 +1054,7 @@ export function mountResultsViewer(opts = {}) {
   const rvParametric = root.querySelector("#rvParametric");
   const rvParametricBd = root.querySelector("#rvParametricBd");
   const rvParametricReset = root.querySelector("#rvParametricReset");
+  const rvParametricCommit = root.querySelector("#rvParametricCommit");
   const rvParametricStatus = root.querySelector("#rvParametricStatus");
   const rvParametricMode = root.querySelector("#rvParametricMode");
   const rvParametricSub = root.querySelector("#rvParametricSub");
@@ -706,7 +1075,7 @@ export function mountResultsViewer(opts = {}) {
   /** @type {object | null} */
   let designSpec = null;
 
-  /** @type {{ active: boolean, editMode: boolean, selectedLeg: number, selectedSt: number, data: object|null, legStations: {t:number,scale:number,locked?:boolean}[][], legHollow: boolean[], legWallMm: number[], hubScale: number, measAbs: string|null, outAbs: string|null, rebuildTimer: ReturnType<typeof setTimeout>|null, rebuildGen: number, drag: object|null }} */
+  /** @type {{ active: boolean, editMode: boolean, selectedLeg: number, selectedSt: number, data: object|null, legStations: {t:number,scale:number,locked?:boolean}[][], legHollow: boolean[], legWallMm: number[], hubScale: number, measAbs: string|null, outAbs: string|null, rebuildTimer: ReturnType<typeof setTimeout>|null, rebuildGen: number, drag: object|null, fromSummary: boolean, showAnno: boolean, summaryMeta: { title?: string, massGoalRatio?: number|null, volumeM3?: number|null, notes?: string[] } | null }} */
   const parametric = {
     active: false,
     editMode: false,
@@ -722,6 +1091,9 @@ export function mountResultsViewer(opts = {}) {
     rebuildTimer: null,
     rebuildGen: 0,
     drag: null,
+    fromSummary: false,
+    showAnno: true,
+    summaryMeta: null,
   };
 
   const LS_PLAYBACK_MS = "beso_rv_playback_interval_ms";
@@ -1093,11 +1465,22 @@ export function mountResultsViewer(opts = {}) {
   async function loadDesignSpecFromFiles(/** @type {File[]} */ files) {
     designSpec = null;
     const hit = (files || []).find((f) => f.name.toLowerCase() === "design_spec.json");
-    if (!hit) return null;
-    try {
-      designSpec = JSON.parse(await hit.text());
-    } catch {
-      designSpec = null;
+    if (hit) {
+      try {
+        designSpec = JSON.parse(await hit.text());
+      } catch {
+        designSpec = null;
+      }
+      if (designSpec) return designSpec;
+    }
+    const summary = findParametersSummaryFile(files);
+    if (summary) {
+      try {
+        const raw = JSON.parse(await summary.text());
+        designSpec = designSpecFromParametersSummary(raw);
+      } catch {
+        designSpec = null;
+      }
     }
     return designSpec;
   }
@@ -1585,9 +1968,26 @@ export function mountResultsViewer(opts = {}) {
         `<div class="resultsViewerBcRow"><span>载荷合力</span><span class="mono">${fmtForceN(stats.loadForceN)} (−Z)</span></div>`,
       );
     }
+    if (stats.massGoalRatio != null) {
+      engRows.push(
+        `<div class="resultsViewerBcRow"><span>体积分数目标</span><span class="mono">${(Number(stats.massGoalRatio) * 100).toFixed(1)}%</span></div>`,
+      );
+    }
+    if (stats.topologyVolumeM3 != null) {
+      engRows.push(
+        `<div class="resultsViewerBcRow"><span>重建体积</span><span class="mono">${Number(stats.topologyVolumeM3).toFixed(2)} m³</span></div>`,
+      );
+    }
+    const legRows = (stats.legRows || [])
+      .map(
+        (r) =>
+          `<div class="resultsViewerBcRow"><span>${r.name}</span><span class="mono">${r.detail}</span></div>`,
+      )
+      .join("");
     rvDimPanelBd.innerHTML = `
       ${title}
       ${engRows.length ? `<div class="resultsViewerBcRows resultsViewerDimEng">${engRows.join("")}</div>` : ""}
+      ${legRows ? `<div class="resultsViewerDimSubHd">拓扑重建柱</div><div class="resultsViewerBcRows">${legRows}</div>` : ""}
       ${notes ? `<ul class="resultsViewerDimNotes">${notes}</ul>` : ""}
       <div class="resultsViewerDimSubHd">包围盒</div>
       <div class="resultsViewerBcRows">
@@ -1729,6 +2129,38 @@ export function mountResultsViewer(opts = {}) {
               : null,
           ].filter(Boolean);
 
+    const massGoal =
+      spec.mass_goal_ratio != null
+        ? Number(spec.mass_goal_ratio)
+        : parametric.summaryMeta?.massGoalRatio != null
+          ? Number(parametric.summaryMeta.massGoalRatio)
+          : null;
+    const topoVol =
+      spec.topology_volume_m3 != null
+        ? Number(spec.topology_volume_m3)
+        : parametric.summaryMeta?.volumeM3 != null
+          ? Number(parametric.summaryMeta.volumeM3)
+          : null;
+    const legRows = Array.isArray(parametric.data?.legs)
+      ? parametric.data.legs.map((leg, li) => {
+          const sts = normalizeLegStations(parametric.legStations[li] || defaultLegStationsFromMeas(leg));
+          const rs = sts.map((s) => Math.max(interpLegRadius(leg, s.t) * (s.scale ?? 1), 1));
+          const rMin = Math.min(...rs);
+          const rMax = Math.max(...rs);
+          return {
+            name: leg.name || `柱 ${leg.id ?? li + 1}`,
+            detail: `L ${fmtLenMm(leg.length_mm)} · R ${fmtLenMm(rMin)}–${fmtLenMm(rMax)}`,
+          };
+        })
+      : [];
+    if (parametric.data?.hub) {
+      const h = parametric.data.hub;
+      legRows.push({
+        name: h.name || "顶盘",
+        detail: `Ø ${fmtLenMm((Number(h.radius_mm) || 0) * 2 * parametric.hubScale)} · 厚 ${fmtLenMm(h.thickness_mm)}`,
+      });
+    }
+
     lastDimStats = {
       dx: size.x,
       dy: size.y,
@@ -1747,8 +2179,11 @@ export function mountResultsViewer(opts = {}) {
       waterlineZ: wlZ,
       loadDiamMm: loadDiam,
       loadForceN: loadForce != null ? Math.abs(loadForce) : null,
+      massGoalRatio: massGoal,
+      topologyVolumeM3: topoVol,
+      legRows,
       notes,
-      title: spec.title || "设计尺寸",
+      title: spec.title || parametric.summaryMeta?.title || "设计尺寸",
       source: designSpec?.source || (designSpec ? "design_spec.json" : "mesh 推断"),
     };
 
@@ -1870,7 +2305,7 @@ export function mountResultsViewer(opts = {}) {
 
     function isOverlayNode(/** @type {THREE.Object3D | null} */ o) {
       for (let p = o; p; p = p.parent) {
-        if (p.name === "rvFemBcOverlay" || p.name === "rvDimOverlay") return true;
+        if (p.name === "rvFemBcOverlay" || p.name === "rvDimOverlay" || p.name === "rvTopoAnno") return true;
       }
       return false;
     }
@@ -2440,6 +2875,7 @@ export function mountResultsViewer(opts = {}) {
       metalness: 0.08,
       roughness: 0.42,
       side: THREE.DoubleSide,
+      flatShading: true,
     });
     const mesh = new THREE.Mesh(geometry, mat);
     threeApi.setRoot(mesh, { preserveView: Boolean(opts.preserveView) });
@@ -2886,6 +3322,8 @@ export function mountResultsViewer(opts = {}) {
       rvParametricSub.textContent = editing ? "选中控制点 · 摇杆调半径/高度" : "结果查看 · 点「调节」编辑";
     }
     if (rvParametricReset) rvParametricReset.disabled = !editing;
+    const rvParametricCommit = root.querySelector("#rvParametricCommit");
+    if (rvParametricCommit) rvParametricCommit.disabled = !editing;
   }
 
   function setParametricEditMode(on) {
@@ -3178,9 +3616,24 @@ export function mountResultsViewer(opts = {}) {
       parametric.legWallMm,
       parametric.hubScale,
     );
+    if (parametric.showAnno) {
+      rootObj.add(
+        buildTopologyAnnotationGroup(parametric.data, parametric.legStations, parametric.hubScale, {
+          title: parametric.summaryMeta?.title || (parametric.fromSummary ? "拓扑重建" : "变径柱"),
+          massGoalRatio: parametric.summaryMeta?.massGoalRatio ?? null,
+        }),
+      );
+    }
     threeApi.setRoot(rootObj, { preserveView });
-    objLabel.textContent = parametric.editMode ? "变径柱 · 调节预览" : "变径柱 · 结果预览";
+    objLabel.textContent = parametric.fromSummary
+      ? parametric.editMode
+        ? "参数汇总 · 调节预览"
+        : "参数汇总 · 拓扑还原"
+      : parametric.editMode
+        ? "变径柱 · 调节预览"
+        : "变径柱 · 结果预览";
     hideTransientCanvasHint();
+    if (dimOverlayEnabled) void refreshDimOverlay();
   }
 
   function scheduleParametricServerRebuild() {
@@ -3282,6 +3735,31 @@ export function mountResultsViewer(opts = {}) {
     scheduleParametricServerRebuild();
   }
 
+  function activateParametricFromData(data, { fromSummary = false, meta = null, autoDim = false } = {}) {
+    if (!data || !Array.isArray(data.legs) || !data.legs.length) return false;
+    parametric.data = data;
+    parametric.legStations = data.legs.map((leg) => defaultLegStationsFromMeas(leg));
+    parametric.legHollow = data.legs.map((leg) => Boolean(leg.hollow));
+    parametric.legWallMm = data.legs.map((leg) => Number(leg.wall_thickness_mm) || 200);
+    parametric.hubScale = 1;
+    parametric.active = true;
+    parametric.editMode = false;
+    parametric.fromSummary = Boolean(fromSummary);
+    parametric.showAnno = true;
+    parametric.summaryMeta = meta;
+    rvParametric?.classList.remove("hidden");
+    syncParametricModeUi();
+    previewParametricNow({ preserveView: false });
+    if (autoDim && !dimOverlayEnabled) {
+      dimOverlayEnabled = true;
+      syncDimToggleUi();
+      void refreshDimOverlay();
+    } else if (dimOverlayEnabled) {
+      void refreshDimOverlay();
+    }
+    return true;
+  }
+
   async function setupParametricPanel(fileList, ctx = {}) {
     parametric.active = false;
     parametric.editMode = false;
@@ -3291,29 +3769,101 @@ export function mountResultsViewer(opts = {}) {
     parametric.drag = null;
     parametric.selectedLeg = 0;
     parametric.selectedSt = 0;
+    parametric.fromSummary = false;
+    parametric.showAnno = true;
+    parametric.summaryMeta = null;
     rvParametric?.classList.add("hidden");
     syncParametricModeUi();
     if (rvParametricStatus) rvParametricStatus.textContent = "";
     const mf = findMeasurementsFile(fileList);
-    if (!mf) return;
-    try {
-      const data = JSON.parse(await mf.text());
-      if (!Array.isArray(data?.legs) || !data.legs.length) return;
-      parametric.data = data;
-      parametric.legStations = data.legs.map((leg) => defaultLegStationsFromMeas(leg));
-      parametric.legHollow = data.legs.map(() => false);
-      parametric.legWallMm = data.legs.map(() => 200);
-      parametric.hubScale = 1;
-      parametric.active = true;
-      parametric.editMode = false;
-      rvParametric?.classList.remove("hidden");
-      syncParametricModeUi();
-      previewParametricNow({ preserveView: false });
-      if (rvParametricStatus) {
-        rvParametricStatus.textContent = "点「调节」进入编辑；退出后正常看结果";
+    const sf = findParametersSummaryFile(fileList);
+    let summaryRaw = null;
+    if (sf) {
+      try {
+        summaryRaw = JSON.parse(await sf.text());
+      } catch {
+        summaryRaw = null;
       }
-    } catch {
-      /* ignore invalid json */
+    }
+    if (summaryRaw && !designSpec) {
+      designSpec = designSpecFromParametersSummary(summaryRaw);
+    }
+    if (mf) {
+      try {
+        const data = JSON.parse(await mf.text());
+        const dd = pickDesignDomainBlock(summaryRaw || {});
+        const topo = pickTopologyBlock(summaryRaw || {});
+        const summaryMeta = summaryRaw
+          ? {
+              title: String(summaryRaw.title || "参数汇总").slice(0, 64),
+              massGoalRatio:
+                dd?.beso_settings?.mass_goal_ratio != null
+                  ? Number(dd.beso_settings.mass_goal_ratio)
+                  : null,
+              volumeM3:
+                topo?.assembly_from_fcstd?.volume_m3 != null
+                  ? Number(topo.assembly_from_fcstd.volume_m3)
+                  : null,
+              notes: Array.isArray(summaryRaw.comparison_notes)
+                ? summaryRaw.comparison_notes.map(String)
+                : [],
+            }
+          : null;
+        if (
+          activateParametricFromData(data, {
+            fromSummary: Boolean(summaryRaw),
+            meta: summaryMeta,
+            autoDim: Boolean(summaryRaw),
+          })
+        ) {
+          if (rvParametricStatus) {
+            rvParametricStatus.textContent = summaryRaw
+              ? "已还原拓扑（measurements + parameters_summary）；三维标注已开启"
+              : "点「调节」进入编辑；退出后正常看结果";
+          }
+          return;
+        }
+      } catch {
+        /* fall through to summary */
+      }
+    }
+    if (!summaryRaw) return;
+    try {
+      const topo = pickTopologyBlock(summaryRaw);
+      const data = measurementsFromTopologyBlock(topo);
+      if (!data) {
+        if (rvParametricStatus) rvParametricStatus.textContent = "parameters_summary 无拓扑重建块";
+        return;
+      }
+      const fromSummarySpec = designSpecFromParametersSummary(summaryRaw);
+      if (!designSpec) {
+        designSpec = fromSummarySpec;
+      } else if (fromSummarySpec) {
+        designSpec = { ...fromSummarySpec, ...designSpec };
+      }
+      const dd = pickDesignDomainBlock(summaryRaw);
+      const summaryMeta = {
+        title: String(summaryRaw.title || "参数汇总还原").slice(0, 64),
+        massGoalRatio:
+          dd?.beso_settings?.mass_goal_ratio != null ? Number(dd.beso_settings.mass_goal_ratio) : null,
+        volumeM3:
+          topo?.assembly_from_fcstd?.volume_m3 != null ? Number(topo.assembly_from_fcstd.volume_m3) : null,
+        notes: Array.isArray(summaryRaw.comparison_notes) ? summaryRaw.comparison_notes.map(String) : [],
+      };
+      if (activateParametricFromData(data, { fromSummary: true, meta: summaryMeta, autoDim: true })) {
+        if (rvParametricStatus) {
+          const vf =
+            summaryMeta.massGoalRatio != null
+              ? ` · 体积分数 ${(summaryMeta.massGoalRatio * 100).toFixed(0)}%`
+              : "";
+          rvParametricStatus.textContent = `已从 parameters_summary 还原三柱+顶盘${vf}；三维标注已开启`;
+        }
+        if (meta) {
+          meta.textContent = `${sf?.name || "parameters_summary.json"} · 拓扑还原（${data.legs.length} 柱 + 顶盘）`;
+        }
+      }
+    } catch (e) {
+      if (rvParametricStatus) rvParametricStatus.textContent = `汇总解析失败：${e?.message || e}`;
     }
   }
 
@@ -3329,6 +3879,44 @@ export function mountResultsViewer(opts = {}) {
   document.addEventListener("pointerup", onJoyHandlePointerUp);
   document.addEventListener("pointercancel", onJoyHandlePointerUp);
   rvParametricReset?.addEventListener("click", () => resetParametricScales());
+  rvParametricCommit?.addEventListener("click", async () => {
+    if (!parametric.active) return;
+    const base = String(getBaseUrl() || "").replace(/\/+$/, "");
+    const sessionId =
+      String(window.__oc4DesignDomainSessionId || localStorage.getItem("beso.oc4.sessionId") || "").trim();
+    if (!base || !sessionId) {
+      if (rvParametricStatus) rvParametricStatus.textContent = "无设计域 session_id，无法提交";
+      return;
+    }
+    // Prefer last preview STL under outAbs; else measurements dir
+    let previewPath = "";
+    if (parametric.outAbs) {
+      previewPath = String(parametric.outAbs).replace(/\\/g, "/") + "/preview.stl";
+    } else if (parametric.measAbs) {
+      previewPath = String(parametric.measAbs).replace(/\\/g, "/");
+    }
+    if (!previewPath) {
+      if (rvParametricStatus) rvParametricStatus.textContent = "无预览路径";
+      return;
+    }
+    if (rvParametricStatus) rvParametricStatus.textContent = "提交到设计域会话…";
+    try {
+      const r = await fetch(`${base}/api/oc4/design-domain/commit-preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId,
+          preview_path: previewPath,
+          task_id: String(window.__currentTaskId || "").trim() || null,
+        }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.detail || `HTTP ${r.status}`);
+      if (rvParametricStatus) rvParametricStatus.textContent = "已提交；请重新 mesh / 继续闭环";
+    } catch (e) {
+      if (rvParametricStatus) rvParametricStatus.textContent = `提交失败: ${e?.message || e}`;
+    }
+  });
   rvParametricMode?.addEventListener("click", () => {
     if (!parametric.active) return;
     setParametricEditMode(!parametric.editMode);

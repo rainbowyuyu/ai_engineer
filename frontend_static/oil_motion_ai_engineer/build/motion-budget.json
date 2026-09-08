@@ -1,0 +1,18 @@
+{
+  "delivery": {
+    "selected": "baked-video",
+    "reasonCodes": [
+      "background-baked-into-video",
+      "zenmux-chain"
+    ]
+  },
+  "runtime": {
+    "renderer": "baked-video",
+    "controller": "frame-scrub",
+    "driver": "scroll",
+    "time_control": "scrub"
+  },
+  "backgroundOwner": "video",
+  "passes": true,
+  "source": "minimax/minimax-h3-max + project keyframes"
+}

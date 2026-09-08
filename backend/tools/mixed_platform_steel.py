@@ -456,7 +456,7 @@ def compute_steel_report(
 
     final_geom = summarize_geometry(geometry, final_scale, params)
 
-    return {
+    report: dict[str, Any] = {
         "title": geometry.get("title"),
         "units_note": "lengths in source JSON are mm; report values in SI unless noted",
         "computation": {
@@ -490,6 +490,14 @@ def compute_steel_report(
             "K55_Nm_per_rad": final_props["K55_Nm_per_rad"],
         },
     }
+    # 平台库路径（restruction.py）：功率选基 → 初缩放 → min x³ / pitch≤5°
+    try:
+        from backend.tools.platform_restruction import run_platform_restruction
+
+        report["platform_restruction"] = run_platform_restruction(target_mw, pitch_limit_deg=5.0)
+    except Exception as exc:  # noqa: BLE001
+        report["platform_restruction"] = {"ok": False, "error": str(exc)}
+    return report
 
 
 def attach_steel_to_geometry(

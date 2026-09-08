@@ -20,9 +20,10 @@
         </div>
         <div class="topRight">
           <div class="topUtilityCluster" aria-label="工具">
-            <a class="btn resultsViewerTopBtn" href="./demo_hub.html" title="新功能体验中心">新功能演示</a>
-            <a class="btn resultsViewerTopBtn" href="./index.html" title="返回主页工作台">← 主页</a>
-            <a class="btn resultsViewerTopBtn" href="./cad_design_studio.html" target="_blank" rel="noopener">CAD 设计台</a>
+            <a class="topUtilBtn" href="./demo_hub.html" title="新功能体验中心">新功能演示</a>
+            <a class="topUtilBtn" href="./index.html" title="返回主页工作台">← 主页</a>
+            <span class="topUtilSep" aria-hidden="true"></span>
+            <a class="topUtilBtn topUtilBtn--solid" href="./cad_design_studio.html" target="_blank" rel="noopener">CAD 设计台</a>
           </div>
         </div>
       </header>
@@ -30,11 +31,38 @@
       <main class="valMain">
         <section class="valStage" aria-label="验证输入">
           <header class="valHero">
-            <h1 class="heroTitle">设计验证与合规评分</h1>
-            <p class="heroSub">
-              上传或指定几何 JSON，对照 DNV ST-0437 / DNVGL-OS-C301 / DNVGL-RP-0286 规则库与
-              <strong>风电钢耗强度统计表</strong>，生成 Nature 风格图表与可审计验证报告。
-            </p>
+            <div class="valHeroMain">
+              <div class="stageBrandRow">
+                <img class="stageLockup" src="./assets/beso-agent-mark.svg" width="26" height="26" alt="" aria-hidden="true" />
+                <div>
+                  <h1 class="heroTitle">AI Review</h1>
+                  <p class="heroSub">
+                    对照 DNV 规则库与风电钢耗强度统计表，生成可审计验证报告。默认载入历史结果；需更新时点「重新评分」。
+                  </p>
+                </div>
+              </div>
+            </div>
+            <nav class="stageNav" role="toolbar" aria-label="流程导航">
+              <div class="stageNavGroup" role="group" aria-label="返回上一阶段">
+                <button type="button" class="btn stageNavBtn stageNavBtn--back" id="valNavDesignBtn" title="返回设计域">
+                  <svg class="stageNavIcon" viewBox="0 0 12 12" aria-hidden="true"><path d="M7.75 2.25 3.5 6l4.25 3.75"/></svg>
+                  <span>设计域</span>
+                </button>
+                <button type="button" class="btn stageNavBtn stageNavBtn--back" id="valNavAnalysisBtn" title="返回尺寸时域分析">
+                  <svg class="stageNavIcon" viewBox="0 0 12 12" aria-hidden="true"><path d="M7.75 2.25 3.5 6l4.25 3.75"/></svg>
+                  <span>尺寸时域</span>
+                </button>
+                <button type="button" class="btn stageNavBtn stageNavBtn--back" id="valNavTopoBtn" title="返回拓扑优化">
+                  <svg class="stageNavIcon" viewBox="0 0 12 12" aria-hidden="true"><path d="M7.75 2.25 3.5 6l4.25 3.75"/></svg>
+                  <span>拓扑优化</span>
+                </button>
+              </div>
+              <span class="stageNavSep" aria-hidden="true"></span>
+              <a class="btn stageNavBtn stageNavBtn--back stageNavBtn--home backHomeBtn" id="valNavHomeBtn" href="./index.html">
+                <svg class="stageNavIcon" viewBox="0 0 12 12" aria-hidden="true"><path d="M7.75 2.25 3.5 6l4.25 3.75"/></svg>
+                <span>返回主页</span>
+              </a>
+            </nav>
           </header>
 
           <div class="valComposer">
@@ -65,7 +93,7 @@
                 </button>
                 <button type="button" class="btn btnPrimary valRunBtn" id="valRunBtn">
                   <span class="valSpinner" aria-hidden="true"></span>
-                  运行验证
+                  <span id="valRunBtnLabel">运行验证</span>
                 </button>
               </div>
             </div>

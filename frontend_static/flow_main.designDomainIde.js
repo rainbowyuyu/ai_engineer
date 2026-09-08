@@ -7,6 +7,7 @@ import {
   extToHljsLang,
   extWantsPlainPreview,
   highlightCodeToHtml,
+  pathWantsMesh3dPreview,
   pathWantsRichPreview,
   plainCodeBlockHtml,
   wrapCodePreviewChrome,
@@ -173,9 +174,58 @@ export function mountDesignDomainIde(opts) {
     flushTabsToStorageForTask(String(tid || "").trim());
   }
 
+  /** @type {string | null} */
+  let lastMeshPreviewRel = null;
+  /** @type {boolean} */
+  let lastMeshPreviewOk = false;
+
+  function setPreviewLoading(visible, title, detail) {
+    const overlay =
+      typeof document !== "undefined" ? document.getElementById("ddIdePreviewOverlay") : null;
+    const textEl =
+      typeof document !== "undefined" ? document.getElementById("ddIdePreviewOverlayText") : null;
+    const detailEl =
+      typeof document !== "undefined" ? document.getElementById("ddIdePreviewOverlayDetail") : null;
+    if (!overlay) return;
+    if (visible) {
+      if (textEl && title != null) textEl.textContent = String(title);
+      if (detailEl) detailEl.textContent = detail != null ? String(detail) : "";
+      overlay.classList.remove("hidden");
+      overlay.setAttribute("aria-hidden", "false");
+    } else {
+      overlay.classList.add("hidden");
+      overlay.setAttribute("aria-hidden", "true");
+      if (detailEl) detailEl.textContent = "";
+    }
+  }
+
+  function syncSourceMetaForRel(rel) {
+    if (!codeMetaEl) return;
+    const ex = extOf(rel);
+    if (ex === ".inp") {
+      codeMetaEl.textContent = "大文件 · 请用预览";
+    }
+  }
+
   const preview3d = createDdIdePreview3d({
     mountEl: previewCanvasWrap || null,
     normalizedBaseUrl,
+    onBcSummary: (s) => {
+      const el = typeof document !== "undefined" ? document.getElementById("ddIdeBcSummary") : null;
+      if (el) el.textContent = s?.label || "—";
+    },
+    onLoadProgress: (p) => {
+      setPreviewLoading(Boolean(p), p?.title || "正在加载三维预览…", p?.detail || "");
+    },
+  });
+
+  const bcToggleBtn =
+    typeof document !== "undefined" ? document.getElementById("ddIdeBcToggle") : null;
+  bcToggleBtn?.addEventListener("click", () => {
+    const next = !preview3d.getBcOverlayVisible?.();
+    preview3d.setBcOverlayVisible?.(next);
+    bcToggleBtn.classList.toggle("on", next);
+    bcToggleBtn.setAttribute("aria-pressed", next ? "true" : "false");
   });
 
   const dirtyTopics = new Set();
@@ -396,7 +446,11 @@ export function mountDesignDomainIde(opts) {
     if (!fileTreeEl) return;
     if (!sid) {
       fileTreeEl.innerHTML = "";
-      if (fileHintEl) fileHintEl.textContent = "请先进入设计域会话（上传 IGES 并进入本页）。";
+      if (fileHintEl) {
+        fileHintEl.textContent = window.__ddStageBusy
+          ? "正在创建或连接设计域会话…"
+          : "请先进入设计域会话（上传 IGES 或等待自动 bootstrap）。";
+      }
       void refreshVscodeEmbed();
       return;
     }
@@ -463,24 +517,33 @@ export function mountDesignDomainIde(opts) {
    * @param {"preview" | "source"} which
    */
   function setActiveTab(which) {
-    viewMode = which === "preview" ? "preview" : "source";
+    const next = which === "preview" ? "preview" : "source";
+    viewMode = next;
     updateViewSegButtons();
     schedulePersistTabs();
-    const preview = viewMode === "preview";
-    if (panePreview) {
-      panePreview.classList.toggle("hidden", !preview);
-      if (preview) {
-        panePreview.removeAttribute("hidden");
-        queueMicrotask(() => {
-          preview3d.resize?.();
-          onShowPreview?.();
-        });
-      } else panePreview.setAttribute("hidden", "true");
-    }
-    if (paneSource) {
-      paneSource.classList.toggle("hidden", preview);
-      if (!preview) paneSource.removeAttribute("hidden");
-      else paneSource.setAttribute("hidden", "true");
+    const showPreview = viewMode === "preview";
+    const panels = panePreview?.parentElement;
+    panels?.classList.add("ddIdeTabPanels--stacked");
+
+    const applyPane = (el, active) => {
+      if (!el) return;
+      el.classList.remove("hidden");
+      el.removeAttribute("hidden");
+      el.classList.toggle("ddIdePane--active", active);
+      el.classList.toggle("ddIdePane--idle", !active);
+      el.setAttribute("aria-hidden", active ? "false" : "true");
+    };
+
+    applyPane(panePreview, showPreview);
+    applyPane(paneSource, !showPreview);
+
+    if (showPreview) {
+      queueMicrotask(() => {
+        preview3d.resize?.();
+        onShowPreview?.();
+      });
+    } else if (selectedRel) {
+      syncSourceMetaForRel(selectedRel);
     }
   }
 
@@ -489,15 +552,19 @@ export function mountDesignDomainIde(opts) {
     if (!sid || !rel) return;
     const ex = extOf(rel);
     const url = runsSessionFileUrl(normalizedBaseUrl, sid, rel);
-    if (previewLabelEl) previewLabelEl.textContent = rel;
+    if (previewLabelEl) previewLabelEl.textContent = ex === ".inp" ? `网格预览 · ${rel}` : rel;
     if (ex === ".obj") {
       await preview3d.loadObjFromUrl(url);
     } else if (ex === ".step" || ex === ".stp") {
       await preview3d.loadStepFromUrl(url);
+    } else if (ex === ".inp") {
+      await preview3d.loadInpMesh?.({ sessionId: sid, relPath: rel, fileUrl: url });
     } else {
       throw new Error("不支持的 3D 扩展名");
     }
     preview3d.resize?.();
+    lastMeshPreviewRel = rel;
+    lastMeshPreviewOk = true;
   }
 
   /**
@@ -512,6 +579,7 @@ export function mountDesignDomainIde(opts) {
     const isMd = ex === ".md" || ex === ".markdown";
     const codeLang = extToHljsLang(ex);
     const plainPrev = extWantsPlainPreview(ex);
+    const isMesh3d = pathWantsMesh3dPreview(r);
 
     if (viewOpt.forceSource) {
       mdPreviewWrapEl?.classList.add("hidden");
@@ -520,7 +588,8 @@ export function mountDesignDomainIde(opts) {
       return;
     }
 
-    if (isMd || codeLang || plainPrev) {
+    // 体网格 INP 等优先走三维，不走全文代码预览（大文件会 413）
+    if ((isMd || codeLang || plainPrev) && !isMesh3d) {
       const tab = openTabs.find((t) => t.rel === r);
       if (tab && !tab.loaded && !tab.isNew) await fetchIntoTab(tab);
       if (mdPreviewEl) {
@@ -547,24 +616,62 @@ export function mountDesignDomainIde(opts) {
     mdPreviewWrapEl?.classList.add("hidden");
     vp?.classList.remove("hidden");
 
-    const is3d = ex === ".obj" || ex === ".step" || ex === ".stp";
-    if (!is3d) {
+    if (!isMesh3d) {
       setActiveTab("source");
       return;
     }
-    try {
-      await loadFilePreview3d(r);
+
+    // 同一文件已成功加载过：只切到预览，不重拉
+    if (lastMeshPreviewOk && lastMeshPreviewRel === r && !viewOpt.forceReload) {
       setActiveTab("preview");
+      setPreviewLoading(false);
+      if (codeMetaEl) codeMetaEl.textContent = "";
+      preview3d.resize?.();
+      return;
+    }
+
+    setActiveTab("preview");
+    setPreviewLoading(
+      true,
+      ex === ".inp" ? "正在加载网格预览…" : "正在加载三维预览…",
+      ex === ".inp" ? "准备下载与解析" : "请稍候",
+    );
+    preview3d.resize?.();
+    try {
+      if (codeMetaEl) codeMetaEl.textContent = ex === ".inp" ? "正在加载网格预览…" : "加载中…";
+      await loadFilePreview3d(r);
       if (codeMetaEl) codeMetaEl.textContent = "";
     } catch (e) {
+      lastMeshPreviewOk = false;
+      lastMeshPreviewRel = null;
+      setPreviewLoading(false);
       setActiveTab("source");
-      if (codeMetaEl) codeMetaEl.textContent = String(e?.message || e);
+      syncSourceMetaForRel(r);
+      if (codeMetaEl) {
+        const msg = String(e?.message || e);
+        codeMetaEl.textContent = msg.length > 80 ? `${msg.slice(0, 80)}…` : msg;
+      }
+    } finally {
+      setPreviewLoading(false);
     }
   }
 
   async function fetchIntoTab(tab) {
     const sid = String(getSessionId?.() || "").trim();
     if (!sid || !tab.rel) return;
+    const ex = extOf(tab.rel);
+    if (ex === ".inp") {
+      // 大网格 INP 不拉全文；源码区给占位说明，三维走预览 API
+      tab.buffer =
+        `（${tab.rel} 为体网格 INP，可能达数十 MB。）\n` +
+        `源码模式不加载全文（上限约 512KB）。\n` +
+        `请切换到「预览」查看三维网格（与结果查看器相同的 INP→VTK 路径）。\n`;
+      tab.saved = tab.buffer;
+      tab.loaded = true;
+      if (codeMetaEl) codeMetaEl.textContent = "大文件 · 请用预览";
+      if (codeEditor) codeEditor.readOnly = true;
+      return;
+    }
     if (codeMetaEl) codeMetaEl.textContent = "加载中…";
     try {
       const q = encodeURIComponent(tab.rel);
@@ -573,6 +680,7 @@ export function mountDesignDomainIde(opts) {
       tab.saved = tab.buffer;
       tab.loaded = true;
       if (codeMetaEl) codeMetaEl.textContent = data.size != null ? formatSize(data.size) : "";
+      if (codeEditor) codeEditor.readOnly = false;
     } catch (e) {
       tab.buffer = String(e?.message || e);
       tab.saved = tab.buffer;
@@ -680,7 +788,7 @@ export function mountDesignDomainIde(opts) {
     }
     if (codeEditor) {
       codeEditor.value = tab.buffer;
-      codeEditor.readOnly = false;
+      codeEditor.readOnly = extOf(tab.rel) === ".inp";
     }
     renderFileTabs();
     const b = findTreeFileBtn(tab.rel);
@@ -1047,9 +1155,10 @@ export function mountDesignDomainIde(opts) {
     if (!rel) return;
     setTreeSelection(btn);
     const ex = extOf(rel);
-    const is3d = ex === ".obj" || ex === ".step" || ex === ".stp";
     const isMd = ex === ".md" || ex === ".markdown";
-    void openOrAddTab(rel, { preferPreview: Boolean(is3d || isMd || pathWantsRichPreview(rel)) });
+    void openOrAddTab(rel, {
+      preferPreview: Boolean(isMd || pathWantsRichPreview(rel) || pathWantsMesh3dPreview(rel)),
+    });
   });
 
   viewSegEl?.addEventListener("click", (e) => {
@@ -1058,14 +1167,30 @@ export function mountDesignDomainIde(opts) {
     const m = b.getAttribute("data-dd-view-btn");
     if (m === "preview") {
       if (selectedRel) {
-        void applyAutoViewForRel(selectedRel, {}).catch((err) => {
-          if (codeMetaEl) codeMetaEl.textContent = String(err?.message || err);
+        void applyAutoViewForRel(selectedRel, {}).catch(() => {
+          /* meta 已在 applyAutoViewForRel 写入 */
         });
       } else {
         setActiveTab("preview");
       }
     } else {
       setActiveTab("source");
+      if (selectedRel) {
+        const tab = openTabs.find((t) => t.rel === selectedRel);
+        if (tab && !tab.loaded && !tab.isNew) {
+          void fetchIntoTab(tab).then(() => {
+            if (codeEditor && openTabs[activeTabIndex]?.rel === selectedRel) {
+              codeEditor.value = tab.buffer || "";
+            }
+            syncSourceMetaForRel(selectedRel);
+          });
+        } else {
+          if (tab && codeEditor && openTabs[activeTabIndex]?.rel === selectedRel) {
+            codeEditor.value = tab.buffer || "";
+          }
+          syncSourceMetaForRel(selectedRel);
+        }
+      }
     }
   });
 

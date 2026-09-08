@@ -5,7 +5,8 @@
 划分依据：与 ``oc4.igs`` 中识别的主柱轴线（中心柱 + 三根外柱）的径向距离，
 小于 ``band_scale * R_shaft`` 的体单元归入 nondesign_space。
 
-另：在网格末尾追加最小 *STEP（底面 z 固定 + 顶区单点竖向力），便于 CalculiX/BESO 冒烟；
+另：在网格末尾追加最小 *STEP。默认对齐 examples/beso/beso9/BESO9.FCStd：
+三顶角挖圆柱底圆弧 *BOUNDARY + 顶面载荷圆外周 *CLOAD（可经 load_case 覆盖）。
 真实系泊/风载需按新节点号自行替换（与旧 BESO2-FEMMeshGmsh.inp 不兼容）。
 """
 from __future__ import annotations
@@ -143,10 +144,12 @@ def _inject_missing_material_blocks_for_solid_refs(lines: list[str]) -> list[str
         mat_san = _sanitize_ccx_material_name(raw)
         to_add.extend(
             [
-                "** --- OC4: auto-injected *MATERIAL + *ELASTIC (solid ref had no deck definition) ---",
+                "** --- OC4: auto-injected *MATERIAL + *ELASTIC + *DENSITY (solid ref had no deck definition) ---",
                 f"*MATERIAL, NAME={mat_san}",
                 "*ELASTIC",
                 f"{e}, {nu}",
+                "*DENSITY",
+                "7.85e-9",
             ]
         )
         defs_ci.add(mat_san.strip().upper())
@@ -167,7 +170,56 @@ def repair_oc4_beso_inp_lines(lines: list[str]) -> list[str]:
     rep = _inject_missing_material_blocks_for_solid_refs(
         _reorder_pre_step_materials_before_solids(list(lines))
     )
+    rep = _ensure_density_after_elastic(rep)
     return _decimalize_node_coordinate_data_lines(rep)
+
+
+def _ensure_density_after_elastic(lines: list[str]) -> list[str]:
+    """
+    mm–N–s–tonne 体系下为缺 *DENSITY 的 *MATERIAL 注入 7.85e-9，
+    避免 BESO mass_goal / Mass 曲线出现天文数字与振荡误判。
+    """
+    out: list[str] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        ln = lines[i]
+        u = _strip_inp_line(ln).upper()
+        if u.startswith("*MATERIAL"):
+            block = [ln]
+            i += 1
+            has_density = False
+            while i < n:
+                nxt = lines[i]
+                nu = _strip_inp_line(nxt).upper()
+                if nu.startswith("*") and not nu.startswith("**"):
+                    # 同材料块内的子关键字
+                    if nu.startswith("*DENSITY"):
+                        has_density = True
+                        block.append(nxt)
+                        i += 1
+                        # density data line
+                        if i < n and not _strip_inp_line(lines[i]).startswith("*"):
+                            block.append(lines[i])
+                            i += 1
+                        continue
+                    if nu.startswith("*ELASTIC") or nu.startswith("*EXPANSION") or nu.startswith("*PLASTIC"):
+                        block.append(nxt)
+                        i += 1
+                        while i < n and not _strip_inp_line(lines[i]).startswith("*"):
+                            block.append(lines[i])
+                            i += 1
+                        continue
+                    break
+                block.append(nxt)
+                i += 1
+            if not has_density:
+                block.extend(["*DENSITY", "7.85e-9"])
+            out.extend(block)
+            continue
+        out.append(ln)
+        i += 1
+    return out
 
 
 def _strip_inp_line(ln: str) -> str:
@@ -367,6 +419,8 @@ def _ensure_material_block_for_name(
         f"*MATERIAL, NAME={mat}",
         "*ELASTIC",
         f"{e}, {nu}",
+        "*DENSITY",
+        "7.85e-9",
     ]
     return [*mat_lines, *extra]
 
@@ -711,6 +765,232 @@ def _format_elset_block(name: str, ids: list[int], per_line: int = 16) -> list[s
     return lines
 
 
+def _xy_tol_band(span: float, *, floor: float = 25.0, ceil: float = 250.0, frac: float = 0.008) -> float:
+    return float(max(floor, min(ceil, frac * max(span, 1.0))))
+
+
+def _estimate_triangle_vertices_xy(
+    nodes: dict[int, np.ndarray],
+    *,
+    zmin: float,
+    z_tol: float,
+) -> list[tuple[float, float]]:
+    """用底面节点凸包上的三个最远点估计挖角中心（近似三角形顶点）。"""
+    bottom = [nodes[nid] for nid, p in nodes.items() if float(p[2]) <= zmin + z_tol]
+    if len(bottom) < 12:
+        bottom = list(nodes.values())
+    if len(bottom) < 3:
+        return []
+    pts = np.asarray([[float(p[0]), float(p[1])] for p in bottom], dtype=float)
+    c = pts.mean(axis=0)
+    d0 = np.linalg.norm(pts - c, axis=1)
+    i0 = int(np.argmax(d0))
+    p0 = pts[i0]
+    d1 = np.linalg.norm(pts - p0, axis=1)
+    i1 = int(np.argmax(d1))
+    p1 = pts[i1]
+    d2 = np.minimum(np.linalg.norm(pts - p0, axis=1), np.linalg.norm(pts - p1, axis=1))
+    i2 = int(np.argmax(d2))
+    p2 = pts[i2]
+    # 顶点在外凸方向上：从中心沿三点方向外推，使挖角圆心更接近真实顶点
+    verts: list[tuple[float, float]] = []
+    for p in (p0, p1, p2):
+        v = p - c
+        n = float(np.linalg.norm(v))
+        if n < 1e-9:
+            verts.append((float(p[0]), float(p[1])))
+        else:
+            # 底面最外点常在挖角圆弧上：圆心 ≈ 该点沿径向再外推一点；先用该点作为圆心近似
+            verts.append((float(p[0]), float(p[1])))
+    return verts
+
+
+def _resolve_beso9_geometry(
+    nodes: dict[int, np.ndarray],
+    load_case: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """从 load_case / 网格估计 BESO9 固定圆弧与顶环几何。"""
+    lc = dict(load_case or {})
+    zvals = np.array([float(nodes[i][2]) for i in nodes], dtype=float)
+    zmin = float(np.min(zvals))
+    zmax = float(np.max(zvals))
+    span = max(zmax - zmin, 1.0)
+    z_tol = _xy_tol_band(span, floor=30.0, ceil=180.0, frac=0.006)
+
+    centers: list[tuple[float, float]] = []
+    centers_from_meta = False
+    raw_c = lc.get("corner_centers_xy_mm") or lc.get("corner_centers_xy")
+    if isinstance(raw_c, list) and len(raw_c) >= 3:
+        for it in raw_c[:3]:
+            if isinstance(it, (list, tuple)) and len(it) >= 2:
+                centers.append((float(it[0]), float(it[1])))
+        centers_from_meta = len(centers) >= 3
+    if len(centers) < 3:
+        centers = _estimate_triangle_vertices_xy(nodes, zmin=zmin, z_tol=z_tol)
+
+    corner_r = lc.get("corner_r_mm") or lc.get("corner_cyl_radius_mm")
+    try:
+        corner_r = float(corner_r) if corner_r is not None else None
+    except (TypeError, ValueError):
+        corner_r = None
+    if corner_r is None or corner_r <= 0:
+        # 由三顶点间距估计边长 → 挖角约 7.9% 边长（beso9）
+        if len(centers) >= 3:
+            edges = [
+                float(np.hypot(centers[i][0] - centers[(i + 1) % 3][0], centers[i][1] - centers[(i + 1) % 3][1]))
+                for i in range(3)
+            ]
+            side = float(sum(edges) / 3.0)
+            corner_r = max(500.0, 0.079 * side)
+        else:
+            corner_r = 7500.0
+
+    cx = cy = 0.0
+    raw_dc = lc.get("domain_center_xy_mm") or lc.get("load_circle_center_xy_mm")
+    if isinstance(raw_dc, (list, tuple)) and len(raw_dc) >= 2:
+        cx, cy = float(raw_dc[0]), float(raw_dc[1])
+    elif centers:
+        cx = float(sum(c[0] for c in centers) / len(centers))
+        cy = float(sum(c[1] for c in centers) / len(centers))
+    else:
+        xs = [float(nodes[i][0]) for i in nodes]
+        ys = [float(nodes[i][1]) for i in nodes]
+        cx = float(sum(xs) / max(len(xs), 1))
+        cy = float(sum(ys) / max(len(ys), 1))
+
+    # 仅当 centers 来自底面最外点估计时：最外点多在挖角圆弧上，圆心需沿径向外推 corner_r
+    if not centers_from_meta and len(centers) >= 3:
+        refined: list[tuple[float, float]] = []
+        for px, py in centers:
+            vx, vy = px - cx, py - cy
+            n = float(np.hypot(vx, vy))
+            if n < 1e-6:
+                refined.append((px, py))
+                continue
+            refined.append((px + float(corner_r) * vx / n, py + float(corner_r) * vy / n))
+        centers = refined[:3]
+        cx = float(sum(c[0] for c in centers) / 3.0)
+        cy = float(sum(c[1] for c in centers) / 3.0)
+
+    load_d = lc.get("load_diameter_mm")
+    load_r = lc.get("load_radius_mm")
+    try:
+        if load_r is not None:
+            load_r = float(load_r)
+        elif load_d is not None:
+            load_r = float(load_d) * 0.5
+        else:
+            load_r = 6000.0
+    except (TypeError, ValueError):
+        load_r = 6000.0
+    load_r = float(max(500.0, load_r))
+
+    return {
+        "zmin": zmin,
+        "zmax": zmax,
+        "z_tol": z_tol,
+        "corner_r_mm": float(corner_r),
+        "corner_centers_xy": centers[:3],
+        "domain_center_xy": (cx, cy),
+        "load_radius_mm": float(load_r),
+        "radial_tol_fix": float(max(80.0, 0.12 * float(corner_r))),
+        "radial_tol_load": float(max(100.0, 0.08 * float(load_r))),
+    }
+
+
+def select_beso9_fixed_nodes(
+    nodes: dict[int, np.ndarray],
+    load_case: dict[str, Any] | None = None,
+) -> list[int]:
+    """
+    对齐 BESO9.FCStd ConstraintFixed：三顶角挖圆柱底圆弧（z≈zmin，|xy-center|≈corner_r）。
+    """
+    geo = _resolve_beso9_geometry(nodes, load_case)
+    centers = geo["corner_centers_xy"]
+    if len(centers) < 3:
+        # 回退：极薄底面带（仍比整板 800mm 带小得多）
+        zmin = geo["zmin"]
+        z_tol = geo["z_tol"]
+        return [nid for nid, p in nodes.items() if float(p[2]) <= zmin + z_tol]
+
+    corner_r = float(geo["corner_r_mm"])
+    zmin = float(geo["zmin"])
+    z_tol = float(geo["z_tol"])
+    r_tol = float(geo["radial_tol_fix"])
+    out: list[int] = []
+    for nid, p in nodes.items():
+        if float(p[2]) > zmin + z_tol:
+            continue
+        x, y = float(p[0]), float(p[1])
+        for cx, cy in centers:
+            d = math.hypot(x - cx, y - cy)
+            if abs(d - corner_r) <= r_tol:
+                out.append(int(nid))
+                break
+    if len(out) >= 12:
+        return sorted(set(out))
+    # 放宽容差再试一次
+    r_tol2 = r_tol * 2.2
+    out2: list[int] = []
+    for nid, p in nodes.items():
+        if float(p[2]) > zmin + z_tol * 1.5:
+            continue
+        x, y = float(p[0]), float(p[1])
+        for cx, cy in centers:
+            d = math.hypot(x - cx, y - cy)
+            if abs(d - corner_r) <= r_tol2:
+                out2.append(int(nid))
+                break
+    if out2:
+        return sorted(set(out2))
+    return sorted(set(out)) if out else [nid for nid, p in nodes.items() if float(p[2]) <= zmin + z_tol]
+
+
+def select_beso9_ring_load_nodes(
+    nodes: dict[int, np.ndarray],
+    load_case: dict[str, Any] | None = None,
+) -> list[int]:
+    """
+    对齐 BESO9.FCStd ConstraintForce：顶面载荷圆外周（z≈zmax，|xy-center|≈load_r）。
+    """
+    geo = _resolve_beso9_geometry(nodes, load_case)
+    cx, cy = geo["domain_center_xy"]
+    load_r = float(geo["load_radius_mm"])
+    zmax = float(geo["zmax"])
+    z_tol = float(geo["z_tol"])
+    r_tol = float(geo["radial_tol_load"])
+    out: list[int] = []
+    for nid, p in nodes.items():
+        if float(p[2]) < zmax - z_tol:
+            continue
+        d = math.hypot(float(p[0]) - cx, float(p[1]) - cy)
+        if abs(d - load_r) <= r_tol:
+            out.append(int(nid))
+    if len(out) >= 8:
+        return sorted(set(out))
+    # 放宽：仍限顶面环带
+    r_tol2 = r_tol * 2.5
+    out2 = []
+    for nid, p in nodes.items():
+        if float(p[2]) < zmax - z_tol * 2.0:
+            continue
+        d = math.hypot(float(p[0]) - cx, float(p[1]) - cy)
+        if abs(d - load_r) <= r_tol2:
+            out2.append(int(nid))
+    if out2:
+        return sorted(set(out2))
+    # 最后回退：顶面最高层中最接近目标半径的节点
+    top = [(nid, nodes[nid]) for nid, p in nodes.items() if float(p[2]) >= zmax - z_tol * 2]
+    if not top:
+        top = list(nodes.items())
+    scored = []
+    for nid, p in top:
+        d = math.hypot(float(p[0]) - cx, float(p[1]) - cy)
+        scored.append((abs(d - load_r), int(nid)))
+    scored.sort()
+    return [nid for _, nid in scored[: max(12, min(48, len(scored)))]]
+
+
 def summarize_mesh_for_loads(mesh_inp: Path) -> dict[str, Any]:
     """
     为自然语言载荷解析提供网格摘要（节点 z 范围、最高节点、顶端若干节点号）。
@@ -750,7 +1030,7 @@ def _build_cload_entries(
     与 examples/oc4/from_cad_b31.inp 等一致：单条 *CLOAD 关键字下多行数据。
     """
     lc = dict(load_case) if load_case else {}
-    mode = str(lc.get("cload_mode") or "single_top").strip().lower()
+    mode = str(lc.get("cload_mode") or "beso9_ring").strip().lower()
     dof = int(lc.get("cload_dof") or 3)
     if dof not in (1, 2, 3):
         dof = 3
@@ -773,6 +1053,15 @@ def _build_cload_entries(
     if mode in ("single", "single_top", "max_z", "one_node"):
         mag = _mag_one()
         return [(int(load_node_max_z), dof, mag)], mode
+
+    if mode in ("beso9_ring", "top_ring", "circumference", "circumference_edge", "load_ring"):
+        ring = select_beso9_ring_load_nodes(nodes, lc)
+        if not ring:
+            mag = _mag_one()
+            return [(int(load_node_max_z), dof, mag)], "beso9_ring_fallback"
+        total = float(_mag_one())
+        each = total / float(len(ring))
+        return [(int(nid), dof, each) for nid in ring], "beso9_ring"
 
     if mode in ("top_count", "count_top", "n_top"):
         n = int(lc.get("top_node_count") or lc.get("count") or 1)
@@ -864,9 +1153,33 @@ def partition_oc4_mesh_inp(
     zvals = np.array([nodes[i][2] for i in nodes], dtype=float)
     zmin = float(np.min(zvals))
     zmax = float(np.max(zvals))
-    fixed_nodes = [nid for nid, p in nodes.items() if float(p[2]) <= zmin + z_fix_band]
+    # 固定与载荷模式解耦：勿用 cload_mode=single_top 误关三底圆弧固定
+    fix_mode = str(lc.get("fix_mode") or "").strip().lower()
+    if not fix_mode:
+        fix_mode = "beso9_arcs"
+    use_beso9_fix = fix_mode in (
+        "beso9",
+        "beso9_ring",
+        "top_ring",
+        "circumference",
+        "circumference_edge",
+        "corner_arcs",
+        "beso9_arcs",
+        "bottom_arcs",
+        "three_corner_arcs",
+    ) or bool(lc.get("force_direction")) or bool(lc.get("corner_centers_xy_mm"))
+    if use_beso9_fix:
+        fixed_nodes = select_beso9_fixed_nodes(nodes, lc)
+    else:
+        fixed_nodes = [nid for nid, p in nodes.items() if float(p[2]) <= zmin + z_fix_band]
     load_cand = [(nid, float(nodes[nid][2])) for nid in nodes]
     load_node = int(max(load_cand, key=lambda t: t[1])[0])
+
+    # 默认：顶面中心载荷环圆周均分 + 三底角圆弧固定（工程静力等效）
+    if not str(lc.get("cload_mode") or "").strip():
+        lc = {**lc, "cload_mode": "beso9_ring"}
+    if not str(lc.get("fix_mode") or "").strip():
+        lc = {**lc, "fix_mode": "beso9_arcs"}
 
     cload_entries, cload_mode = _build_cload_entries(
         nodes,
@@ -954,6 +1267,7 @@ def partition_oc4_mesh_inp(
     out_lines = _reorder_pre_step_materials_before_solids(out_lines)
     _snap_post_reorder = list(out_lines)
     out_lines = _inject_missing_material_blocks_for_solid_refs(out_lines)
+    out_lines = _ensure_density_after_elastic(out_lines)
     out_lines = _decimalize_node_coordinate_data_lines(out_lines)
     validation_warnings = list(_validate_oc4_partition_output(out_lines))
     if out_lines != _snap_post_reorder:
@@ -970,6 +1284,7 @@ def partition_oc4_mesh_inp(
         "n_design": len(design),
         "n_nondesign": len(nondesign),
         "n_fixed_nodes": len(fixed_nodes),
+        "fix_mode": "beso9_arcs" if use_beso9_fix else "zmin_band",
         "load_node": int(load_node),
         "cload_mode": cload_mode,
         "n_cload_lines": len(cload_entries),
@@ -1016,8 +1331,8 @@ domain_density[elset_name] = [1e-6, 1]
 domain_thickness[elset_name] = [1.0, 1.0]
 domain_offset[elset_name] = 0.0
 domain_orientation[elset_name] = []
-domain_FI[elset_name] = [[("stress_von_Mises", 450.0e6)], [("stress_von_Mises", 450.0)]]
-domain_material[elset_name] = ["*ELASTIC \\n210000e-6,  0.3", "*ELASTIC \\n210000,  0.3"]
+domain_FI[elset_name] = [[("stress_von_Mises", 450.0)], [("stress_von_Mises", 450.0)]]
+domain_material[elset_name] = ["*ELASTIC \\n210000e-6,  0.3\\n*DENSITY\\n7.85e-9", "*ELASTIC \\n210000,  0.3\\n*DENSITY\\n7.85e-9"]
 domain_same_state[elset_name] = False
 
 elset_name = "nondesign_space"
@@ -1026,8 +1341,8 @@ domain_density[elset_name] = [1e-6, 1]
 domain_thickness[elset_name] = [1.0, 1.0]
 domain_offset[elset_name] = 0.0
 domain_orientation[elset_name] = []
-domain_FI[elset_name] = [[("stress_von_Mises", 450.0e6)], [("stress_von_Mises", 450.0)]]
-domain_material[elset_name] = ["*ELASTIC \\n210000e-6,  0.3", "*ELASTIC \\n210000,  0.3"]
+domain_FI[elset_name] = [[("stress_von_Mises", 450.0)], [("stress_von_Mises", 450.0)]]
+domain_material[elset_name] = ["*ELASTIC \\n210000e-6,  0.3\\n*DENSITY\\n7.85e-9", "*ELASTIC \\n210000,  0.3\\n*DENSITY\\n7.85e-9"]
 domain_same_state[elset_name] = False
 
 mass_goal_ratio = {mass_goal_ratio}
@@ -1069,8 +1384,8 @@ domain_density[elset_name] = [1e-6, 1]
 domain_thickness[elset_name] = [1.0, 1.0]
 domain_offset[elset_name] = 0.0
 domain_orientation[elset_name] = []
-domain_FI[elset_name] = [[("stress_von_Mises", 450.0e6)], [("stress_von_Mises", 450.0)]]
-domain_material[elset_name] = ["*ELASTIC \\n210000e-6,  0.3", "*ELASTIC \\n210000,  0.3"]
+domain_FI[elset_name] = [[("stress_von_Mises", 450.0)], [("stress_von_Mises", 450.0)]]
+domain_material[elset_name] = ["*ELASTIC \\n210000e-6,  0.3\\n*DENSITY\\n7.85e-9", "*ELASTIC \\n210000,  0.3\\n*DENSITY\\n7.85e-9"]
 domain_same_state[elset_name] = False
 
 elset_name = "design_s1"
@@ -1079,8 +1394,8 @@ domain_density[elset_name] = [1e-6, 1]
 domain_thickness[elset_name] = [1.0, 1.0]
 domain_offset[elset_name] = 0.0
 domain_orientation[elset_name] = []
-domain_FI[elset_name] = [[("stress_von_Mises", 450.0e6)], [("stress_von_Mises", 450.0)]]
-domain_material[elset_name] = ["*ELASTIC \\n210000e-6,  0.3", "*ELASTIC \\n210000,  0.3"]
+domain_FI[elset_name] = [[("stress_von_Mises", 450.0)], [("stress_von_Mises", 450.0)]]
+domain_material[elset_name] = ["*ELASTIC \\n210000e-6,  0.3\\n*DENSITY\\n7.85e-9", "*ELASTIC \\n210000,  0.3\\n*DENSITY\\n7.85e-9"]
 domain_same_state[elset_name] = False
 
 elset_name = "design_s2"
@@ -1089,8 +1404,8 @@ domain_density[elset_name] = [1e-6, 1]
 domain_thickness[elset_name] = [1.0, 1.0]
 domain_offset[elset_name] = 0.0
 domain_orientation[elset_name] = []
-domain_FI[elset_name] = [[("stress_von_Mises", 450.0e6)], [("stress_von_Mises", 450.0)]]
-domain_material[elset_name] = ["*ELASTIC \\n210000e-6,  0.3", "*ELASTIC \\n210000,  0.3"]
+domain_FI[elset_name] = [[("stress_von_Mises", 450.0)], [("stress_von_Mises", 450.0)]]
+domain_material[elset_name] = ["*ELASTIC \\n210000e-6,  0.3\\n*DENSITY\\n7.85e-9", "*ELASTIC \\n210000,  0.3\\n*DENSITY\\n7.85e-9"]
 domain_same_state[elset_name] = False
 
 elset_name = "nondesign_space"
@@ -1099,8 +1414,8 @@ domain_density[elset_name] = [1e-6, 1]
 domain_thickness[elset_name] = [1.0, 1.0]
 domain_offset[elset_name] = 0.0
 domain_orientation[elset_name] = []
-domain_FI[elset_name] = [[("stress_von_Mises", 450.0e6)], [("stress_von_Mises", 450.0)]]
-domain_material[elset_name] = ["*ELASTIC \\n210000e-6,  0.3", "*ELASTIC \\n210000,  0.3"]
+domain_FI[elset_name] = [[("stress_von_Mises", 450.0)], [("stress_von_Mises", 450.0)]]
+domain_material[elset_name] = ["*ELASTIC \\n210000e-6,  0.3\\n*DENSITY\\n7.85e-9", "*ELASTIC \\n210000,  0.3\\n*DENSITY\\n7.85e-9"]
 domain_same_state[elset_name] = False
 
 mass_goal_ratio = {mass_goal_ratio}

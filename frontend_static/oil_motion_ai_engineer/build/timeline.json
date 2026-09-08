@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 1,
+  "fps": 23.94,
+  "frameDuration": 0.04177109440267335,
+  "frameCount": 744,
+  "duration": 31.08,
+  "initialState": "K0",
+  "states": [
+    {
+      "id": "K0",
+      "hold": 0.259,
+      "title": "Human Engineer",
+      "caption": "多工具碎片化 · 人工反复试错"
+    },
+    {
+      "id": "K1",
+      "hold": 5.138228905597327,
+      "title": "Verification-closed",
+      "caption": "LLM 编排确定性工程后端 · 验证闭环"
+    },
+    {
+      "id": "K2",
+      "hold": 10.318228905597326,
+      "title": "End-to-end pipeline",
+      "caption": "需求 → 设计域 → BESO → 尺寸 → 评审交付"
+    },
+    {
+      "id": "K3",
+      "hold": 15.498228905597326,
+      "title": "Design domain",
+      "caption": "几何边界 · 可优化设计空间 · 网格/载荷"
+    },
+    {
+      "id": "K4",
+      "hold": 20.678228905597326,
+      "title": "The AI Engineer",
+      "caption": "失败分层重规划 · 闭环可恢复"
+    },
+    {
+      "id": "K5",
+      "hold": 25.858228905597326,
+      "title": "Certifiable gate",
+      "caption": "Automated Reviewer · S≥85 · AIP 外校准"
+    },
+    {
+      "id": "K6",
+      "hold": 31.038228905597325,
+      "title": "Enter chat",
+      "caption": "滚至底部，进入大模型工作台"
+    }
+  ],
+  "segments": [
+    {
+      "id": "s01",
+      "from": "K0",
+      "to": "K1",
+      "start": 0.0,
+      "hold": 5.138228905597327,
+      "endExclusive": 5.18,
+      "curve": {
+        "type": "constant",
+        "rate": 1
+      }
+    },
+    {
+      "id": "s02",
+      "from": "K1",
+      "to": "K2",
+      "start": 5.18,
+      "hold": 10.318228905597326,
+      "endExclusive": 10.36,
+      "curve": {
+        "type": "constant",
+        "rate": 1
+      }
+    },
+    {
+      "id": "s03",
+      "from": "K2",
+      "to": "K3",
+      "start": 10.36,
+      "hold": 15.498228905597326,
+      "endExclusive": 15.54,
+      "curve": {
+        "type": "constant",
+        "rate": 1
+      }
+    },
+    {
+      "id": "s04",
+      "from": "K3",
+      "to": "K4",
+      "start": 15.54,
+      "hold": 20.678228905597326,
+      "endExclusive": 20.72,
+      "curve": {
+        "type": "constant",
+        "rate": 1
+      }
+    },
+    {
+      "id": "s05",
+      "from": "K4",
+      "to": "K5",
+      "start": 20.72,
+      "hold": 25.858228905597326,
+      "endExclusive": 25.9,
+      "curve": {
+        "type": "constant",
+        "rate": 1
+      }
+    },
+    {
+      "id": "s06",
+      "from": "K5",
+      "to": "K6",
+      "start": 25.9,
+      "hold": 31.038228905597325,
+      "endExclusive": 31.08,
+      "curve": {
+        "type": "constant",
+        "rate": 1
+      }
+    }
+  ],
+  "media": {
+    "desktop": "./oil_motion_ai_engineer/final/desktop.mp4",
+    "mobile": "./oil_motion_ai_engineer/final/mobile.mp4",
+    "poster": "./oil_motion_ai_engineer/final/poster.png"
+  },
+  "style": "zenmux-minimax-chain-from-project-keyframes",
+  "clips": [
+    "pilot\\clips\\s01_K0_K1.mp4",
+    "pilot\\clips\\s02_K1_K2.mp4",
+    "pilot\\clips\\s03_K2_K3.mp4",
+    "pilot\\clips\\s04_K3_K4.mp4",
+    "pilot\\clips\\s05_K4_K5.mp4",
+    "pilot\\clips\\s06_K5_K6.mp4"
+  ]
+}

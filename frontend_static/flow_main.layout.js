@@ -274,13 +274,15 @@ export function createLayoutManager(deps) {
     };
     [refs.panelStep1, refs.panelStep2, refs.panelStep3A, refs.panelStep3B, refs.panelStep4, refs.flowStageRight].forEach(hide);
 
-    if (step === 1) {
+    // 步骤 5/6 已拆为独立子流程卡片；flow 面板仅展示拓扑 1–4
+    const panelStep = step >= 4 ? 4 : step;
+    if (panelStep === 1) {
       refs.panelStep1?.classList.add("stageVisible");
       if (refs.flowStageRight) refs.flowStageRight.style.display = "none";
-    } else if (step === 2) {
+    } else if (panelStep === 2) {
       refs.flowStageRight?.classList.add("stageVisibleGrid");
       refs.panelStep2?.classList.add("stageVisible");
-    } else if (step === 3) {
+    } else if (panelStep === 3) {
       refs.flowStageRight?.classList.add("stageVisibleGrid");
       refs.panelStep3A?.classList.add("stageVisible");
       refs.panelStep3B?.classList.add("stageVisible");
@@ -677,16 +679,98 @@ export function createLayoutManager(deps) {
   function addLandingWorkflowCard(model) {
     wireLandingBubbleActionsOnce();
     if (!refs.chatLanding) return null;
-    const kind = String(model.kind || "orchestrate") === "design_domain" ? "design_domain" : "orchestrate";
-    const title = model.title || (kind === "design_domain" ? "设计域（OC4）" : "构型优化编排");
+    const kindRaw = String(model.kind || "orchestrate").toLowerCase();
+    const kind =
+      kindRaw === "design_domain"
+        ? "design_domain"
+        : kindRaw === "restruction" || kindRaw === "analysis"
+          ? "restruction"
+          : kindRaw === "validation" || kindRaw === "review" || kindRaw === "ai_review"
+            ? "validation"
+            : "orchestrate";
+    const title =
+      model.title ||
+      (kind === "design_domain"
+        ? "设计域（OC4）"
+        : kind === "restruction"
+          ? "尺寸时域分析"
+          : kind === "validation"
+            ? "AI Review"
+            : "构型优化编排");
     const step = Number(model.step);
     const progress = Number(model.progress);
     const statusLabel = String(model.status || "进行中");
-    const stepTxt = Number.isFinite(step) && step >= 1 ? `步骤 ${Math.min(4, step)}/4` : "";
+    const total =
+      kind === "orchestrate" ? 4 : kind === "restruction" ? 2 : kind === "validation" ? 1 : 0;
+    const stepClamped = Number.isFinite(step) && step >= 1 && total > 0 ? Math.min(total, step) : 0;
+    const stepTxt =
+      kind === "validation"
+        ? stepClamped
+          ? "评审"
+          : ""
+        : kind === "restruction"
+          ? stepClamped
+            ? `阶段 ${stepClamped}/${total}`
+            : ""
+          : stepClamped
+            ? `步骤 ${stepClamped}/${total}`
+            : "";
     const pct = Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0;
     const tid = String(model.taskId || "").trim();
+    const continueTo = String(model.continueTo || "").trim();
+    const continueLabel = String(model.continueLabel || "").trim();
+    let phaseRail = "";
+    if (kind === "orchestrate") {
+      phaseRail = `<div class="landingWorkflowPhases" aria-hidden="true">
+            ${[1, 2, 3, 4]
+              .map((i) => {
+                const labels = ["搜", "码", "预", "汇"];
+                const cls =
+                  stepClamped > i ? "is-done" : stepClamped === i ? "is-current" : "is-todo";
+                return `<span class="landingWorkflowPhase ${cls}" title="步骤 ${i}">${labels[i - 1]}</span>`;
+              })
+              .join("")}
+          </div>`;
+    } else if (kind === "restruction") {
+      phaseRail = `<div class="landingWorkflowPhases" aria-hidden="true">
+            ${[1, 2]
+              .map((i) => {
+                const labels = ["静力", "时域"];
+                const cls =
+                  stepClamped > i ? "is-done" : stepClamped === i ? "is-current" : "is-todo";
+                return `<span class="landingWorkflowPhase ${cls}" title="${labels[i - 1]}">${labels[i - 1]}</span>`;
+              })
+              .join("")}
+          </div>`;
+    } else if (kind === "validation") {
+      const cls = stepClamped >= 1 || pct >= 50 ? "is-current" : "is-todo";
+      const doneCls = pct >= 100 || String(statusLabel).includes("完成") ? "is-done" : cls;
+      phaseRail = `<div class="landingWorkflowPhases landingWorkflowPhases--review" aria-hidden="true">
+            <span class="landingWorkflowPhase ${doneCls}" title="AI Review">
+              <svg class="landingWorkflowPhaseIcon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 13l2.2 2.2L16 10.4"/></svg>
+              评审
+            </span>
+          </div>`;
+    }
+    const hint =
+      kind === "design_domain"
+        ? "点击返回设计域工作台"
+        : kind === "restruction"
+          ? "点击进入尺寸时域分析"
+          : kind === "validation"
+            ? "点击进入 AI Review"
+            : "点击进入构型优化编排 / 拓扑流程";
+    const actionsHtml =
+      continueTo && continueLabel
+        ? `<div class="landingWorkflowCardActions">
+            <button type="button" class="landingWorkflowContinueBtn" data-workflow-continue="${escapeHtml(continueTo)}" ${
+              tid ? `data-task-id="${escapeHtml(tid)}"` : ""
+            }>${escapeHtml(continueLabel)}</button>
+          </div>`
+        : "";
     const wrap = document.createElement("div");
     wrap.className = "landingTurn landingTurn--card";
+    wrap.dataset.cardKind = kind;
     wrap.innerHTML = `
       <button type="button" class="landingWorkflowCard" data-workflow-jump="${kind}" ${tid ? `data-task-id="${escapeHtml(tid)}"` : ""} title="在右侧主区域继续：${escapeHtml(title)}">
         <div class="landingWorkflowCardHd">${escapeHtml(title)}</div>
@@ -694,13 +778,72 @@ export function createLayoutManager(deps) {
           <span class="pill landingWorkflowCardStatus">${escapeHtml(statusLabel)}</span>
           ${stepTxt ? `<span class="landingWorkflowCardStep">${escapeHtml(stepTxt)}</span>` : `<span class="landingWorkflowCardStep"></span>`}
         </div>
+        ${phaseRail}
         <div class="landingWorkflowBar" aria-hidden="true"><span class="landingWorkflowBarFill" style="width:${pct}%"></span></div>
-        <div class="landingWorkflowCardHint">点击进入对应子流程</div>
+        <div class="landingWorkflowCardHint">${escapeHtml(hint)}</div>
       </button>
+      ${actionsHtml}
     `;
     refs.chatLanding.appendChild(wrap);
     refs.chatLanding.scrollTop = refs.chatLanding.scrollHeight;
     return wrap.querySelector(".landingWorkflowCard");
+  }
+
+  /** 更新已有子流程卡片的状态 / 进度 / 继续按钮（不重复插入） */
+  function updateLandingWorkflowCard(kind, patch = {}) {
+    if (!refs.chatLanding) return null;
+    const k = String(kind || "").toLowerCase();
+    const tid = String(patch.taskId || "").trim();
+    const cards = [
+      ...refs.chatLanding.querySelectorAll(`.landingWorkflowCard[data-workflow-jump="${k}"]`),
+    ];
+    let btn = cards.find((el) => !tid || el.getAttribute("data-task-id") === tid) || cards[0];
+    if (!btn) return null;
+    const turn = btn.closest(".landingTurn");
+    if (patch.status != null) {
+      const pill = btn.querySelector(".landingWorkflowCardStatus");
+      if (pill) pill.textContent = String(patch.status);
+    }
+    if (patch.step != null || patch.progress != null) {
+      const step = Number(patch.step);
+      const progress = Number(patch.progress);
+      const total = k === "orchestrate" ? 4 : k === "restruction" ? 2 : k === "validation" ? 1 : 0;
+      const stepEl = btn.querySelector(".landingWorkflowCardStep");
+      if (stepEl && Number.isFinite(step) && total > 0) {
+        stepEl.textContent =
+          k === "validation" ? "评审" : k === "restruction" ? `阶段 ${Math.min(total, step)}/${total}` : `步骤 ${Math.min(total, step)}/${total}`;
+      }
+      const fill = btn.querySelector(".landingWorkflowBarFill");
+      if (fill && Number.isFinite(progress)) fill.style.width = `${Math.max(0, Math.min(100, progress))}%`;
+      const phases = btn.querySelectorAll(".landingWorkflowPhase");
+      if (phases?.length && Number.isFinite(step)) {
+        const cur = Math.min(total, Math.max(0, step));
+        phases.forEach((el, idx) => {
+          const i = idx + 1;
+          el.classList.toggle("is-done", cur > i);
+          el.classList.toggle("is-current", cur === i);
+          el.classList.toggle("is-todo", cur < i);
+        });
+      }
+    }
+    const continueTo = patch.continueTo != null ? String(patch.continueTo).trim() : null;
+    const continueLabel = patch.continueLabel != null ? String(patch.continueLabel).trim() : null;
+    if (continueTo !== null && turn) {
+      let actions = turn.querySelector(".landingWorkflowCardActions");
+      if (!continueTo || !continueLabel) {
+        actions?.remove();
+      } else {
+        if (!actions) {
+          actions = document.createElement("div");
+          actions.className = "landingWorkflowCardActions";
+          turn.appendChild(actions);
+        }
+        actions.innerHTML = `<button type="button" class="landingWorkflowContinueBtn" data-workflow-continue="${escapeHtml(continueTo)}" ${
+          tid ? `data-task-id="${escapeHtml(tid)}"` : ""
+        }>${escapeHtml(continueLabel)}</button>`;
+      }
+    }
+    return btn;
   }
 
   /** 助手工具轨迹：可折叠列表，不参与 Qwen role 回传 */
@@ -732,6 +875,7 @@ export function createLayoutManager(deps) {
   function showStage(mode) {
     refs.landingMain?.classList.toggle("hidden", mode !== "landing");
     refs.designDomainMain?.classList.toggle("hidden", mode !== "designDomain");
+    refs.restructionMain?.classList.toggle("hidden", mode !== "restruction");
     refs.orchestrateMain?.classList.toggle("hidden", mode !== "orchestrate");
     refs.flowMain?.classList.toggle("hidden", mode !== "flow");
     refs.flowStepper?.classList.toggle("hidden", mode !== "flow");
@@ -744,11 +888,22 @@ export function createLayoutManager(deps) {
    */
   function playLandingSubflowBridge(opts = {}) {
     if (opts.instant === true || opts.skip === true) return Promise.resolve();
-    const kind = String(opts.kind || "design_domain").toLowerCase() === "orchestrate" ? "orchestrate" : "design_domain";
+    const kindRaw = String(opts.kind || "design_domain").toLowerCase();
+    const kind =
+      kindRaw === "orchestrate" ? "orchestrate" : kindRaw === "restruction" ? "restruction" : "design_domain";
     const minMs = Math.max(720, Math.min(3400, Number(opts.minMs) > 0 ? Number(opts.minMs) : 1480));
-    const title = kind === "orchestrate" ? "即将进入构型优化编排" : "即将进入设计域（OC4）";
+    const title =
+      kind === "orchestrate"
+        ? "即将进入构型优化编排"
+        : kind === "restruction"
+          ? "即将进入尺寸时域分析"
+          : "即将进入设计域（OC4）";
     const subtitle =
-      kind === "orchestrate" ? "正在切换到编排工作台…" : "正在打开网格与载荷工作台…";
+      kind === "orchestrate"
+        ? "正在切换到编排工作台…"
+        : kind === "restruction"
+          ? "正在打开静力尺寸与 Zwind 时域分析台…"
+          : "正在打开网格与载荷工作台…";
     const anchor = refs.landingMain;
     if (!anchor) return Promise.resolve();
     return new Promise((resolve) => {
@@ -1312,6 +1467,7 @@ export function createLayoutManager(deps) {
     removeLandingTyping,
     beginLandingAgentStream,
     addLandingWorkflowCard,
+    updateLandingWorkflowCard,
     addLandingToolTraceCard,
     showStage,
     goHome,

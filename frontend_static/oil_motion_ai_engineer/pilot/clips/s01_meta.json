@@ -1,0 +1,52 @@
+{
+  "payload": {
+    "model": "minimax/minimax-h3-max",
+    "content": [
+      {
+        "type": "text",
+        "text": "Hold the product UI chrome fixed: top-left The AI Engineer brand mark and title, progress dots, bottom caption dock with white rounded cards, blue/emerald accent. Continuously morph the central paper figure from Human Engineer multi-tool chaos diagram into the verification-closed loop diagram. Soft camera push-in along the center axis, teal-blue engineering light, no purple glow, no new logos, keep 16:9 framing."
+      },
+      {
+        "type": "image_url",
+        "role": "first_frame",
+        "image_url": {
+          "url": "<local-image-data-uri>"
+        }
+      },
+      {
+        "type": "image_url",
+        "role": "last_frame",
+        "image_url": {
+          "url": "<local-image-data-uri>"
+        }
+      }
+    ],
+    "resolution": "768p",
+    "generate_audio": false,
+    "watermark": false,
+    "return_last_frame": true,
+    "duration": 5,
+    "ratio": "16:9"
+  },
+  "submit": {
+    "id": "991110339dbd4a3db8f175aef57dfce8",
+    "status": "queued",
+    "model": "minimax/minimax-h3-max"
+  },
+  "final": {
+    "id": "991110339dbd4a3db8f175aef57dfce8",
+    "status": "succeeded",
+    "content": {
+      "video_url": "<remote-url-redacted>"
+    },
+    "model": "minimax/minimax-h3-max"
+  },
+  "productionGate": {
+    "stage": "pilot",
+    "segmentIndex": 1
+  },
+  "lastFrame": {
+    "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\pilot\\clips\\s01_tail.png",
+    "source": "video-fallback"
+  }
+}

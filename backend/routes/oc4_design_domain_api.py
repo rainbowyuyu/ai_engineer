@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, Body, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from backend.oc4_methodology_chen2026 import LLM_CONTEXT_BLOCK_ZH
@@ -95,10 +95,30 @@ class SessionCreateIn(BaseModel):
     design_checklist_id: str | None = Field(default=None, description="可选：Phase I 设计清单 ID")
 
 
+class SessionBootstrapIn(BaseModel):
+    """无上传时用内置 OC4 IGES（或 source_path）创建设计域，可带机型预设。"""
+
+    file_id: str | None = None
+    source_path: str | None = None
+    preset_id: str | None = Field(default=None, description="5/10/15/20 或空")
+    task_id: str | None = None
+    design_checklist_id: str | None = None
+    source_text: str | None = Field(default=None, description="用户原话，用于种子设计清单")
+
+
 class BuildIn(BaseModel):
     session_id: str
     cut_center_column: bool = True
     include_source_geometry: bool = False
+    domain_envelope: str | None = Field(
+        default="triangle_prism",
+        description="triangle_prism（beso9 三棱柱，默认）或 hull_bbox（装配包围盒平板）",
+    )
+    corner_r_mm: float | None = Field(
+        default=None,
+        description="三顶角挖去圆柱半径（mm）。口语 15m → 15000。省略则用会话 meta 或 beso9 默认比例。",
+        gt=0,
+    )
 
 
 class ExportObjIn(BaseModel):
@@ -212,6 +232,77 @@ def oc4_dd_create_session(body: SessionCreateIn):
     }
 
 
+@router.post("/session/bootstrap")
+def oc4_dd_bootstrap_session(body: SessionBootstrapIn):
+    """
+    用户未上传 IGES 时：用仓库内置 oc4.igs（或指定 source_path）创建设计域会话，
+    并可应用 5/10/15/20 MW 机型预设。供主页对话「10MW 风机…」无附件路径使用。
+    """
+    from backend.pipeline.steps import step_apply_turbine_preset, step_start_design_domain_session
+
+    try:
+        out = step_start_design_domain_session(
+            file_id=str(body.file_id or "").strip() or None,
+            source_path=str(body.source_path or "").strip() or None,
+            task_id=str(body.task_id or "").strip() or None,
+            design_checklist_id=str(body.design_checklist_id or "").strip() or None,
+            preset_id=str(body.preset_id or "").strip() or None,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"bootstrap failed: {e}") from e
+
+    sid = str(out.get("session_id") or "")
+    # 若仅有 source_text、尚未经 preset 种子清单，再补一次 apply
+    cid = str(out.get("meta", {}).get("design_checklist_id") or body.design_checklist_id or "").strip()
+    if body.source_text and body.preset_id and not cid:
+        try:
+            applied = step_apply_turbine_preset(
+                preset_id=body.preset_id,
+                session_id=sid or None,
+                source_text=body.source_text,
+            )
+            cid = str(applied.get("checklist_id") or "")
+            out["checklist_id"] = cid
+        except Exception:
+            pass
+    elif body.source_text and body.preset_id and sid:
+        try:
+            applied = step_apply_turbine_preset(
+                preset_id=body.preset_id,
+                checklist_id=cid or None,
+                session_id=sid,
+                source_text=body.source_text,
+            )
+            out["checklist_id"] = applied.get("checklist_id") or cid
+        except Exception:
+            out["checklist_id"] = cid or None
+    else:
+        out["checklist_id"] = cid or out.get("meta", {}).get("design_checklist_id")
+
+    sdir = session_dir(_workspace_root(), sid)
+    meta = read_session_meta(sdir) if sdir.is_dir() else {}
+    src_name = meta.get("source_name") or out.get("file_name") or "oc4.igs"
+    src = sdir / src_name
+    summ = geometry_summary(src) if src.is_file() else {}
+    if summ:
+        merge_session_meta(sdir, {"geometry_summary": summ})
+    return {
+        "ok": True,
+        "session_id": sid,
+        "file_id": out.get("file_id"),
+        "file_name": out.get("file_name") or src_name,
+        "checklist_id": out.get("checklist_id"),
+        "geometry_summary": summ,
+        "meta": {**meta, **(out.get("meta") or {})},
+        "client_hint": out.get("client_hint"),
+        "used_builtin_iges": not bool(str(body.file_id or "").strip()),
+    }
+
+
 @router.get("/session/{session_id}")
 def oc4_dd_get_session(session_id: str):
     sdir = _get_session(session_id)
@@ -295,6 +386,59 @@ def oc4_dd_session_read_file(session_id: str, rel_path: str = Query(..., alias="
         "encoding": "utf-8",
         "content": text,
     }
+
+
+@router.get("/session/{session_id}/preview/inp-mesh-vtk")
+def oc4_dd_session_inp_mesh_vtk(
+    session_id: str,
+    rel_path: str = Query(..., alias="path", min_length=1, max_length=2048),
+):
+    """将会话内体网格 INP 转为 VTK Legacy ASCII，供设计域中栏三维预览（免再上传）。"""
+    import tempfile
+
+    from backend.tools.freecad_inp_mesh_vtk import convert_inp_to_vtk_file
+
+    sdir = _get_session(session_id).resolve()
+    raw = (rel_path or "").strip().replace("\\", "/").lstrip("/")
+    if ".." in Path(raw).parts:
+        raise HTTPException(status_code=400, detail="invalid path")
+    target = (sdir / raw).resolve()
+    try:
+        target.relative_to(sdir)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="path outside session") from e
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="not a file")
+    if not _path_ok(target):
+        raise HTTPException(status_code=400, detail="invalid path")
+    if not raw.lower().endswith(".inp"):
+        raise HTTPException(status_code=400, detail="需要 .inp 网格文件")
+    try:
+        sz = int(target.stat().st_size)
+    except OSError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    max_b = 80 * 1024 * 1024
+    if sz > max_b:
+        raise HTTPException(status_code=413, detail="INP 超过 80MB 上限")
+
+    out_path = Path(tempfile.mkstemp(suffix=".vtk")[1])
+    try:
+        convert_inp_to_vtk_file(target, out_path, timeout_s=240.0)
+        vtk_text = out_path.read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except Exception as e:
+        # TimeoutExpired 等
+        raise HTTPException(status_code=504, detail=f"INP→VTK 失败：{e}") from e
+    finally:
+        try:
+            out_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    return PlainTextResponse(vtk_text, media_type="text/plain; charset=utf-8")
 
 
 class FileWriteIn(BaseModel):
@@ -431,6 +575,72 @@ def oc4_dd_invalidate_from_step(body: InvalidateFromStepIn):
     return {"ok": True, **out}
 
 
+class ReplaceGeometryIn(BaseModel):
+    session_id: str
+    source_path: str | None = None
+    file_id: str | None = None
+    as_design_domain: bool = True
+    task_id: str | None = None
+
+
+@router.post("/replace-geometry")
+def oc4_dd_replace_geometry(body: ReplaceGeometryIn):
+    """HITL: replace session CAD, clear downstream mesh/loads, snapshot user_edit."""
+    _get_session(body.session_id)
+    from backend.pipeline.steps import step_replace_geometry
+
+    try:
+        return step_replace_geometry(
+            session_id=body.session_id,
+            source_path=body.source_path,
+            file_id=body.file_id,
+            as_design_domain=body.as_design_domain,
+            task_id=body.task_id,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+class CommitPreviewIn(BaseModel):
+    session_id: str
+    preview_path: str
+    task_id: str | None = None
+
+
+@router.post("/commit-preview")
+def oc4_dd_commit_preview(body: CommitPreviewIn):
+    """Commit results-viewer parametric preview into the design-domain session."""
+    _get_session(body.session_id)
+    from backend.pipeline.steps import step_commit_preview_to_session
+
+    try:
+        return step_commit_preview_to_session(
+            session_id=body.session_id,
+            preview_stl_or_step=body.preview_path,
+            task_id=body.task_id,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+class HumanEditIn(BaseModel):
+    session_id: str
+    reason: str = "review_geometry"
+    message: str | None = None
+
+
+@router.post("/request-human-edit")
+def oc4_dd_request_human_edit(body: HumanEditIn):
+    _get_session(body.session_id)
+    from backend.pipeline.steps import step_request_human_edit
+
+    return step_request_human_edit(session_id=body.session_id, reason=body.reason, message=body.message)
+
+
 @router.post("/build")
 def oc4_dd_build(body: BuildIn):
     sdir = _get_session(body.session_id)
@@ -439,6 +649,8 @@ def oc4_dd_build(body: BuildIn):
             sdir,
             cut_center_column=body.cut_center_column,
             include_source_geometry=body.include_source_geometry,
+            domain_envelope=body.domain_envelope,
+            corner_r_mm=body.corner_r_mm,
         )
     except Exception as e:
         meta = read_session_meta(sdir)
@@ -457,6 +669,7 @@ def oc4_dd_build(body: BuildIn):
             hint += (
                 " 提示：本流程仅针对 OC4 类导管架 IGES（Gmsh 能解析出足够 revolution 圆柱或梁段）。"
                 "请换用示例 `examples/oc4/oc4_design_domain.igs` 或同类模型验证环境。"
+                "也可在会话 meta.column_pick_thresholds 中按 MW 预设放宽半径启发式。"
             )
         raise HTTPException(status_code=400, detail=f"设计域构建失败: {e}{hint}") from e
     return {"ok": True, **out}
@@ -636,7 +849,8 @@ def oc4_dd_chat(body: ChatIn):
             '- "reply": string，中文自然语言回答；\n'
             '- "suggested_build": object 或 null，仅含 cut_center_column、include_source_geometry（布尔）；\n'
             '- "suggested_loads": object 或 null，可含 band_scale（1~3）、z_fix_band、cload_mag、'
-            "cload_mode、cload_each、top_node_count、top_fraction、explicit_cloads。\n"
+            "cload_mode、cload_dof（1|2|3）、force_direction（-Z|+Z|+X|-X|+Y|-Y）、"
+            "cload_each、top_node_count、top_fraction、explicit_cloads。\n"
             "若用户未要求改参数，对应键用 null。"
         )
         user = f"几何摘要:\n{json.dumps(summ, ensure_ascii=False)}\n\n用户问题:\n{body.message.strip()}"
@@ -681,8 +895,11 @@ def oc4_dd_chat(body: ChatIn):
             "你是「AI Engineer」中负责 OC4 载荷与分区的助手（步骤 4：写入 03_for_beso.inp 的 *STEP/*CLOAD）。"
             "只输出**一个** JSON：{\"reply\":string,\"suggested_loads\":object|null}；\n"
             "suggested_loads 可含 band_scale（1~3）、z_fix_band、cload_mag、"
-            "cload_mode（single_top|top_count|top_fraction|explicit）、cload_each、top_node_count、"
-            "top_fraction、explicit_cloads；未改则 null。"
+            "cload_mode（single_top|top_count|top_fraction|explicit）、cload_dof（1|2|3）、"
+            "force_direction（-Z|+Z|+X|-X|+Y|-Y）、cload_each、top_node_count、"
+            "top_fraction、explicit_cloads；未改则 null。\n"
+            "默认对齐 examples/beso/beso9/BESO9.FCStd：顶区多点圆周式分布、DirectionVector=−Z；"
+            "用户说水平风推/塔顶推力时用 ±X/±Y。"
         )
         user = f"几何摘要:\n{json.dumps(summ, ensure_ascii=False)}\n\n用户:\n{body.message.strip()}"
     else:
@@ -905,6 +1122,14 @@ class PlanBuildIn(BaseModel):
         description="当 mesh_preset=custom 时填写 Gmsh CharacteristicLengthMax（mm，越大越粗）",
     )
     mesh_user_note: str | None = Field(default=None, max_length=600)
+    force_direction: str | None = Field(
+        default="-Z",
+        description="载荷方向：-Z|+Z|+X|-X|+Y|-Y；默认 -Z（对齐 BESO9.FCStd DirectionVector）",
+    )
+    cload_mag: float | None = Field(
+        default=None,
+        description="可选：载荷总力绝对值（N）；默认约 2.45e7（BESO9）",
+    )
 
 
 @router.post("/session/{session_id}/agent/plan-build/stream")
@@ -930,6 +1155,8 @@ def oc4_dd_plan_build_stream(session_id: str, body: PlanBuildIn = Body(default_f
                 mesh_preset=mp,
                 mesh_characteristic_length_max=body.mesh_characteristic_length_max,
                 mesh_user_note=body.mesh_user_note,
+                force_direction=body.force_direction,
+                cload_mag=body.cload_mag,
             )
         else:
             events = iter_design_domain_plan_build_events(
@@ -939,6 +1166,8 @@ def oc4_dd_plan_build_stream(session_id: str, body: PlanBuildIn = Body(default_f
                 mesh_preset=mp,
                 mesh_characteristic_length_max=body.mesh_characteristic_length_max,
                 mesh_user_note=body.mesh_user_note,
+                force_direction=body.force_direction,
+                cload_mag=body.cload_mag,
             )
         for ev in events:
             yield (json.dumps(ev, ensure_ascii=False) + "\n").encode("utf-8")

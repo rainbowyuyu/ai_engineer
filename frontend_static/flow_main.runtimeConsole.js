@@ -240,14 +240,23 @@ function collectTracks(refs, state) {
   }
   const leftBusy = Boolean(refs.designDomainLeftOverlay && !refs.designDomainLeftOverlay.classList.contains("hidden"));
   const rightBusy = Boolean(refs.designDomainRightOverlay && !refs.designDomainRightOverlay.classList.contains("hidden"));
-  if (leftBusy || rightBusy) {
+  const previewBusy = Boolean(refs.ddIdePreviewOverlay && !refs.ddIdePreviewOverlay.classList.contains("hidden"));
+  const stageBusy = Boolean(refs.ddStageBusyOverlay && !refs.ddStageBusyOverlay.classList.contains("hidden")) ||
+    Boolean(state.ddStageBusy) ||
+    Boolean(state.ddPlanBuildBusy);
+  if (leftBusy || rightBusy || previewBusy || stageBusy) {
     const bits = [];
+    if (stageBusy || state.ddPlanBuildBusy) {
+      const t = String(refs.ddStageBusyTitle?.textContent || "").trim();
+      bits.push(t || (state.ddPlanBuildBusy ? "Build 执行中" : "准备中"));
+    }
     if (leftBusy) bits.push("几何预览");
     if (rightBusy) bits.push("设计域网格");
+    if (previewBusy && !stageBusy) bits.push("3D 预览");
     out.push({
       id: "dd",
       label: "设计域（OC4）",
-      meta: bits.join(" · "),
+      meta: bits.filter(Boolean).join(" · ") || "忙碌",
       badge: "忙碌",
       busy: true,
       tone: "working",

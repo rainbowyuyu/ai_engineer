@@ -93,7 +93,43 @@ flowchart TB
   PIPE --> JOBS[Job manager + WS events]
 ```
 
-Key packages: `backend/llm/` (config, concurrency, streaming, flags), `backend/agents/` (assistant / design-domain / structured), `backend/graph/pipeline/` (MasterGraph), `backend/security/` (RBAC), `backend/rag/` (vector index).
+Key packages: `backend/llm/` (config, concurrency, streaming, flags), `backend/agents/` (assistant / design-domain / structured), `backend/graph/pipeline/` (MasterGraph), `backend/pipeline/` (shared live steps), `backend/presets/` (5/10/15/20 MW), `backend/security/` (RBAC), `backend/rag/` (vector index).
+
+---
+
+## Conversation-driven closed loop (not just a demo)
+
+Main path: **chat tools → live engineering**. Teaching BESO7 replay remains a **labeled bypass** (`?demo=beso7-pipeline` / Demo Hub「教学回放」).
+
+| Mode | When | Behavior |
+|------|------|----------|
+| **Live** | FreeCADCmd + CalculiX + gmsh available | Real design-domain → BESO → sizing → validation |
+| **Preview** | Solvers missing or `BESO_EXECUTION_MODE=preview` | Explicitly labeled; refuses to fake BESO success |
+
+Assistant tools (tools mode on): `apply_turbine_preset`, `start_design_domain_session`, `run_design_domain_build`, `request_human_edit` / `apply_geometry_patch` / `commit_preview_to_session`, `start_beso_job`, `run_sizing`, `run_validation`, `evaluate_halt`; plus **beso9-style prism**: `run_prism_topology_demo` / `parse_prism_design_brief` / `build_prism_design_domain` / `mesh_prism_design_domain`.
+
+**10 MW demo:** Demo Hub →「对话真跑 · 10MW」or `index.html?live=10mw&prefill=...`.
+
+### Prompt-driven prism design domain (beso9 family)
+
+Parallel to OC4/IGES. Natural language → FreeCAD equilateral prism + corner dig-outs + load ring → mesh → async live BESO.
+
+Example prompts:
+
+1. “Use beso9 defaults, 5% volume fraction, run topology optimization”
+2. “Side 80 m, dig-out R=6 m, force 2.45e7 N, coarse mesh demo”
+3. Afterward: open results viewer or drop `parameters_summary.json`
+
+HTTP: `POST /api/prism-design/demo` with `{"text":"...","start_beso":true}`; parse: `POST /api/prism-design/parse`.  
+Sessions: `runs/_prism_sessions/<id>/`.
+
+### Turbine presets (5 / 10 / 15 / 20 MW)
+
+OC4/BESO semisub family scaled from NREL 5 MW baseline (`√(P/5)`), with linked `cload_mag`, thrust, and validation target. Checklist capacity **drives** scoring (no silent ignore of 10 vs 20 MW).
+
+### Human-in-the-loop geometry
+
+Pause before mesh; `POST /api/oc4/design-domain/replace-geometry` or results-viewer **提交到会话** → clears downstream mesh/loads → re-run. Versions process type: `user_edit`.
 
 ---
 

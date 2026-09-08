@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "links": [
+    {
+      "segmentIndex": 2,
+      "verifiedAt": "2026-09-08T14:18:36.838584+00:00",
+      "exactSha256Match": true,
+      "previousTail": {
+        "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\pilot\\clips\\s01_tail.png",
+        "bytes": 401000,
+        "sha256": "c6f3f342c085e50e61b31376fec459ee6d12c4761c2836e38c62fc1d987a72f6"
+      },
+      "nextFirst": {
+        "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\pilot\\clips\\s01_tail.png",
+        "bytes": 401000,
+        "sha256": "c6f3f342c085e50e61b31376fec459ee6d12c4761c2836e38c62fc1d987a72f6"
+      }
+    },
+    {
+      "segmentIndex": 3,
+      "verifiedAt": "2026-09-08T14:21:43.052293+00:00",
+      "exactSha256Match": true,
+      "previousTail": {
+        "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\pilot\\clips\\s02_tail.png",
+        "bytes": 467796,
+        "sha256": "59e1b934e74d4e6acfd9cbfaccf7969dc97fb0afafdc881dbf28c571354ae0df"
+      },
+      "nextFirst": {
+        "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\pilot\\clips\\s02_tail.png",
+        "bytes": 467796,
+        "sha256": "59e1b934e74d4e6acfd9cbfaccf7969dc97fb0afafdc881dbf28c571354ae0df"
+      }
+    },
+    {
+      "segmentIndex": 4,
+      "verifiedAt": "2026-09-08T14:22:24.226938+00:00",
+      "exactSha256Match": true,
+      "previousTail": {
+        "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\pilot\\clips\\s03_tail.png",
+        "bytes": 339154,
+        "sha256": "ebfb45063a24b4ed4499fb65c6f7eda00342ea03c14f4c115c4a230b363fd50d"
+      },
+      "nextFirst": {
+        "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\pilot\\clips\\s03_tail.png",
+        "bytes": 339154,
+        "sha256": "ebfb45063a24b4ed4499fb65c6f7eda00342ea03c14f4c115c4a230b363fd50d"
+      }
+    },
+    {
+      "segmentIndex": 5,
+      "verifiedAt": "2026-09-08T14:23:18.459757+00:00",
+      "exactSha256Match": true,
+      "previousTail": {
+        "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\pilot\\clips\\s04_tail.png",
+        "bytes": 413553,
+        "sha256": "fa7880cca8a5ba13013950a38e6706987d1a58295151852c560a19646778bb54"
+      },
+      "nextFirst": {
+        "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\pilot\\clips\\s04_tail.png",
+        "bytes": 413553,
+        "sha256": "fa7880cca8a5ba13013950a38e6706987d1a58295151852c560a19646778bb54"
+      }
+    },
+    {
+      "segmentIndex": 6,
+      "verifiedAt": "2026-09-08T14:24:15.435898+00:00",
+      "exactSha256Match": true,
+      "previousTail": {
+        "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\pilot\\clips\\s05_tail.png",
+        "bytes": 438053,
+        "sha256": "6edd3cb9582cec9c7aa6012bdfe1018acdbdd45553523216c2eaf600842cb3c9"
+      },
+      "nextFirst": {
+        "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\pilot\\clips\\s05_tail.png",
+        "bytes": 438053,
+        "sha256": "6edd3cb9582cec9c7aa6012bdfe1018acdbdd45553523216c2eaf600842cb3c9"
+      }
+    }
+  ]
+}

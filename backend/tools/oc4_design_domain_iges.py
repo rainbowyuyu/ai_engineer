@@ -3,24 +3,24 @@ from __future__ import annotations
 """
 OC4 导管架：由原始梁系 IGS（如 oc4.igs）生成「实心设计域」IGES/STEP，供后续体网格与 BESO。
 
-默认几何（``domain_envelope=hull_bbox``）对齐 ``examples/beso/BESO3-Compound.iges`` 一类**整装配包络**：
-在 Gmsh 中 merge 源 IGES，取 OCC 整体轴对齐包围盒，竖向与梁系推导的 ``[z_bot,z_top]`` 求交，
-得到一块「下层平台实体包络」长方体，再布尔减去柱身/桩靴圆柱（与 FCStd 中 Pad001 占据下层
-大块可设计体积的思路一致：用**全船装配外廓**而非三边柱内心小三角）。
+默认几何（``domain_envelope=triangle_prism``）对齐 **examples/beso/beso9/BESO9.FCStd**：
+等边三棱柱 + 三顶角通高圆柱挖除（+ 可选中心孔），**不**挖桩靴（避免底面出现台阶状怪形）。
 
-可选 ``domain_envelope=triangle_prism``：保留旧版以外柱三角形为底、竖向拉伸的棱柱包络
-（便于对照或特殊模型）；环境变量 ``OC4_DESIGN_DOMAIN_ENVELOPE=triangle`` 等价于该模式。
+可选 ``domain_envelope=hull_bbox``：整装配轴对齐包围盒 slab（对齐 ``examples/beso/BESO3-Compound.iges`` 体量），
+再布尔减去柱身/桩靴。
 
-布尔：默认减去中心柱 + 三根边柱；``--edge-columns-only`` 仅挖边柱。
+环境变量 ``OC4_DESIGN_DOMAIN_ENVELOPE=triangle`` / ``hull`` 可覆盖默认。
+布尔：默认减去中心孔 + 三顶角；``--edge-columns-only`` 仅挖三角顶角。
 """
 
 import argparse
 import itertools
 import math
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -67,6 +67,21 @@ class CylinderAxis:
 
 def _norm(v: np.ndarray) -> float:
     return float(np.linalg.norm(v))
+
+
+def normalize_domain_envelope(value: str | None) -> str:
+    """``triangle_prism``（beso9 默认）或 ``hull_bbox``。"""
+    s = str(value or "").strip().lower()
+    if s in ("hull", "hull_bbox", "bbox", "compound", "slab"):
+        return "hull_bbox"
+    if s in ("triangle", "triangle_prism", "prism", "beso9", "tri", "triangular"):
+        return "triangle_prism"
+    env = (os.environ.get("OC4_DESIGN_DOMAIN_ENVELOPE") or "").strip().lower()
+    if env.startswith("triangle") or env in ("prism", "beso9", "tri"):
+        return "triangle_prism"
+    if env in ("hull", "hull_bbox", "bbox", "compound", "slab"):
+        return "hull_bbox"
+    return "triangle_prism"
 
 
 def _extract_revolution_cylinders_gmsh_raw(iges_path: Path) -> list[CylinderAxis]:
@@ -226,6 +241,226 @@ def _triangle_prism(gmsh, pts_bottom: list[np.ndarray], dz: float) -> tuple[int,
         if int(d) == 3:
             return (3, int(t))
     raise RuntimeError("三角柱 extrude 未产生三维体。")
+
+
+def _mean_triangle_edge_mm(pts_xy: list[np.ndarray]) -> float:
+    arr = [np.asarray(p, dtype=float).reshape(-1)[:2] for p in pts_xy]
+    if len(arr) < 3:
+        return 0.0
+    lens = [
+        float(_norm(arr[i] - arr[(i + 1) % 3]))
+        for i in range(3)
+    ]
+    return float(sum(lens) / 3.0)
+
+
+def _beso9_corner_radius_mm(side_mm: float, shaft_rs: list[float] | None = None) -> float:
+    """
+    对齐 examples/beso/beso9：边长 95 m 时挖角 R≈7.5 m（约 7.9% 边长）。
+    同时不低于柱身半径的放大值，保证孔洞可见。
+    """
+    side = max(float(side_mm), 1.0)
+    r_side = 0.079 * side
+    shafts = [float(r) for r in (shaft_rs or []) if r is not None and float(r) > 0.0]
+    r_shaft = 1.35 * max(shafts) if shafts else 0.0
+    return float(max(r_side, r_shaft, 2500.0))
+
+
+def clamp_corner_r_mm(corner_r_mm: float, side_mm: float) -> float:
+    """限制挖角半径，避免三孔过大掏空棱柱。"""
+    side = max(float(side_mm), 1.0)
+    # 顶点挖孔约一半在体外；允许约 55% 外接圆半径（口语常见 10–15 m 级）
+    r_max = 0.55 * side / math.sqrt(3.0)
+    return float(max(100.0, min(float(corner_r_mm), r_max)))
+
+
+def coerce_corner_r_mm(value: Any, *, unit_hint: str | None = None) -> float | None:
+    """
+    将用户/工具输入规范为 mm。
+    - 带单位 m/米 → ×1000
+    - 纯数字：若 unit_hint 为 m 则按米；若数值落在 (0.5, 200] 且无 hint，按「米」理解（口语常见「15」=15m）；
+      否则按 mm。
+    """
+    if value is None:
+        return None
+    uh = str(unit_hint or "").strip().lower()
+    if isinstance(value, str):
+        s = value.strip().lower().replace("，", ".")
+        m = re.search(r"([-+]?\d+(?:\.\d+)?)\s*(mm|m|米)?", s)
+        if not m:
+            return None
+        try:
+            x = float(m.group(1))
+        except ValueError:
+            return None
+        u = (m.group(2) or uh or "").replace("米", "m")
+        if u in ("m", "米"):
+            return float(x * 1000.0) if x > 0 else None
+        if u == "mm":
+            return float(x) if x > 0 else None
+        if 0.5 < x <= 200.0:
+            return float(x * 1000.0)
+        return float(x) if x > 0 else None
+    try:
+        x = float(value)
+    except (TypeError, ValueError):
+        return None
+    if x <= 0:
+        return None
+    if uh in ("m", "米"):
+        return float(x * 1000.0)
+    if uh == "mm":
+        return float(x)
+    # 工具常直接传 mm（如 15000）；口语小数常为米
+    if 0.5 < x <= 200.0:
+        return float(x * 1000.0)
+    return float(x)
+
+
+def coerce_length_r_mm(value: Any, *, unit_hint: str | None = None) -> float | None:
+    """长度半径（mm）规范化；与 ``coerce_corner_r_mm`` 同语义，供中心孔等复用。"""
+    return coerce_corner_r_mm(value, unit_hint=unit_hint)
+
+
+def _radius_unit_from_match(num: str, unit: str | None) -> str | None:
+    if unit:
+        return unit
+    try:
+        x = float(num)
+    except ValueError:
+        return None
+    if x > 200:
+        return "mm"
+    return "m"
+
+
+def _nearest_num_unit_mm(text: str, anchor: int, *, ahead: int = 28, behind: int = 8) -> float | None:
+    """在关键词附近取最近的「数字+单位」并规范为 mm。"""
+    t = str(text or "")
+    lo = max(0, int(anchor) - int(behind))
+    hi = min(len(t), int(anchor) + int(ahead))
+    best: tuple[float, float] | None = None  # (dist, mm)
+    for m in re.finditer(r"([-+]?\d+(?:\.\d+)?)\s*(mm|MM|m|M|米)", t[lo:hi]):
+        abs_start = lo + m.start()
+        dist = abs(abs_start - int(anchor))
+        # 优先关键词之后的数字（「中心孔改为 3m」）
+        if abs_start < int(anchor) - 2:
+            dist += 50.0
+        got = coerce_length_r_mm(m.group(1), unit_hint=m.group(2))
+        if got is None:
+            continue
+        if best is None or dist < best[0]:
+            best = (float(dist), float(got))
+    return None if best is None else best[1]
+
+
+def parse_center_hole_r_mm_from_text(text: str) -> float | None:
+    """从自然语言提取**中间/中心圆孔**半径（mm），与边立柱挖去半径独立。"""
+    t = str(text or "").strip()
+    if not t:
+        return None
+    m = re.search(
+        r"(?:center[_\s-]?hole[_\s-]?(?:r|radius)|central[_\s-]?hole[_\s-]?(?:r|radius)|"
+        r"center_hole_r_mm)\s*[=:：]?\s*([-+]?\d+(?:\.\d+)?)\s*(mm|m)?",
+        t,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        got = coerce_length_r_mm(m.group(1), unit_hint=m.group(2) or "mm")
+        if got is not None:
+            return got
+    for m in re.finditer(
+        r"中间\s*圆?孔|中心\s*圆?孔|中心孔|中间孔|中孔|center\s*hole|central\s*hole",
+        t,
+        flags=re.IGNORECASE,
+    ):
+        got = _nearest_num_unit_mm(t, m.end(), ahead=32, behind=4)
+        if got is not None:
+            return got
+    m = re.search(
+        r"(?:中间\s*圆?孔|中心\s*圆?孔|中心孔|中间孔).{0,14}半径\s*[=:：]?\s*"
+        r"([-+]?\d+(?:\.\d+)?)\s*(mm|m|米)?",
+        t,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        got = coerce_length_r_mm(m.group(1), unit_hint=_radius_unit_from_match(m.group(1), m.group(2)))
+        if got is not None:
+            return got
+    return None
+
+
+def parse_corner_r_mm_from_text(text: str) -> float | None:
+    """从自然语言提取**边立柱/顶角边缘挖去**圆柱半径（mm）；不解析中间圆孔。"""
+    t = str(text or "").strip()
+    if not t:
+        return None
+    # 显式英文/参数名
+    m = re.search(
+        r"(?:corner[_\s-]?(?:r|radius)|digout[_\s-]?r)\s*[=:：]?\s*([-+]?\d+(?:\.\d+)?)\s*(mm|m)?",
+        t,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        got = coerce_corner_r_mm(m.group(1), unit_hint=m.group(2) or "mm")
+        if got is not None:
+            return got
+    # 关键词锚定：边立柱 / 挖角 / 顶角 / 边缘…
+    for m in re.finditer(
+        r"挖角|顶角|边缘(?:挖去|切角)?|切角|圆角|角部|顶点|角上|挖去|"
+        r"边立柱|立柱|corner|digout|dig-?out",
+        t,
+        flags=re.IGNORECASE,
+    ):
+        # 跳过落在「中心/中间孔」短语内的噪声（极少）
+        around = t[max(0, m.start() - 6) : m.end() + 6]
+        if re.search(r"中间|中心|center\s*hole", around, re.I) and not re.search(
+            r"边缘|边立柱|顶角|挖角|corner|digout", around, re.I
+        ):
+            continue
+        got = _nearest_num_unit_mm(t, m.end(), ahead=32, behind=4)
+        if got is not None:
+            return got
+    m = re.search(
+        r"(?:挖角|顶角|边缘|切角|边立柱|立柱).{0,14}半径\s*[=:：]?\s*([-+]?\d+(?:\.\d+)?)\s*(mm|m|米)?",
+        t,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        unit = _radius_unit_from_match(m.group(1), m.group(2))
+        got = coerce_corner_r_mm(m.group(1), unit_hint=unit)
+        if got is not None:
+            return got
+    return None
+
+
+def _beso9_equilateral_vertices_xy(
+    outer_xy: list[np.ndarray],
+    *,
+    xy_pad: float,
+    center_xy: np.ndarray | None = None,
+) -> list[np.ndarray]:
+    """
+    由外柱三角形生成 **等边** 三顶点（beso9），边长取外柱均边 + 外扩，
+    朝向对齐到第一个外柱方位，避免不规则三角形导致侧面歪斜。
+    """
+    arr = np.asarray([np.asarray(p, dtype=float).reshape(-1)[:2] for p in outer_xy], dtype=float)
+    if arr.shape[0] < 3:
+        raise ValueError("需要至少三个外柱 xy 才能生成 beso9 等边三角形。")
+    arr = arr[:3]
+    c = np.asarray(center_xy, dtype=float).reshape(-1)[:2] if center_xy is not None else np.mean(arr, axis=0)
+    side0 = _mean_triangle_edge_mm([arr[0], arr[1], arr[2]])
+    # 外扩：在边长上加 2*pad/√3 量级，使顶点沿径向超出柱心
+    side = max(side0 + 2.0 * float(xy_pad) / math.sqrt(3.0), side0 * 1.02, 1000.0)
+    # 外接圆半径 R = side / √3
+    R = side / math.sqrt(3.0)
+    v0 = arr[0] - c
+    ang0 = math.atan2(float(v0[1]), float(v0[0])) if _norm(v0) > 1.0e-9 else 0.0
+    out: list[np.ndarray] = []
+    for k in range(3):
+        a = ang0 + k * (2.0 * math.pi / 3.0)
+        out.append(np.array([float(c[0] + R * math.cos(a)), float(c[1] + R * math.sin(a))], dtype=float))
+    return out
 
 
 def _cluster_by_xy(cyls: list[CylinderAxis], tol: float = 5000.0) -> list[list[CylinderAxis]]:
@@ -657,8 +892,35 @@ def _greedy_match_outers_to_bases(outers: list[CylinderAxis], bases: list[Cylind
     return out
 
 
+def _default_column_thresholds() -> dict[str, float]:
+    return {
+        "center_r_min": 1200.0,
+        "center_r_max": 2200.0,
+        "center_len_min": 20000.0,
+        "vertical_r_min": 1200.0,
+        "vertical_len_min": 5000.0,
+        "outer_len_min": 18000.0,
+    }
+
+
+def _merge_column_thresholds(overrides: dict[str, Any] | None) -> dict[str, float]:
+    base = _default_column_thresholds()
+    if not overrides:
+        return base
+    out = dict(base)
+    for k in base:
+        if k in overrides and overrides[k] is not None:
+            try:
+                out[k] = float(overrides[k])
+            except (TypeError, ValueError):
+                pass
+    return out
+
+
 def _pick_oc4_key_columns(
     vertical: list[CylinderAxis],
+    *,
+    thresholds: dict[str, Any] | None = None,
 ) -> tuple[CylinderAxis, list[CylinderAxis], list[CylinderAxis | None], CylinderAxis | None]:
     """
     选择 OC4 关键柱：
@@ -666,24 +928,40 @@ def _pick_oc4_key_columns(
     - outers: 三根外柱（r≈3000，绕中心 CCW 排序）
     - outer_bases: 与 outers 同序的一对一底座（大半径短柱段）
     - center_base: 中心柱下方粗底座（若有）
+
+    ``thresholds`` 可覆盖半径/长度启发式（mm），便于 MW 缩放后的几何仍可识别。
     """
-    center_cands = [c for c in vertical if 1200.0 <= c.radius <= 2200.0 and c.length >= 20000.0]
+    th = _merge_column_thresholds(thresholds)
+    center_cands = [
+        c
+        for c in vertical
+        if th["center_r_min"] <= c.radius <= th["center_r_max"] and c.length >= th["center_len_min"]
+    ]
     if not center_cands:
-        raise ValueError("未识别到中心细柱。")
+        raise ValueError(
+            "未识别到中心细柱。"
+            f"请检查源 CAD 是否为 OC4 族，或在会话 meta 中调整 column_pick_thresholds"
+            f"（当前 center_r=[{th['center_r_min']:g},{th['center_r_max']:g}] mm，"
+            f"center_len_min={th['center_len_min']:g} mm）。"
+            "也可上传替换几何后重试。"
+        )
 
     # 选更接近全局几何中心且 Y 偏上者，稳定落在 OC4 中柱
     xy_all = np.asarray([c.center[:2] for c in vertical], dtype=float)
     gc = np.mean(xy_all, axis=0)
     center_col = sorted(center_cands, key=lambda c: (_norm(c.center[:2] - gc), -float(c.center[1])))[0]
 
-    outer_cands = [c for c in vertical if c.length >= 18000.0 and c is not center_col]
+    outer_cands = [c for c in vertical if c.length >= th["outer_len_min"] and c is not center_col]
     if len(outer_cands) < 3:
         # 容错：用最长三根（除中心柱）作为外柱
         tmp = [c for c in vertical if c is not center_col]
         tmp = sorted(tmp, key=lambda c: c.length, reverse=True)
         outer_cands = tmp[:3]
     if len(outer_cands) < 3:
-        raise ValueError("未识别到足够外柱。")
+        raise ValueError(
+            "未识别到足够外柱（需要 ≥3）。"
+            f"当前 outer_len_min={th['outer_len_min']:g} mm；可放宽阈值或替换源 CAD。"
+        )
     # 从候选里选出面积最大的三角形（对应三外柱）
     best_trip: tuple[CylinderAxis, CylinderAxis, CylinderAxis] | None = None
     best_area = -1.0
@@ -958,7 +1236,11 @@ def build_oc4_design_domain_iges(
     out_step: Path | None = None,
     cut_center_column: bool = True,
     include_source_geometry: bool = False,
-    domain_envelope: str = "hull_bbox",
+    domain_envelope: str = "triangle_prism",
+    column_pick_thresholds: dict[str, Any] | None = None,
+    corner_r_mm: float | None = None,
+    center_hole_r_mm: float | None = None,
+    out_info: dict[str, Any] | None = None,
 ) -> Path:
     segs_cache: list | None = None
     try:
@@ -982,25 +1264,28 @@ def build_oc4_design_domain_iges(
     outer_bases: list[CylinderAxis | None] = []
     center_base: CylinderAxis | None = None
 
-    env_override = (os.environ.get("OC4_DESIGN_DOMAIN_ENVELOPE") or "").strip().lower()
-    if env_override.startswith("triangle"):
-        domain_envelope = "triangle_prism"
-    elif env_override in ("hull", "hull_bbox", "bbox", "compound"):
-        domain_envelope = "hull_bbox"
+    domain_envelope = normalize_domain_envelope(domain_envelope)
 
     if beam_geom is None:
+        th = _merge_column_thresholds(column_pick_thresholds)
         cyls = _extract_revolution_cylinders(src_iges)
         vertical = [c for c in cyls if abs(float(c.direction[2])) > 0.96]
         vertical = _merge_parallel_axis_pairs(vertical)
         vertical = [
             c
             for c in vertical
-            if c.radius >= 1200.0
-            and (c.length >= 5000.0 or (c.length >= 350.0 and c.radius >= 2600.0))
+            if c.radius >= th["vertical_r_min"]
+            and (c.length >= th["vertical_len_min"] or (c.length >= 350.0 and c.radius >= 2600.0 * (th["vertical_r_min"] / 1200.0)))
         ]
         if len(vertical) < 4:
-            raise ValueError("识别到的主立柱不足，无法构建设计域。")
-        center_col, outer_cols, outer_bases, center_base = _pick_oc4_key_columns(vertical)
+            raise ValueError(
+                "识别到的主立柱不足，无法构建设计域。"
+                f"已应用阈值 vertical_r_min={th['vertical_r_min']:g} mm；"
+                "可在会话 meta.column_pick_thresholds 中放宽，或替换源 CAD。"
+            )
+        center_col, outer_cols, outer_bases, center_base = _pick_oc4_key_columns(
+            vertical, thresholds=th
+        )
 
     # 须在 gmsh.initialize() 之前算完所有会 merge/mesh 的梁解析，否则会 finalize 掉当前会话
 
@@ -1008,9 +1293,9 @@ def build_oc4_design_domain_iges(
     # 叠在一起（预览像“未挖孔”或严重错位）。需要对照原模型时设 include_source_geometry=True。
     import gmsh
 
-    envelope = (domain_envelope or "hull_bbox").strip().lower()
+    envelope = normalize_domain_envelope(domain_envelope)
     if envelope not in ("hull_bbox", "triangle_prism"):
-        envelope = "hull_bbox"
+        envelope = "triangle_prism"
     if include_source_geometry:
         envelope = "triangle_prism"
 
@@ -1022,7 +1307,7 @@ def build_oc4_design_domain_iges(
             gmsh.merge(str(src_iges.resolve()))
             gmsh.model.occ.synchronize()
 
-        # 1) 实心设计域：默认 hull_bbox（与 BESO3-Compound / 整装配包络一致）；否则三角柱
+        # 1) 实心设计域：默认 triangle_prism（beso9 三棱柱）；hull_bbox 为整装配 slab
         if beam_geom is not None:
             cxy = beam_geom.center_xy
             outer_xy = beam_geom.outer_xy_ccw
@@ -1055,33 +1340,116 @@ def build_oc4_design_domain_iges(
 
         if envelope == "hull_bbox":
             domain_vol = _domain_volume_hull_bbox_slab(gmsh, src_iges, z_bot, z_top)
+            low_pts = []  # unused for hull cuts
+            verts_xy: list[np.ndarray] = []
+            shaft_rs_for_corner: list[float] = []
         else:
-            # 平面外扩：由桩靴圆心相对柱轴几何确定（与 oc4.igs 一致），不用经验系数
-            low_pts: list[np.ndarray] = []
+            # beso9：等边三棱柱底面（对齐 examples/beso/beso9），外扩由桩靴/柱间距推导
             if beam_geom is not None:
                 xy_pad = _triangle_xy_pad_from_beam_geom(beam_geom)
+                shaft_rs_for_corner = [float(r) for r in beam_geom.outer_shaft_rs]
             else:
                 r_outer = float(np.mean([o.radius for o in outer_cols])) if outer_cols else 3000.0
                 xy_pad = max(1600.0, 0.48 * r_outer)
+                shaft_rs_for_corner = [float(o.radius) for o in outer_cols]
             outer_xy_arr = np.asarray(outer_xy, dtype=float)
-            radial_origin = np.mean(outer_xy_arr, axis=0) if outer_xy_arr.shape[0] >= 2 else np.asarray(cxy, dtype=float)
-            for pxy in outer_xy:
-                vxy = np.asarray(pxy, dtype=float) - radial_origin
-                nv = _norm(vxy)
-                if nv <= 1.0e-9:
-                    pxy2 = np.asarray(pxy, dtype=float).copy()
-                else:
-                    pxy2 = np.asarray(pxy, dtype=float) + (vxy / nv) * xy_pad
-                low_pts.append(np.array([pxy2[0], pxy2[1], z_bot], dtype=float))
+            radial_origin = (
+                np.mean(outer_xy_arr, axis=0) if outer_xy_arr.shape[0] >= 2 else np.asarray(cxy, dtype=float)
+            )
+            try:
+                verts_xy = _beso9_equilateral_vertices_xy(
+                    [np.asarray(p, dtype=float) for p in outer_xy],
+                    xy_pad=float(xy_pad),
+                    center_xy=np.asarray(cxy, dtype=float),
+                )
+            except Exception:
+                # 回退：外柱点径向外扩（非等边）
+                verts_xy = []
+                for pxy in outer_xy:
+                    vxy = np.asarray(pxy, dtype=float) - radial_origin
+                    nv = _norm(vxy)
+                    if nv <= 1.0e-9:
+                        pxy2 = np.asarray(pxy, dtype=float).copy()
+                    else:
+                        pxy2 = np.asarray(pxy, dtype=float) + (vxy / nv) * xy_pad
+                    verts_xy.append(np.asarray(pxy2, dtype=float).reshape(-1)[:2])
+            low_pts = [np.array([float(v[0]), float(v[1]), float(z_bot)], dtype=float) for v in verts_xy]
             domain_vol = _triangle_prism(gmsh, low_pts, dz=float(z_top - z_bot))
 
         gmsh.model.occ.synchronize()
 
-        # 2) 扣除柱身 + 桩靴：优先用梁中心线原始半径与桩靴圆心（对称一致）；回退时用 revolution
+        # 2) 布尔挖孔
         z_span = float(z_top - z_bot)
         z_cut_pad = max(1200.0, min(6000.0, 0.06 * z_span))
         cut_tools: list[tuple[int, int]] = []
-        if beam_geom is not None:
+        if envelope == "triangle_prism":
+            # beso9：仅在三顶角（+可选中心）挖通高圆柱；禁止挖桩靴，否则底面呈台阶怪形
+            side_mm = _mean_triangle_edge_mm(verts_xy) if verts_xy else 95000.0
+            if corner_r_mm is not None and float(corner_r_mm) > 0:
+                corner_r = clamp_corner_r_mm(float(corner_r_mm), side_mm)
+            else:
+                corner_r = clamp_corner_r_mm(
+                    _beso9_corner_radius_mm(side_mm, shaft_rs_for_corner),
+                    side_mm,
+                )
+            if out_info is not None:
+                out_info["corner_r_mm"] = float(corner_r)
+                out_info["corner_r_requested_mm"] = (
+                    float(corner_r_mm) if corner_r_mm is not None and float(corner_r_mm) > 0 else None
+                )
+                out_info["triangle_side_mm"] = float(side_mm)
+                out_info["domain_z_span_mm"] = float(z_span)
+                out_info["corner_centers_xy_mm"] = [
+                    [float(v[0]), float(v[1])] for v in verts_xy
+                ]
+                out_info["domain_center_xy_mm"] = [float(cxy[0]), float(cxy[1])]
+                # 对齐 BESO9.FCStd：Ø12 m 顶环圆周载荷（随边长略缩放，下限 6 m）
+                load_d = float(max(6000.0, min(12000.0, 0.126 * float(side_mm))))
+                out_info["load_diameter_mm"] = load_d
+                out_info["load_radius_mm"] = load_d * 0.5
+                out_info["load_application"] = "circumference_edge"
+            r_eps = _boolean_radial_eps(corner_r)
+            for vxy in verts_xy:
+                _append_shaft_cut_xy(
+                    cut_tools,
+                    gmsh,
+                    float(vxy[0]),
+                    float(vxy[1]),
+                    float(corner_r),
+                    z_bot,
+                    z_top,
+                    z_cut_pad,
+                    r_eps,
+                )
+            if cut_center_column:
+                if center_hole_r_mm is not None and float(center_hole_r_mm) > 0:
+                    cr = float(center_hole_r_mm)
+                elif beam_geom is not None:
+                    cr = float(beam_geom.center_shaft_r)
+                else:
+                    assert center_col is not None
+                    cr = float(center_col.radius)
+                # 中心孔与边立柱挖去半径独立：不再用 0.45*corner_r 耦合放大中心孔
+                cr = float(max(cr, 100.0))
+                if out_info is not None:
+                    out_info["center_hole_r_mm"] = float(cr)
+                    out_info["center_hole_r_requested_mm"] = (
+                        float(center_hole_r_mm)
+                        if center_hole_r_mm is not None and float(center_hole_r_mm) > 0
+                        else None
+                    )
+                _append_shaft_cut_xy(
+                    cut_tools,
+                    gmsh,
+                    float(cxy[0]),
+                    float(cxy[1]),
+                    cr,
+                    z_bot,
+                    z_top,
+                    z_cut_pad,
+                    _boolean_radial_eps(cr),
+                )
+        elif beam_geom is not None:
             if cut_center_column:
                 _append_shaft_cut_xy(
                     cut_tools,
@@ -1176,7 +1544,8 @@ def build_oc4_design_domain_iges(
                         z_cut_pad,
                         _boolean_radial_eps(float(obase.radius)),
                     )
-        gmsh.model.occ.cut([domain_vol], cut_tools, removeObject=True, removeTool=True)
+        if cut_tools:
+            gmsh.model.occ.cut([domain_vol], cut_tools, removeObject=True, removeTool=True)
 
         gmsh.model.occ.synchronize()
 
@@ -1227,8 +1596,8 @@ def main() -> int:
     parser.add_argument(
         "--envelope",
         choices=("hull_bbox", "triangle_prism"),
-        default="hull_bbox",
-        help="hull_bbox：整装配轴对齐包围盒 slab（对齐 BESO3-Compound 体量）；triangle_prism：旧三棱柱包络。",
+        default="triangle_prism",
+        help="triangle_prism：beso9 式三棱柱包络（默认）；hull_bbox：整装配轴对齐包围盒 slab。",
     )
     args = parser.parse_args()
     build_oc4_design_domain_iges(

@@ -1,0 +1,70 @@
+{
+  "payload": {
+    "model": "minimax/minimax-h3-max",
+    "content": [
+      {
+        "type": "text",
+        "text": "Keep The AI Engineer product chrome. Morph from AIP gate figure into the sea / floating platform enter-chat figure. Soft dawn push, open path toward workbench feeling, blue-emerald accents, no purple, 16:9."
+      },
+      {
+        "type": "image_url",
+        "role": "first_frame",
+        "image_url": {
+          "url": "<local-image-data-uri>"
+        }
+      },
+      {
+        "type": "image_url",
+        "role": "last_frame",
+        "image_url": {
+          "url": "<local-image-data-uri>"
+        }
+      }
+    ],
+    "resolution": "768p",
+    "generate_audio": false,
+    "watermark": false,
+    "return_last_frame": true,
+    "duration": 5,
+    "ratio": "16:9"
+  },
+  "submit": {
+    "id": "1726a26e0095409ebe426e8b6d7d3f34",
+    "status": "queued",
+    "model": "minimax/minimax-h3-max"
+  },
+  "final": {
+    "id": "1726a26e0095409ebe426e8b6d7d3f34",
+    "status": "succeeded",
+    "content": {
+      "video_url": "<remote-url-redacted>"
+    },
+    "model": "minimax/minimax-h3-max"
+  },
+  "productionGate": {
+    "stage": "production",
+    "segmentIndex": 6,
+    "pilotApproval": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\pilot\\approval.json",
+    "continuityMode": "chain",
+    "frameChain": {
+      "segmentIndex": 6,
+      "verifiedAt": "2026-09-08T14:24:15.435898+00:00",
+      "exactSha256Match": true,
+      "previousTail": {
+        "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\pilot\\clips\\s05_tail.png",
+        "bytes": 438053,
+        "sha256": "6edd3cb9582cec9c7aa6012bdfe1018acdbdd45553523216c2eaf600842cb3c9"
+      },
+      "nextFirst": {
+        "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\pilot\\clips\\s05_tail.png",
+        "bytes": 438053,
+        "sha256": "6edd3cb9582cec9c7aa6012bdfe1018acdbdd45553523216c2eaf600842cb3c9"
+      }
+    },
+    "frameChainManifest": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\qa\\frame-chain.json"
+  },
+  "lastFrame": {
+    "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\pilot\\clips\\s06_tail.png",
+    "source": "video-fallback"
+  }
+}

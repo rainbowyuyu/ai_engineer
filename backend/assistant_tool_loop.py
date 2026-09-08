@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -86,6 +87,40 @@ _ASSISTANT_TOOLS_BLOCK = (
     '"checklist_id": string | null, '
     '"mode": "edit"|"clarify"（默认 edit）}；'
     "按答复写回同一清单；用户要改已锁定参数时**必须**调用本工具，并在 final_reply 复述更新字段。\n"
+    "11) probe_execution / set_execution_mode — arguments: "
+    '{"mode": "live"|"preview"|null}；探测 FreeCAD/CalculiX/gmsh；live 缺求解器时自动 Preview（须向用户说明 canned）。\n'
+    "12) apply_turbine_preset — arguments: "
+    '{"preset_id": "5"|"10"|"15"|"20", "checklist_id": string|null, "session_id": string|null}；'
+    "应用机型预设（容量/载荷/缩放/验证目标），支持 10MW 等变种。\n"
+    "13) start_design_domain_session — arguments: "
+    '{"file_id": string|null, "source_path": string|null, "preset_id": string|null, '
+    '"checklist_id": string|null, "task_id": string|null}；创建 OC4 设计域会话（IGES）。'
+    "用户未上传时也可调用：省略 file_id/source_path 将使用仓库内置 oc4.igs；"
+    "10MW 等机型请同时传 preset_id。成功后前端会进入设计域工作台。\n"
+    "14) run_design_domain_build — arguments: "
+    '{"session_id": string, "pause_before_mesh": bool, "run_mesh": bool, "run_loads": bool, "finalize": bool}；'
+    "真构建设计域→网格→载荷；pause_before_mesh=true 时等人审/改几何。\n"
+    "15) request_human_edit / apply_geometry_patch / commit_preview_to_session — "
+    "人为介入改模型：暂停、替换 STEP/IGES、或提交结果查看器预览写回会话并清下游。\n"
+    "16) start_beso_job / get_job_status — 启动真实 CalculiX–BESO 任务并轮询（Preview 模式拒绝冒充成功）。\n"
+    "17) run_sizing / run_platform_restruction / run_zwind_eval / run_validation / evaluate_halt — "
+    "尺寸优化、平台库静力、Zwind 时域、AI 评审与停机门控；静力/时域会打开「尺寸时域分析」工作台。\n"
+    "18) parse_prism_design_brief — arguments: "
+    '{"text": string}；解析「三棱柱/beso9/挖角/体积分数」等提示词为棱柱设计域参数。\n'
+    "19) start_prism_session / build_prism_design_domain / mesh_prism_design_domain — "
+    "分步：建会话 → FreeCAD 建 FCStd → Gmsh 导出 03_for_beso.inp（不做 OC4 载荷分区）。\n"
+    "20) run_prism_topology_demo — arguments: "
+    '{"text": string（用户原话）, "start_beso": bool（默认 true）, "task_id": string|null}；'
+    "一句话闭环：解析→FreeCAD建域→网格→异步启动真实 BESO；返回 session_id/job_id/run_dir。\n"
+    "【闭环顺序】确认 MW 预设 → Phase I 清单 → 设计域（可 HITL）→ BESO → 尺寸/评审。"
+    "用户未上传文件时：仍须调用 apply_turbine_preset + start_design_domain_session（可省略 file_id，使用内置 oc4.igs）"
+    "并依赖 client_hint 进入设计域工作台；网格/载荷完成后 start_beso_job 进入拓扑工作台。"
+    "不要只文字描述流程而不调用工具。\n"
+    "【棱柱拓扑·一句话闭环】用户提到「三棱柱 / beso9 / 挖角 / 体积分数 / 拓扑优化」且要真跑时："
+    "优先 **run_prism_topology_demo**（可在 text 中写边长、水上/水下、挖角 R、载荷 Ø/力、体积分数%、粗网格快演示）；"
+    "成功后用 **open_results_viewer**（scan_dir=session_dir 或 run_dir），并用 **get_job_status** 如实报告进度；"
+    "勿用 OC4 IGES 路径冒充 beso9 棱柱。OC4/半潜仍用 start_design_domain_session + run_design_domain_build。\n"
+    "**禁止**在 live 模式下调用 /api/demo 种子回放冒充成功；教学回放仅当用户明确要求 demo/preview。\n"
     "路径必须真实且位于工作区内；不要编造路径。若用户仅咨询概念、不需要操作文件，直接用 final_reply。"
 )
 
@@ -110,7 +145,14 @@ _JSON_REPAIR = (
     '- "thought": string（可简短中文）；\n'
     '- 要么 "tool": {"name": string, "arguments": object}，\n'
     '- 要么 "final_reply": string（直接回答用户）。\n'
-    "可调用工具名：cad_convert, open_results_viewer, list_scan_dir, cad_skill_help, cad_skill_step, open_cad_explorer, cad_drawing_pack, export_design_deliverables。"
+    "可调用工具名：cad_convert, open_results_viewer, list_scan_dir, cad_skill_help, cad_skill_step, "
+    "open_cad_explorer, cad_drawing_pack, export_design_deliverables, get_design_checklist, "
+    "update_design_checklist, probe_execution, set_execution_mode, apply_turbine_preset, "
+    "start_design_domain_session, run_design_domain_build, request_human_edit, apply_geometry_patch, "
+    "commit_preview_to_session, start_beso_job, get_job_status, run_sizing, run_platform_restruction, "
+    "run_zwind_eval, run_validation, evaluate_halt, "
+    "parse_prism_design_brief, start_prism_session, build_prism_design_domain, mesh_prism_design_domain, "
+    "run_prism_topology_demo。"
 )
 
 
@@ -380,6 +422,276 @@ def _run_assistant_tool(
                     "clarification_complete": len(remaining) == 0,
                 },
             )
+
+        # --- conversation-driven closed-loop pipeline tools ---
+        from backend.pipeline import steps as pipe
+
+        def _hint(data: dict[str, Any]) -> None:
+            h = data.get("client_hint") if isinstance(data, dict) else None
+            if isinstance(h, dict) and h.get("type"):
+                client_actions.append(dict(h))
+
+        if name in ("probe_execution", "probe_solvers"):
+            data = pipe.step_probe_execution(requested_mode=args.get("mode"))
+            return True, f"execution_mode={data.get('execution_mode')}", data
+
+        if name == "set_execution_mode":
+            data = pipe.step_set_execution_mode(str(args.get("mode") or "preview"))
+            return True, f"execution_mode={data.get('execution_mode')}", data
+
+        if name == "apply_turbine_preset":
+            data = pipe.step_apply_turbine_preset(
+                preset_id=args.get("preset_id") or args.get("mw") or "10",
+                checklist_id=str(args.get("checklist_id") or design_checklist_id or "").strip() or None,
+                session_id=str(args.get("session_id") or "").strip() or None,
+                source_text=str(args.get("source_text") or "").strip() or None,
+            )
+            _hint(data)
+            if data.get("checklist_id"):
+                client_actions.append(
+                    {"type": "refresh_design_checklist", "checklist_id": data["checklist_id"]}
+                )
+            return True, f"已应用 {data.get('preset', {}).get('label')}", data
+
+        if name == "start_design_domain_session":
+            data = pipe.step_start_design_domain_session(
+                file_id=str(args.get("file_id") or "").strip() or None,
+                source_path=str(args.get("source_path") or "").strip() or None,
+                task_id=str(args.get("task_id") or "").strip() or None,
+                design_checklist_id=str(args.get("checklist_id") or design_checklist_id or "").strip() or None,
+                preset_id=str(args.get("preset_id") or "").strip() or None,
+            )
+            _hint(data)
+            return True, f"设计域会话 {data.get('session_id')}", data
+
+        if name == "run_design_domain_build":
+            sid = str(args.get("session_id") or "").strip()
+            if not sid:
+                return False, "session_id 不能为空", {}
+            data = pipe.step_run_design_domain_build(
+                session_id=sid,
+                cut_center_column=bool(args.get("cut_center_column", True)),
+                include_source_geometry=bool(args.get("include_source_geometry", False)),
+                run_mesh=bool(args.get("run_mesh", True)),
+                run_loads=bool(args.get("run_loads", True)),
+                finalize=bool(args.get("finalize", True)),
+                pause_before_mesh=bool(args.get("pause_before_mesh", False)),
+                execution_mode=str(args.get("execution_mode") or "").strip() or None,
+            )
+            _hint(data)
+            ok = bool(data.get("ok", True))
+            return ok, ("HITL 暂停于 mesh 前" if data.get("hitl") else "设计域构建完成"), data
+
+        if name == "request_human_edit":
+            sid = str(args.get("session_id") or "").strip()
+            if not sid:
+                return False, "session_id 不能为空", {}
+            data = pipe.step_request_human_edit(
+                session_id=sid,
+                reason=str(args.get("reason") or "review_geometry"),
+                message=str(args.get("message") or "").strip() or None,
+            )
+            _hint(data)
+            return True, "已请求人为介入", data
+
+        if name in ("apply_geometry_patch", "replace_geometry"):
+            sid = str(args.get("session_id") or "").strip()
+            if not sid:
+                return False, "session_id 不能为空", {}
+            data = pipe.step_replace_geometry(
+                session_id=sid,
+                source_path=str(args.get("source_path") or args.get("path") or "").strip() or None,
+                file_id=str(args.get("file_id") or "").strip() or None,
+                as_design_domain=bool(args.get("as_design_domain", True)),
+                task_id=str(args.get("task_id") or "").strip() or None,
+            )
+            _hint(data)
+            return True, "已替换几何并清除下游产物", data
+
+        if name == "commit_preview_to_session":
+            sid = str(args.get("session_id") or "").strip()
+            prev = str(args.get("preview_path") or args.get("path") or "").strip()
+            if not sid or not prev:
+                return False, "session_id 与 preview_path 不能为空", {}
+            data = pipe.step_commit_preview_to_session(
+                session_id=sid,
+                preview_stl_or_step=prev,
+                task_id=str(args.get("task_id") or "").strip() or None,
+            )
+            _hint(data)
+            return True, "已提交预览到设计域会话", data
+
+        if name == "start_beso_job":
+            data = pipe.step_start_beso_job(
+                session_id=str(args.get("session_id") or "").strip() or None,
+                scan_dir=str(args.get("scan_dir") or "").strip() or None,
+                inp_path=str(args.get("inp_path") or "").strip() or None,
+                design_checklist_id=str(args.get("checklist_id") or design_checklist_id or "").strip() or None,
+                task_id=str(args.get("task_id") or "").strip() or None,
+                message=str(args.get("message") or "conversation-driven BESO"),
+                auto_start=bool(args.get("auto_start", True)),
+                execution_mode=str(args.get("execution_mode") or "").strip() or None,
+                mass_goal_ratio=(
+                    float(args["mass_goal_ratio"]) if args.get("mass_goal_ratio") is not None else None
+                ),
+            )
+            _hint(data)
+            ok = bool(data.get("ok", True))
+            return ok, ("BESO 已启动" if ok else str(data.get("error") or "BESO 未启动")), data
+
+        if name == "parse_prism_design_brief":
+            data = pipe.step_parse_prism_design_brief(text=str(args.get("text") or args.get("reply") or ""))
+            return True, data.get("title") or "已解析棱柱参数", data
+
+        if name == "start_prism_session":
+            data = pipe.step_start_prism_session(
+                text=str(args.get("text") or "").strip() or None,
+                spec=args.get("spec") if isinstance(args.get("spec"), dict) else None,
+                task_id=str(args.get("task_id") or "").strip() or None,
+                design_checklist_id=str(args.get("checklist_id") or design_checklist_id or "").strip() or None,
+            )
+            _hint(data)
+            return True, f"棱柱会话 {data.get('session_id')}", data
+
+        if name == "build_prism_design_domain":
+            sid = str(args.get("session_id") or "").strip()
+            if not sid:
+                return False, "session_id 不能为空", {}
+            data = pipe.step_build_prism_design_domain(
+                session_id=sid,
+                execution_mode=str(args.get("execution_mode") or "").strip() or None,
+            )
+            ok = bool(data.get("ok", True))
+            return ok, ("棱柱设计域已构建" if ok else str(data.get("error") or "构建失败")), data
+
+        if name == "mesh_prism_design_domain":
+            sid = str(args.get("session_id") or "").strip()
+            if not sid:
+                return False, "session_id 不能为空", {}
+            data = pipe.step_mesh_prism_design_domain(
+                session_id=sid,
+                execution_mode=str(args.get("execution_mode") or "").strip() or None,
+            )
+            ok = bool(data.get("ok", True))
+            return ok, ("棱柱网格已导出" if ok else str(data.get("error") or "网格失败")), data
+
+        if name == "run_prism_topology_demo":
+            text = str(args.get("text") or args.get("message") or args.get("reply") or "").strip()
+            if not text:
+                return False, "text 不能为空（用户提示词）", {}
+            data = pipe.step_run_prism_topology_demo(
+                text=text,
+                task_id=str(args.get("task_id") or "").strip() or None,
+                design_checklist_id=str(args.get("checklist_id") or design_checklist_id or "").strip() or None,
+                start_beso=bool(args.get("start_beso", True)),
+                auto_start=bool(args.get("auto_start", True)),
+                execution_mode=str(args.get("execution_mode") or "").strip() or None,
+            )
+            _hint(data)
+            ok = bool(data.get("ok", True))
+            summary = (
+                f"棱柱闭环已启动 job={data.get('job_id')}"
+                if ok and data.get("job_id")
+                else ("棱柱建域/网格完成" if ok else str(data.get("error") or "棱柱闭环失败"))
+            )
+            return ok, summary, data
+
+        if name == "get_job_status":
+            jid = str(args.get("job_id") or "").strip()
+            if not jid:
+                return False, "job_id 不能为空", {}
+            data = pipe.step_get_job_status(job_id=jid)
+            return True, f"status={data.get('status')}", data
+
+        if name == "run_sizing":
+            data = pipe.step_run_sizing(
+                geometry_path=str(args.get("geometry_path") or "").strip() or None,
+                job_id=str(args.get("job_id") or "").strip() or None,
+                design_checklist_id=str(args.get("checklist_id") or design_checklist_id or "").strip() or None,
+                target_power_mw=float(args["target_power_mw"]) if args.get("target_power_mw") is not None else None,
+                out_dir=str(args.get("out_dir") or "").strip() or None,
+            )
+            return True, f"sizing @ {data.get('target_power_MW')} MW", data
+
+        if name == "run_platform_restruction":
+            from backend.tools.platform_restruction import run_platform_restruction
+
+            tw = args.get("target_power_mw")
+            if tw is None and design_checklist_id:
+                from backend.design_requirements.paths import load_checklist
+
+                cl = load_checklist(str(design_checklist_id))
+                if cl is not None:
+                    tw = float(cl.project.target_capacity_mw)
+            if tw is None:
+                tw = 20.0
+            pitch = float(args.get("pitch_limit_deg") or 5.0)
+            data = run_platform_restruction(float(tw), pitch_limit_deg=pitch)
+            steel = data.get("steel_summary") or {}
+            client_actions.append(
+                {
+                    "type": "enter_restruction",
+                    "auto": "static" if bool(args.get("open_ui", True)) else None,
+                    "target_power_mw": float(tw),
+                    "pitch_limit_deg": pitch,
+                    "message": "已完成平台库静力；正在打开尺寸时域分析。",
+                }
+            )
+            return (
+                True,
+                f"尺寸时域·静力 @ {data.get('target_power_MW')} MW · "
+                f"x={data.get('extra_scale_x')} · {steel.get('steel_intensity_t_per_MW')} t/MW",
+                data,
+            )
+
+        if name == "run_zwind_eval":
+            from backend.tools.zwind_eval import evaluate_zwind_bundle
+
+            root = workspace_root
+            jid = str(args.get("job_id") or "").strip()
+            sid = str(args.get("session_id") or "").strip() or uuid.uuid4().hex[:16]
+            if jid:
+                run_dir = (root / "runs" / jid).resolve()
+            else:
+                run_dir = (root / "runs" / "_restruction" / sid).resolve()
+            run_dir.mkdir(parents=True, exist_ok=True)
+            data = evaluate_zwind_bundle(
+                run_dir=run_dir,
+                platform=str(args.get("platform") or "ai"),
+            )
+            client_actions.append(
+                {
+                    "type": "enter_restruction",
+                    "auto": "zwind" if bool(args.get("open_ui", True)) else None,
+                    "message": "已完成 Zwind 校核；正在打开尺寸时域分析。",
+                }
+            )
+            hl = data.get("highlights") or {}
+            return (
+                True,
+                f"zwind {data.get('mode')} · pitch={hl.get('extreme_pitch_deg')}° · "
+                f"mooring={hl.get('max_mooring_tension_kn')} kN",
+                data,
+            )
+
+        if name == "run_validation":
+            data = pipe.step_run_validation(
+                geometry_path=str(args.get("geometry_path") or args.get("sized_geometry_path") or "").strip() or None,
+                design_checklist_id=str(args.get("checklist_id") or design_checklist_id or "").strip() or None,
+                out_dir=str(args.get("out_dir") or "").strip() or None,
+                use_llm_rationale=bool(args.get("use_llm_rationale", False)),
+            )
+            return True, f"validation S={data.get('overall_score')}", data
+
+        if name == "evaluate_halt":
+            data = pipe.step_evaluate_halt(
+                validation_dir=str(args.get("validation_dir") or args.get("out_dir") or "").strip() or None,
+                overall_score=float(args["overall_score"]) if args.get("overall_score") is not None else None,
+                ai_review_scores=args.get("ai_review_scores") if isinstance(args.get("ai_review_scores"), dict) else None,
+                design_checklist_id=str(args.get("checklist_id") or design_checklist_id or "").strip() or None,
+                score=args.get("score") if isinstance(args.get("score"), dict) else None,
+            )
+            return True, "halt gate evaluated", data
 
         return False, f"未知工具: {name}", {}
     except Exception as e:

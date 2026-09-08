@@ -31,3 +31,10 @@ class PipelineState(TypedDict, total=False):
     error: str | None
     seed: int | None
     model_version: str | None
+    turbine_preset_id: str | None
+    execution_mode: str | None
+    hitl_pause: str | None
+    sizing_path: str | None
+    validation_dir: str | None
+    auto_create_session: bool
+    request_hitl_before_mesh: bool

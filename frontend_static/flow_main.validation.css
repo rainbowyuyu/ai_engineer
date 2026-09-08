@@ -31,8 +31,23 @@
 }
 
 .valHero {
-  text-align: center;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  text-align: left;
   margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.valHeroMain {
+  flex: 1;
+  min-width: min(100%, 280px);
+}
+
+.valHero .stageNav {
+  margin-left: auto;
+  align-self: center;
 }
 
 .valHero .heroTitle {
@@ -52,7 +67,6 @@
   color: var(--muted);
   line-height: 1.55;
   max-width: 42rem;
-  margin-inline: auto;
 }
 
 .valComposer {

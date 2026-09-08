@@ -502,16 +502,16 @@ const CASE_DEFS = [
   {
     id: "case6",
     panel: "case6",
-    title: "全流程演示 · BESO7",
-    tagline: "真实进入设计域 / 编排 · 引导大模型",
+    title: "教学回放 · BESO7（canned）",
+    tagline: "预计算资产回放 · 非 live 求解",
     duration: "约 3 分钟",
     facts: [
+      { k: "模式", v: "Preview / 教学" },
       { k: "资产", v: "BESO7.FCStd" },
-      { k: "界面", v: "主工作台功能区" },
-      { k: "智能体", v: "主页助手 + 设计域 Agent" },
+      { k: "入口", v: "?demo=beso7-pipeline" },
     ],
     story:
-      "不是页面内假装演示：将打开主工作台，真实进入设计域与拓扑优化编排，引导大模型操作；拓扑后接参数化重构、尺寸优化与 Zwind 时域校核（zwind_newmodel / Fig. 2b–e），并触发 mesh/solver 重规划、相位闸、finalize θ 与 job_context 写入。",
+      "【教学旁路】使用 BESO7 预计算 INP/帧回放与模拟重规划，便于无 CalculiX 时走通界面。正式对话真跑请用「对话真跑 · 10MW」。",
     inputs: {
       asset: "examples/beso/beso7/BESO7.FCStd",
       entry: "index.html?demo=beso7-pipeline",
@@ -598,6 +598,80 @@ const CASE_DEFS = [
             if (a) a.click();
           }, 600);
           return { open_url: href, note: "已打开主工作台" };
+        },
+      },
+    ],
+  },
+  {
+    id: "case7",
+    panel: "case7",
+    title: "对话真跑 · 10MW",
+    tagline: "Live 闭环 · 机型预设 + 人为可介入",
+    duration: "视求解器而定",
+    facts: [
+      { k: "预设", v: "10 MW" },
+      { k: "路径", v: "助手工具链" },
+      { k: "HITL", v: "改几何后续跑" },
+    ],
+    story:
+      "对话驱动真闭环：应用 10MW 预设 → 设计清单 → 设计域（可人为改模型）→ CalculiX–BESO → 尺寸/评审。缺 FreeCAD/ccx/gmsh 时会进入 Preview 并明确标注，不会冒充成功。",
+    inputs: {
+      preset_id: "10",
+      entry: "index.html?live=10mw",
+    },
+    steps: [
+      {
+        id: "c7-s1",
+        label: "① 探测求解器 / 执行模式",
+        detail: "probe live|preview",
+        async run(ctx) {
+          // Soft probe via OpenAPI health; detailed probe is in-chat tool
+          let health = { ok: true };
+          try {
+            health = await ctx.api("/health");
+          } catch (e) {
+            health = { ok: false, error: String(e?.message || e) };
+          }
+          ctx.renderFlowIoBoard({
+            step: 1,
+            total: 2,
+            title: "准备对话真跑（10MW）",
+            detail: "下一步打开主工作台；在侧栏对话中说：「按 10MW 预设做闭环设计，需要时暂停让我改几何」。",
+            accent: "cyan",
+            meta: [
+              ["preset", "10"],
+              ["health", health?.ok === false ? "down" : "up"],
+            ],
+            note: "助手将调用 apply_turbine_preset / start_design_domain_session / start_beso_job 等真工具。",
+          });
+          return health;
+        },
+      },
+      {
+        id: "c7-s2",
+        label: "② 打开主工作台 · 预填 10MW 对话",
+        detail: "index.html?live=10mw",
+        async run(ctx) {
+          const tid = ctx.ensureTaskId();
+          const prompt = encodeURIComponent(
+            "请按 10MW 机型预设启动对话驱动闭环：先 probe_execution，再 apply_turbine_preset(10)，创建设计域并在 mesh 前允许我人为改模型，然后真跑 BESO 与尺寸/评审。缺求解器时明确进入 Preview，不要调用 demo 回放。",
+          );
+          const href = `./index.html?live=10mw&task_id=${encodeURIComponent(tid)}&prefill=${prompt}`;
+          setStageHtml(
+            "case7",
+            `<div class="demoBeso7Launch">
+              <p class="demoBeso7Kicker">Live / Preview · 非教学回放</p>
+              <h3>对话真跑 · 10MW FOWT</h3>
+              <ul class="demoBeso7Facts">
+                <li>机型预设 5/10/15/20 MW</li>
+                <li>助手工具：设计域 / BESO / 尺寸 / 评审</li>
+                <li>HITL：replace-geometry / 参数化提交</li>
+              </ul>
+              <a class="btn btnPrimary demoBeso7OpenBtn" id="demoLive10OpenNow" href="${esc(href)}">打开主工作台并预填提示</a>
+            </div>`,
+          );
+          window.setTimeout(() => document.getElementById("demoLive10OpenNow")?.click(), 500);
+          return { open_url: href };
         },
       },
     ],

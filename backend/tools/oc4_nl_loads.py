@@ -46,8 +46,10 @@ def _clamp_load_case(lc: dict[str, Any], *, default_band: float, default_zfix: f
         out["z_fix_band"] = float(default_zfix)
     else:
         out["z_fix_band"] = max(10.0, float(zf))
-    mode = str(out.get("cload_mode") or "single_top").strip().lower()
+    mode = str(out.get("cload_mode") or "beso9_ring").strip().lower()
     out["cload_mode"] = mode
+    if not str(out.get("fix_mode") or "").strip():
+        out["fix_mode"] = "beso9_arcs"
     if out.get("cload_dof") is not None:
         try:
             d = int(out["cload_dof"])
@@ -126,18 +128,19 @@ def parse_loads_natural_language(
         '  - "band_scale": number|null，1~3；\n'
         '  - "z_fix_band": number|null，底面固定带高度（与 z_min 距离，同 INP 逻辑）；\n'
         '  - "cload_mode": string，必须是之一：'
-        '"single_top"（最高 z 单节点力）| "top_count"（沿 z 最高的若干节点各施力）| '
+        '"beso9_ring"（顶面中心载荷环圆周，推荐）| "beso9_arcs"（与 fix_mode 搭配）| '
+        '"single_top"（最高 z 单节点力，仅用户明确要求时）| "top_count"（沿 z 最高的若干节点各施力）| '
         '"top_fraction"（按节点数比例取最高区域）| "explicit"（显式节点列表）；\n'
+        '  - "fix_mode": string|null，推荐 "beso9_arcs"（三底角挖孔底圆弧固定）；\n'
         '  - "cload_dof": 1|2|3|null，默认 3 为整体 Z；\n'
-        '  - "cload_mag": number|null，single_top 时单点力（N，向下为负）；\n'
+        '  - "cload_mag": number|null，总力（N，向下为负；环载时按节点均分）；\n'
         '  - "cload_each": number|null，top_count / top_fraction 时每节点力（N）；\n'
         '  - "top_node_count": int|null，cload_mode=top_count 时节点个数（<=500）；\n'
         '  - "top_fraction": number|null，cload_mode=top_fraction 时 0~0.5；\n'
         '  - "explicit_cloads": [{"node":int,"dof":int,"magnitude":number}]|null，'
         "节点号必须来自摘要中的 top_node_ids_sample 或 load_node_max_z。\n"
-        "约定：用户说「向下」「受压」指 Z 负方向；总力若分配到多节点，用 top_count + cload_each 表达。\n"
-        "若用户描述「轮毂风推力」「水平推力经塔传至主柱顶端」，优先用 **dof 1 或 2** 的水平分量在 **load_node_max_z** 附近节点施加，"
-        "并与底面全约束带共同形成与文献静力等效工况一致的边界。\n"
+        "约定：默认工程工况为顶面中心环载 + 三底角圆弧固定；用户说「向下」「受压」指 Z 负方向。\n"
+        "若用户描述「轮毂风推力」「水平推力」，用 force_direction +X/−X/+Y/−Y，仍优先 beso9_ring 分布。\n"
         f"\n{LLM_CONTEXT_BLOCK_ZH}"
     )
     user = (

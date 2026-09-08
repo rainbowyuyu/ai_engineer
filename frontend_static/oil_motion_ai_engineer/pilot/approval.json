@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "passed": true,
+  "approvedAt": "2026-09-08T14:18:35.981179+00:00",
+  "reviewer": "cursor-agent",
+  "continuityMode": "chain",
+  "notes": "Pilot uses in-repo paper figures + product chrome; scroll scrub on index.html",
+  "artifacts": {
+    "conceptContract": {
+      "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\source\\concept-contract.yaml",
+      "bytes": 1145,
+      "sha256": "0ffa456d452bd7f8ab817636ef0a334fee33a726e4c5364bfeb9fc9e2de10212"
+    },
+    "firstFrame": {
+      "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\source\\keyframes_project\\K0.png",
+      "bytes": 208853,
+      "sha256": "3703892cc637038e49df0c0445608e6c4d6c8e6a79d6883e02a93e616f16ef15"
+    },
+    "lastFrame": {
+      "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\source\\keyframes_project\\K1.png",
+      "bytes": 285057,
+      "sha256": "90ad4bb4ea58cc46851e6608183443edf3f5595b506b2e4daf9f65e1b49bf96e"
+    },
+    "pilotVideo": {
+      "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\pilot\\clips\\s01_K0_K1.mp4",
+      "bytes": 5977431,
+      "sha256": "c0db4a830fc6149f2fd927fac62c985d6396254bf5ebd80aa96f94324738a29a"
+    },
+    "pageEvidence": {
+      "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\pilot\\page-evidence.md",
+      "bytes": 407,
+      "sha256": "be0b23190a5fc4e26a3658b272c7c921726e3a52dbf4c8c098933a9895cd6f45"
+    }
+  }
+}

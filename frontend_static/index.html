@@ -616,8 +616,8 @@
         align-items:center;
         justify-content:center;
       }
-      .backHomeBtn{
-        border-radius: 999px !important;
+      .backHomeBtn:not(.stageNavBtn){
+        border-radius: 10px !important;
       }
       .orchestrateActionBar{
         margin-top: 12px;
@@ -807,13 +807,22 @@
           </div>
           <div class="topUtilityCluster" aria-label="工具">
             <a
-              class="btn resultsViewerTopBtn"
+              class="topUtilBtn"
               href="./index.html?demo=beso7-pipeline"
               title="全流程演示：真实进入设计域/编排并引导大模型"
               >全流程演示</a
             >
             <a
-              class="btn resultsViewerTopBtn"
+              class="topUtilBtn topUtilBtn--accent"
+              href="./archify/beso_pipeline_flow.html"
+              target="_blank"
+              rel="noopener"
+              title="Archify：论文四阶段闭环 — 需求 → BESO → 升尺度/PSO → Zwind → Automated Reviewer"
+              >动态流程图</a
+            >
+            <span class="topUtilSep" aria-hidden="true"></span>
+            <a
+              class="topUtilBtn"
               href="./validation.html"
               target="_blank"
               rel="noopener"
@@ -821,14 +830,23 @@
               >验证功能</a
             >
             <a
-              class="btn resultsViewerTopBtn"
+              class="topUtilBtn"
               href="./cad_design_studio.html"
               target="_blank"
               rel="noopener"
               title="内嵌 CAD Explorer + Qwen 对话（新标签页）"
               >CAD 设计台</a
             >
-            <button type="button" class="btn resultsViewerTopBtn" id="resultsViewerBtn" title="打开拓扑优化结果查看器">结果查看器</button>
+            <button
+              type="button"
+              class="topUtilBtn topUtilBtn--accent"
+              id="topEnterRestructionBtn"
+              title="尺寸时域分析：上传拓扑参数汇总 → 静力尺寸 / Zwind 时域（返回指标与图）"
+            >
+              尺寸时域分析
+            </button>
+            <span class="topUtilSep" aria-hidden="true"></span>
+            <button type="button" class="topUtilBtn topUtilBtn--solid" id="resultsViewerBtn" title="打开拓扑优化结果查看器">结果查看器</button>
           </div>
           <button class="iconBtn" id="settingsBtn" title="连接与偏好">⚙</button>
         </div>
@@ -836,12 +854,27 @@
 
       <div class="panelHd hidden flowStepperBar" id="flowStepper">
         <div class="flowStepperLead">
-          <div class="stageActionCluster" role="toolbar" aria-label="导航">
-            <button type="button" class="btn backHomeBtn" id="backHomeFloating">← 返回主页</button>
-            <button type="button" class="btn oc4ReturnToDesignBtn hidden" id="backToOc4FromFlowBtn" title="返回设计域：调整网格与载荷后再进入构型优化编排">
-              ← 设计域
+          <nav class="stageNav" role="toolbar" aria-label="流程导航">
+            <div class="stageNavGroup" role="group" aria-label="阶段跳转">
+              <button type="button" class="btn stageNavBtn stageNavBtn--back oc4ReturnToDesignBtn hidden" id="backToOc4FromFlowBtn" title="返回设计域：调整网格与载荷后再进入构型优化编排">
+                <svg class="stageNavIcon" viewBox="0 0 12 12" aria-hidden="true"><path d="M7.75 2.25 3.5 6l4.25 3.75"/></svg>
+                <span>设计域</span>
+              </button>
+              <button type="button" class="btn stageNavBtn stageNavBtn--fwd stageNavBtn--primary" id="flowToAnalysisBtn" title="进入尺寸时域分析（继承当前工作区参数汇总）">
+                <span>尺寸时域</span>
+                <svg class="stageNavIcon" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.25 2.25 8.5 6l-4.25 3.75"/></svg>
+              </button>
+              <button type="button" class="btn stageNavBtn stageNavBtn--fwd" id="flowToReviewBtn" title="进入 AI Review">
+                <span>AI Review</span>
+                <svg class="stageNavIcon" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.25 2.25 8.5 6l-4.25 3.75"/></svg>
+              </button>
+            </div>
+            <span class="stageNavSep" aria-hidden="true"></span>
+            <button type="button" class="btn stageNavBtn stageNavBtn--back stageNavBtn--home backHomeBtn" id="backHomeFloating">
+              <svg class="stageNavIcon" viewBox="0 0 12 12" aria-hidden="true"><path d="M7.75 2.25 3.5 6l4.25 3.75"/></svg>
+              <span>返回主页</span>
             </button>
-          </div>
+          </nav>
         </div>
         <div class="flowStepperSteps" role="navigation" aria-label="流程步骤">
           <span class="chip" id="flowStep1" tabindex="-1" aria-disabled="true">1 搜索文件</span>
@@ -937,6 +970,20 @@
                   支持 INP、IGES、STEP：上传后用自然语言描述目标与约束，可审阅模型、走设计域体网格与载荷，或通过编排串联 BESO 与 CalculiX。Enter 发送，Shift+Enter 换行；侧栏管理任务与附件，runs 目录保存日志与中间结果。
                 </p>
               </div>
+              <div class="landingTwinGates" aria-label="并行入口">
+                <a class="landingGateCard landingGateCard--demo" href="./index.html?demo=beso7-pipeline">
+                  <span class="landingGateKicker">真实工作台</span>
+                  <strong class="landingGateTitle">全流程演示</strong>
+                  <span class="landingGateLead">进入设计域与编排，引导大模型逐步跑通 BESO7。</span>
+                  <span class="landingGateCta">开始演示 →</span>
+                </a>
+                <a class="landingGateCard landingGateCard--flow" href="./archify/beso_pipeline_flow.html" target="_blank" rel="noopener">
+                  <span class="landingGateKicker">Archify · 论文闭环</span>
+                  <strong class="landingGateTitle">动态流程图</strong>
+                  <span class="landingGateLead">对齐可认证工程设计四阶段：需求 → BESO/升尺度/Zwind → 评审门禁（S≥85）。</span>
+                  <span class="landingGateCta">打开地图 →</span>
+                </a>
+              </div>
             </header>
 
             <div id="chatLanding" class="chat landingChatScroll" role="log" aria-live="polite" aria-relevant="additions"></div>
@@ -947,8 +994,9 @@
                   <input id="fileInputLanding" type="file" accept=".inp,.vtk,.obj,.py,.log,.igs,.iges,.stp,.step" class="hidden" />
                   <div id="landingSubflowStrip" class="landingSubflowStrip hidden" aria-label="从对话进入子流程">
                     <span class="landingSubflowStripLabel">子流程</span>
-                    <button type="button" class="landingSubflowBtn" id="landingEnterDesignDomainBtn" title="进入设计域（需已上传 IGES）">设计域</button>
-                    <button type="button" class="landingSubflowBtn landingSubflowBtn--primary" id="landingEnterOrchestrateBtn" title="进入构型优化编排（需已上传文件）">构型优化编排</button>
+                    <button type="button" class="landingSubflowBtn" id="landingEnterDesignDomainBtn" title="进入设计域（未上传时使用内置 OC4 参考几何）">设计域</button>
+                    <button type="button" class="landingSubflowBtn" id="landingEnterRestructionBtn" title="进入尺寸时域分析：静力尺寸 + Zwind">尺寸时域分析</button>
+                    <button type="button" class="landingSubflowBtn landingSubflowBtn--primary" id="landingEnterOrchestrateBtn" title="进入构型优化编排">构型优化编排</button>
                   </div>
                   <div class="composerPillTop">
                     <div
@@ -1145,9 +1193,23 @@
                 </div>
               </div>
             </div>
-            <div class="designDomainHeaderActions stageActionCluster" role="toolbar" aria-label="页面操作">
-              <button type="button" class="btn backHomeBtn" id="designDomainBackBtn">← 返回主页</button>
-            </div>
+            <nav class="designDomainHeaderActions stageNav" role="toolbar" aria-label="流程导航">
+              <div class="stageNavGroup" role="group" aria-label="进入下一阶段">
+                <button type="button" class="btn stageNavBtn stageNavBtn--fwd stageNavBtn--primary" id="designDomainToTopoBtn" title="进入拓扑优化 / 构型编排">
+                  <span>拓扑优化</span>
+                  <svg class="stageNavIcon" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.25 2.25 8.5 6l-4.25 3.75"/></svg>
+                </button>
+                <button type="button" class="btn stageNavBtn stageNavBtn--fwd" id="designDomainToAnalysisBtn" title="进入尺寸时域分析（可继承同一工作区）">
+                  <span>尺寸时域</span>
+                  <svg class="stageNavIcon" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.25 2.25 8.5 6l-4.25 3.75"/></svg>
+                </button>
+              </div>
+              <span class="stageNavSep" aria-hidden="true"></span>
+              <button type="button" class="btn stageNavBtn stageNavBtn--back stageNavBtn--home backHomeBtn" id="designDomainBackBtn">
+                <svg class="stageNavIcon" viewBox="0 0 12 12" aria-hidden="true"><path d="M7.75 2.25 3.5 6l4.25 3.75"/></svg>
+                <span>返回主页</span>
+              </button>
+            </nav>
           </header>
           <div class="designDomainIdeGrid" id="designDomainIdeGrid">
             <aside class="ddIdeFileRail" id="ddIdeFileRail" aria-label="会话工作区文件">
@@ -1228,14 +1290,14 @@
                   </div>
                 </div>
               </div>
-              <div class="ddIdeTabPanels">
-                <div class="ddIdePane ddIdePane--code" id="ddIdePaneSource" role="tabpanel">
+              <div class="ddIdeTabPanels ddIdeTabPanels--stacked">
+                <div class="ddIdePane ddIdePane--code ddIdePane--active" id="ddIdePaneSource" role="tabpanel" aria-hidden="false">
                   <div class="ddIdeSourceStack" id="ddIdeSourceStack">
                     <iframe
                       id="ddIdeVscodeFrame"
                       class="ddIdeVscodeFrame hidden"
                       title="VS Code Web（侧车）"
-                      sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-popups"
+                      sandbox="allow-scripts allow-forms allow-downloads allow-popups allow-modals"
                     ></iframe>
                     <div class="ddIdeNativeCodeWrap" id="ddIdeNativeCodeWrap">
                       <div class="ddIdeCodeHd">
@@ -1252,18 +1314,27 @@
                     </div>
                   </div>
                 </div>
-                <div class="ddIdePane ddIdePane--preview hidden" id="ddIdePanePreview" role="tabpanel" hidden>
+                <div class="ddIdePane ddIdePane--preview ddIdePane--idle" id="ddIdePanePreview" role="tabpanel" aria-hidden="true">
                   <div class="designDomainViewportCard ddIdePreviewCard">
                     <div class="designDomainViewportLabel" id="ddIdePreviewLabel">3D 预览</div>
+                    <div class="ddIdeBcToolbar" id="ddIdeBcToolbar" aria-label="约束与载荷叠加">
+                      <button type="button" class="btn ddIdeBcToggle on" id="ddIdeBcToggle" aria-pressed="true" title="显示/隐藏约束与载荷箭头">
+                        约束 / 载荷
+                      </button>
+                      <span class="ddIdeBcLegend" id="ddIdeBcLegend">红点固定 · 黄箭头 *CLOAD</span>
+                      <span class="ddIdeBcSummary mono" id="ddIdeBcSummary">—</span>
+                    </div>
                     <div class="ddIdeMdPreviewWrap hidden" id="ddIdeMdPreviewWrap">
                       <div class="ddIdeMdPreview mdLiteRoot" id="ddIdeMdPreview"></div>
                     </div>
                     <div class="designDomainViewport" id="ddIdePreviewViewport">
                       <div class="designDomainCanvasWrap" id="ddIdePreviewCanvasWrap"></div>
-                      <div class="designDomainViewportOverlay hidden" id="ddIdePreviewOverlay" aria-hidden="true">
+                      <div class="designDomainViewportOverlay hidden" id="ddIdePreviewOverlay" aria-hidden="true" role="status" aria-live="polite">
                         <div class="designDomainOverlayInner">
                           <div class="designDomainSpinner" aria-hidden="true"></div>
-                          <div class="designDomainOverlayText" id="ddIdePreviewOverlayText">正在加载…</div>
+                          <div class="designDomainOverlayText" id="ddIdePreviewOverlayText">正在加载三维预览…</div>
+                          <div class="designDomainOverlayDetail" id="ddIdePreviewOverlayDetail"></div>
+                          <div class="designDomainOverlayBar" aria-hidden="true"><span class="designDomainOverlayBarFill"></span></div>
                         </div>
                       </div>
                     </div>
@@ -1475,6 +1546,14 @@
               </div>
             </aside>
           </div>
+          <div id="ddStageBusyOverlay" class="ddStageBusyOverlay hidden" aria-hidden="true" role="status" aria-live="polite">
+            <div class="ddStageBusyInner">
+              <div class="designDomainSpinner ddStageBusySpinner" aria-hidden="true"></div>
+              <div class="ddStageBusyTitle" id="ddStageBusyTitle">正在准备设计域…</div>
+              <div class="ddStageBusyDetail" id="ddStageBusyDetail">请稍候，会话与构建进度会显示在此。</div>
+              <div class="ddStageBusyBar" aria-hidden="true"><span class="ddStageBusyBarFill"></span></div>
+            </div>
+          </div>
         </div>
         <div id="ddPlanFloatDock" class="ddPlanFloatDock hidden" aria-hidden="true">
           <button type="button" class="ddPlanFloatDockBtn" id="ddPlanFloatDockBtn" aria-expanded="false" title="查看执行计划">
@@ -1490,24 +1569,23 @@
         <div id="ddPlanPrefModal" class="ddPlanPrefModal hidden" aria-hidden="true">
           <button type="button" class="ddPlanPrefModalBackdrop" id="ddPlanPrefModalBackdrop" tabindex="-1" aria-label="关闭"></button>
           <div class="ddPlanPrefModalCard" role="dialog" aria-modal="true" aria-labelledby="ddPlanPrefModalTitle">
-            <h2 class="ddPlanPrefModalTitle" id="ddPlanPrefModalTitle">Build 前先确认参数</h2>
+            <h2 class="ddPlanPrefModalTitle" id="ddPlanPrefModalTitle">Build 前确认网格与工况</h2>
             <p class="ddPlanPrefModalLead">
-              选择体网格精细程度（Gmsh <span class="mono">CharacteristicLengthMax</span>，数值<strong>越大网格越粗</strong>）。将用于大模型排期与后续
-              <code class="mono">run_mesh</code>；可补充说明供模型参考。
+              选择体网格精细程度与静力工况力方向。默认：顶面中心载荷环均分施力，三底角挖孔底圆弧固定；完成后 3D 预览用黄箭头 / 红点核对。
             </p>
             <fieldset class="ddPlanPrefFieldset">
               <legend class="ddPlanPrefLegend">网格精细程度</legend>
               <div class="ddPlanPrefRadioGrid">
                 <label class="ddPlanPrefRadio"
-                  ><input type="radio" name="ddPlanMeshPreset" value="coarse" />更粗（快、单元少）</label
+                  ><input type="radio" name="ddPlanMeshPreset" value="coarse" />粗网格（快，概念筛查）</label
                 >
                 <label class="ddPlanPrefRadio"
-                  ><input type="radio" name="ddPlanMeshPreset" value="balanced" checked />标准（推荐）</label
+                  ><input type="radio" name="ddPlanMeshPreset" value="balanced" checked />标准网格（推荐）</label
                 >
-                <label class="ddPlanPrefRadio"><input type="radio" name="ddPlanMeshPreset" value="fine" />更细</label>
-                <label class="ddPlanPrefRadio"><input type="radio" name="ddPlanMeshPreset" value="finer" />更细（耗时）</label>
+                <label class="ddPlanPrefRadio"><input type="radio" name="ddPlanMeshPreset" value="fine" />细网格（局部应力更清晰）</label>
+                <label class="ddPlanPrefRadio"><input type="radio" name="ddPlanMeshPreset" value="finer" />更细（求解更慢）</label>
                 <label class="ddPlanPrefRadio ddPlanPrefRadio--wide"
-                  ><input type="radio" name="ddPlanMeshPreset" value="custom" />其他（自填 mm）</label
+                  ><input type="radio" name="ddPlanMeshPreset" value="custom" />自定义最大边长（mm）</label
                 >
               </div>
             </fieldset>
@@ -1520,15 +1598,123 @@
               min="10"
               max="25000"
               step="1"
-              placeholder="例如 480"
+              placeholder="例如 800（概念）/ 480（细）"
               disabled
             />
-            <label class="ddPlanPrefLabel" for="ddPlanMeshNote">补充说明（可选，交给大模型）</label>
-            <textarea id="ddPlanMeshNote" class="ddPlanPrefTextarea" rows="2" maxlength="600" placeholder="例如：优先控制 INP 体积、避免过细导致求解过慢…"></textarea>
+            <label class="ddPlanPrefLabel" for="ddPlanMeshNote">补充说明（可选）</label>
+            <textarea id="ddPlanMeshNote" class="ddPlanPrefTextarea" rows="2" maxlength="600" placeholder="例如：优先控制 INP 体积；顶环载荷约 Ø8–12 m；固定只在三底角圆弧…"></textarea>
+            <fieldset class="ddPlanPrefFieldset">
+              <legend class="ddPlanPrefLegend">静力载荷方向</legend>
+              <p class="ddPlanPrefHint">
+                力作用在顶面中心圆周边（多节点均分）；固定在三个底部立柱挖孔底圆弧。请选择合力方向；预览区黄箭头显示方向，红点为固定节点。
+              </p>
+              <div class="ddPlanPrefRadioGrid">
+                <label class="ddPlanPrefRadio ddPlanPrefRadio--wide"
+                  ><input type="radio" name="ddPlanForceDir" value="-Z" checked />竖直向下（重力 / RNA 竖向等效，推荐）</label
+                >
+                <label class="ddPlanPrefRadio"><input type="radio" name="ddPlanForceDir" value="+Z" />竖直向上</label>
+                <label class="ddPlanPrefRadio ddPlanPrefRadio--wide"
+                  ><input type="radio" name="ddPlanForceDir" value="+X" />水平 +X（额定风推）</label
+                >
+                <label class="ddPlanPrefRadio"><input type="radio" name="ddPlanForceDir" value="-X" />水平 −X</label>
+                <label class="ddPlanPrefRadio"><input type="radio" name="ddPlanForceDir" value="+Y" />水平 +Y</label>
+                <label class="ddPlanPrefRadio"><input type="radio" name="ddPlanForceDir" value="-Y" />水平 −Y</label>
+              </div>
+            </fieldset>
             <div class="ddPlanPrefModalActions">
               <button type="button" class="btn" id="ddPlanPrefCancel">取消</button>
-              <button type="button" class="btn btnPrimary" id="ddPlanPrefConfirm">生成计划并执行</button>
+              <button type="button" class="btn btnPrimary" id="ddPlanPrefConfirm">确认工况并执行 Build</button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="main hidden" id="restructionMain">
+        <div class="restructionStage">
+          <header class="restructionHeader">
+            <div class="restructionHeaderMain">
+              <div class="stageBrandRow">
+                <img class="stageLockup" src="./assets/beso-agent-mark.svg" width="26" height="26" alt="" aria-hidden="true" />
+                <div>
+                  <div class="title">尺寸时域分析</div>
+                  <div class="fieldLabel restructionHeaderSub">
+                    上传拓扑优化参数汇总（JSON），一键完成静力尺寸优化与 Zwind 时域校核，结果与曲线/图板回传到右侧。
+                  </div>
+                </div>
+              </div>
+            </div>
+            <nav class="restructionHeaderNav stageNav" role="toolbar" aria-label="流程导航">
+              <div class="stageNavGroup" role="group" aria-label="返回上一阶段">
+                <button type="button" class="btn stageNavBtn stageNavBtn--back" id="restructionToTopoBtn" title="返回拓扑优化 / 构型编排">
+                  <svg class="stageNavIcon" viewBox="0 0 12 12" aria-hidden="true"><path d="M7.75 2.25 3.5 6l4.25 3.75"/></svg>
+                  <span>拓扑优化</span>
+                </button>
+                <button type="button" class="btn stageNavBtn stageNavBtn--back" id="restructionToDesignBtn" title="返回设计域（同一工作区）">
+                  <svg class="stageNavIcon" viewBox="0 0 12 12" aria-hidden="true"><path d="M7.75 2.25 3.5 6l4.25 3.75"/></svg>
+                  <span>设计域</span>
+                </button>
+              </div>
+              <span class="stageNavSep" aria-hidden="true"></span>
+              <div class="stageNavGroup" role="group" aria-label="前进与主页">
+                <button type="button" class="btn stageNavBtn stageNavBtn--fwd stageNavBtn--primary btnPrimary" id="restructionToReviewBtn" title="进入 AI Review">
+                  <span>AI Review</span>
+                  <svg class="stageNavIcon" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.25 2.25 8.5 6l-4.25 3.75"/></svg>
+                </button>
+                <button type="button" class="btn stageNavBtn stageNavBtn--back stageNavBtn--home backHomeBtn" id="restructionBackBtn">
+                  <svg class="stageNavIcon" viewBox="0 0 12 12" aria-hidden="true"><path d="M7.75 2.25 3.5 6l4.25 3.75"/></svg>
+                  <span>返回主页</span>
+                </button>
+              </div>
+            </nav>
+          </header>
+
+          <div class="restructionLayout">
+            <aside class="restructionAside">
+              <section class="restructionPanel restructionPanel--controls">
+                <h2 class="restructionPanelTitle">参数汇总</h2>
+                <label class="restructionUpload" for="restructionFileInput">
+                  <input id="restructionFileInput" type="file" accept=".json,application/json" class="hidden" />
+                  <span class="restructionUploadIcon" aria-hidden="true">↑</span>
+                  <span class="restructionUploadText">
+                    <strong id="restructionFileName">点击或拖入 JSON</strong>
+                    <small id="restructionFileMeta">支持 optimized_geometry / sized_geometry / sizing_report</small>
+                  </span>
+                </label>
+                <h2 class="restructionPanelTitle">工况</h2>
+                <label class="restructionField">
+                  <span>目标功率 (MW)</span>
+                  <input id="restructionMwInput" class="restructionInput" type="number" min="1" max="50" step="0.5" value="20" />
+                </label>
+                <label class="restructionField">
+                  <span>静倾限值 (°)</span>
+                  <input id="restructionPitchInput" class="restructionInput" type="number" min="1" max="15" step="0.5" value="5" />
+                </label>
+                <label class="restructionField">
+                  <span>Zwind 对照平台</span>
+                  <select id="restructionPlatformSelect" class="restructionInput">
+                    <option value="ai" selected>AI 方案</option>
+                    <option value="tuqiang">TuQiang</option>
+                  </select>
+                </label>
+                <div class="restructionActions">
+                  <button type="button" class="btn btnPrimary restructionBtn" id="restructionRunStaticBtn">静力尺寸分析</button>
+                  <button type="button" class="btn restructionBtn" id="restructionRunZwindBtn">Zwind 时域</button>
+                  <button type="button" class="btn restructionBtn restructionBtn--wide" id="restructionRunBothBtn">静力 + 时域（全套）</button>
+                </div>
+                <p class="restructionStatus" id="restructionStatus" data-tone="" role="status"></p>
+              </section>
+              <section class="restructionPanel restructionPanel--chat">
+                <h2 class="restructionPanelTitle">分析日志</h2>
+                <div id="restructionChat" class="restructionChat" role="log" aria-live="polite"></div>
+                <p class="restructionComposerHint" id="restructionComposerHint">
+                  主页也可说：「做尺寸时域分析」「对这份几何跑静力与 Zwind」。
+                </p>
+              </section>
+            </aside>
+            <section class="restructionResultsWrap">
+              <h2 class="restructionPanelTitle restructionPanelTitle--results">结果与图</h2>
+              <div id="restructionResults" class="restructionResults"></div>
+            </section>
           </div>
         </div>
       </div>
@@ -1547,6 +1733,27 @@
                 </div>
               </div>
             </div>
+            <nav class="stageNav" role="toolbar" aria-label="流程导航">
+              <div class="stageNavGroup" role="group" aria-label="阶段跳转">
+                <button type="button" class="btn stageNavBtn stageNavBtn--back oc4ReturnToDesignBtn hidden" id="backToOc4FromOrchestrateBtn" title="返回设计域调整网格与载荷">
+                  <svg class="stageNavIcon" viewBox="0 0 12 12" aria-hidden="true"><path d="M7.75 2.25 3.5 6l4.25 3.75"/></svg>
+                  <span>设计域</span>
+                </button>
+                <button type="button" class="btn stageNavBtn stageNavBtn--fwd stageNavBtn--primary" id="orchestrateToAnalysisBtn" title="进入尺寸时域分析（继承同一工作区）">
+                  <span>尺寸时域</span>
+                  <svg class="stageNavIcon" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.25 2.25 8.5 6l-4.25 3.75"/></svg>
+                </button>
+                <button type="button" class="btn stageNavBtn stageNavBtn--fwd" id="orchestrateToReviewBtn" title="进入 AI Review">
+                  <span>AI Review</span>
+                  <svg class="stageNavIcon" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.25 2.25 8.5 6l-4.25 3.75"/></svg>
+                </button>
+              </div>
+              <span class="stageNavSep" aria-hidden="true"></span>
+              <button type="button" class="btn stageNavBtn stageNavBtn--back stageNavBtn--home backHomeBtn" id="backHomeFromOrchestrate">
+                <svg class="stageNavIcon" viewBox="0 0 12 12" aria-hidden="true"><path d="M7.75 2.25 3.5 6l4.25 3.75"/></svg>
+                <span>返回主页</span>
+              </button>
+            </nav>
             <span class="agentPulse" title="AI Engineer 编排进行中"></span>
           </div>
           <div class="rail">
@@ -1567,13 +1774,10 @@
           <div id="orchestrateStream" class="orchestrateStream"></div>
           <div class="orchestrateActionBar">
             <div class="orchestrateActionLeft">
-              <button type="button" class="btn oc4ReturnToDesignBtn hidden" id="backToOc4FromOrchestrateBtn" title="返回设计域调整网格与载荷">
-                ← 设计域
-              </button>
               <span class="orchestrateHint">流式说明走完后请核对清单，再点「执行任务」启动 CalculiX + BESO。</span>
             </div>
             <div class="orchestrateActionRight">
-              <div class="stageActionCluster" role="toolbar" aria-label="目录与返回">
+              <div class="stageActionCluster" role="toolbar" aria-label="目录操作">
                 <button
                   class="btn openWorkDirBtn"
                   type="button"
@@ -1583,7 +1787,6 @@
                 >
                   工作目录
                 </button>
-                <button type="button" class="btn backHomeBtn" id="backHomeFromOrchestrate">← 返回主页</button>
               </div>
               <button type="button" class="btn btnPrimary orchestrateExecuteBtn" id="executePlannedTask" disabled>执行任务</button>
             </div>
@@ -1645,16 +1848,56 @@
           <div class="panel" id="panelStep3A">
             <div class="panelHd">
               <div class="title">3D 预览</div>
-              <div class="btnRow">
-                <span class="chip">来源 vtk 帧序列</span>
+              <div class="btnRow flowVtkHdActions">
+                <span class="chip" id="vtkSourceChip">来源 vtk 帧序列</span>
                 <button class="spinToggleBtn on" id="spinToggleBtn" type="button" aria-pressed="true" title="切换自动旋转">
                   <span class="dot"></span>
                   <span class="label">旋转中</span>
                 </button>
               </div>
             </div>
-            <div class="panelBd noScroll">
-              <div id="vtk"></div>
+            <div class="panelBd noScroll flowVtkPanelBd">
+              <div class="flowVtkToolbar" id="flowVtkToolbar" aria-label="优化预览控制">
+                <label class="flowVtkLab" for="flowVtkFrameSelect">帧
+                  <select id="flowVtkFrameSelect" class="flowVtkSelect" title="选择 fileNNN.vtk 迭代帧" disabled>
+                    <option value="">（尚无帧）</option>
+                  </select>
+                </label>
+                <input
+                  type="range"
+                  id="flowVtkFrameSlider"
+                  class="flowVtkSlider"
+                  min="0"
+                  max="0"
+                  value="0"
+                  step="1"
+                  disabled
+                  title="拖动浏览迭代"
+                  aria-label="迭代帧进度"
+                />
+                <span class="flowVtkFrameMeta mono" id="flowVtkFrameMeta">—</span>
+                <button type="button" class="btn flowVtkTbBtn" id="flowVtkReloadBtn" title="重新拉取最新 VTK">刷新</button>
+                <button type="button" class="btn flowVtkTbBtn" id="flowVtkOpenRvBtn" title="在结果查看器中打开本任务目录">结果查看器</button>
+              </div>
+              <div class="flowVtkParams" id="flowVtkParams" aria-label="本次运行可调参数">
+                <label class="flowVtkLab" for="flowMassGoal">体积比
+                  <input id="flowMassGoal" class="flowVtkInput" type="text" inputmode="decimal" placeholder="0.25" title="mass_goal_ratio，写入设置并用于下次启动" />
+                </label>
+                <label class="flowVtkLab" for="flowFilterR">滤波 R
+                  <input id="flowFilterR" class="flowVtkInput" type="text" inputmode="decimal" placeholder="自动" title="filter_radius，留空=服务端自动" />
+                </label>
+                <label class="flowVtkLab" for="flowSaveEvery">存盘每 N 轮
+                  <input id="flowSaveEvery" class="flowVtkInput" type="text" inputmode="numeric" placeholder="1" title="save_every" />
+                </label>
+                <label class="flowVtkLab" for="flowOptBase">优化基准
+                  <select id="flowOptBase" class="flowVtkSelect" title="optimization_base（大域网格推荐 stiffness）">
+                    <option value="stiffness" selected>stiffness</option>
+                    <option value="failure_index">failure_index</option>
+                  </select>
+                </label>
+                <button type="button" class="btn btnPrimary flowVtkTbBtn" id="flowVtkApplyParamsBtn" title="保存到本机设置（下次启动任务生效）">应用参数</button>
+              </div>
+              <div id="vtk" class="flowVtkCanvas"></div>
             </div>
           </div>
 
@@ -1886,6 +2129,14 @@
                     title="每 N 轮写 OBJ/INP；1=最密；大体网格可 2~5 省磁盘"
                   />
                 </div>
+                <div class="settingsField settingsField--wide">
+                  <label class="settingsLabel" for="optBase"
+                    ><span class="settingsLabelMain">优化基准</span><span class="settingsLabelKey mono">optimization_base</span></label>
+                  <select id="optBase" class="settingsInput" title="推荐 stiffness；failure_index 需滤波与许用应力匹配">
+                    <option value="stiffness" selected>stiffness（刚度/柔度，推荐）</option>
+                    <option value="failure_index">failure_index（失效指数）</option>
+                  </select>
+                </div>
               </div>
             </section>
 
@@ -1988,6 +2239,7 @@
       </div>
     </div>
 
+    <script type="module" src="./flow_main.oilIntro.js"></script>
     <script type="module" src="./flow_main.js"></script>
   </body>
 </html>

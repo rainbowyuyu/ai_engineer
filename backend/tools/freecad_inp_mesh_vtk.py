@@ -47,7 +47,13 @@ def _inp_to_vtk_via_meshio(inp_path: Path, out_vtk: Path) -> None:
     if mesh.points.size == 0 or not mesh.cells:
         raise RuntimeError("meshio: INP 中无有效节点或单元")
     mesh = _merge_meshio_cells_same_type(mesh)
-    meshio.write(out_vtk, mesh, file_format="vtk")
+    # 前端 parseLegacyAsciiUnstructuredGridTets 仅支持 ASCII；meshio 默认 BINARY 会导致「未找到 CELLS」
+    meshio.write(out_vtk, mesh, file_format="vtk", binary=False)
+    head = out_vtk.read_bytes()[:160].upper()
+    if b"BINARY" in head and b"ASCII" not in head:
+        raise RuntimeError("meshio: 未能写出 ASCII VTK")
+    if b"ASCII" not in head:
+        raise RuntimeError("meshio: VTK 头缺少 ASCII 标记")
 
 
 def resolve_freecad_python(explicit: Path | None = None) -> Path:

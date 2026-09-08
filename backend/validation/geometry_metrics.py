@@ -174,7 +174,7 @@ def _estimate_steel_mass_t(
     if override is not None:
         return float(override), "validation_overrides.steel_mass_t", assumptions
 
-    beso7 = data.get("beso7_method1_topology_reconstructed") or {}
+    beso7 = _topology_reconstructed_block(data)
     legs = beso7.get("legs") or []
     opt = data.get("optimization_info") or {}
     plate = beso7.get("hub_top_plate") or {}
@@ -186,11 +186,15 @@ def _estimate_steel_mass_t(
                 default_params_from_geometry,
             )
 
-            params = default_params_from_geometry(data)
+            geom = data
+            if beso7 and not data.get("beso7_method1_topology_reconstructed"):
+                geom = dict(data)
+                geom["beso7_method1_topology_reconstructed"] = beso7
+            params = default_params_from_geometry(geom)
             target = float(opt.get("target_power_MW") or 20.0)
             if opt.get("scale_factor") is not None:
                 report = compute_steel_report(
-                    data,
+                    geom,
                     params=params,
                     target_power_mw=target,
                     optimize=False,
@@ -198,7 +202,7 @@ def _estimate_steel_mass_t(
                 )
             else:
                 report = compute_steel_report(
-                    data,
+                    geom,
                     params=params,
                     target_power_mw=target,
                     optimize=True,
@@ -339,6 +343,15 @@ def _estimate_ai_review_economics(
     return unit_cost, cost_src, construction, const_src, fatigue, fatigue_src, notes
 
 
+def _topology_reconstructed_block(data: dict[str, Any]) -> dict[str, Any]:
+    """Prefer beso7 key; accept beso9 alias written by parameters_summary export."""
+    block = data.get("beso7_method1_topology_reconstructed")
+    if isinstance(block, dict) and block:
+        return block
+    alt = data.get("beso9_method1_topology_reconstructed")
+    return alt if isinstance(alt, dict) else {}
+
+
 def extract_geometry_metrics(
     data: dict[str, Any],
     *,
@@ -353,7 +366,11 @@ def extract_geometry_metrics(
     scale_factor = opt.get("scale_factor")
     scale_factor = float(scale_factor) if scale_factor is not None else None
 
-    beso7 = data.get("beso7_method1_topology_reconstructed") or {}
+    beso7 = _topology_reconstructed_block(data)
+    # Normalize alias so downstream steel helpers see the canonical key
+    if beso7 and not data.get("beso7_method1_topology_reconstructed"):
+        data = dict(data)
+        data["beso7_method1_topology_reconstructed"] = beso7
     legs = beso7.get("legs") or []
     stats = beso7.get("legs_statistics") or {}
     plate = beso7.get("hub_top_plate") or {}

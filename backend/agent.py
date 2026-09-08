@@ -14,7 +14,7 @@ class AgentDecision:
     inp_path: Optional[str] = None
     mass_goal_ratio: float = 0.25
     filter_radius: float = 2.0
-    optimization_base: str = "failure_index"
+    optimization_base: str = "stiffness"
     save_every: int = 1
     reasoning_summary: str | None = None
 
@@ -104,7 +104,7 @@ def decide_params(
             inp_path=data.get("inp_path"),
             mass_goal_ratio=float(data.get("mass_goal_ratio", 0.25)),
             filter_radius=float(data.get("filter_radius", 2.0)),
-            optimization_base=str(data.get("optimization_base", "failure_index")),
+            optimization_base=str(data.get("optimization_base", "stiffness")),
             save_every=int(data.get("save_every", 1)),
         )
     except Exception:

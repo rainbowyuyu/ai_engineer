@@ -374,7 +374,7 @@ export function mountDesignDomainAgentUi(opts) {
     traceEl.appendChild(row);
   }
 
-  function renderThinkingDomOnly(text) {
+  function renderThinkingDomOnly(text, ms) {
     if (!traceEl) return;
     const row = document.createElement("div");
     row.className = "ddAgentLine ddAgentLine--thinking ddAgentLine--thinkingDone";
@@ -383,8 +383,11 @@ export function mountDesignDomainAgentUi(opts) {
     det.open = false;
     const sum = document.createElement("summary");
     sum.className = "ddAgentThinkingSum";
-    sum.innerHTML =
-      '<span class="ddAgentThoughtLabel">思考过程</span><span class="ddAgentThoughtChev" aria-hidden="true"></span>';
+    const label =
+      ms != null && Number(ms) >= 0
+        ? `Thought for ${formatThoughtDuration(Number(ms))}`
+        : "思考过程";
+    sum.innerHTML = `<span class="ddAgentThoughtLabel">${esc(label)}</span><span class="ddAgentThoughtChev" aria-hidden="true"></span>`;
     const pre = document.createElement("pre");
     pre.className = "ddAgentThinkingPre mono";
     pre.textContent = String(text || "");
@@ -439,7 +442,7 @@ export function mountDesignDomainAgentUi(opts) {
       return;
     }
     if (k === "thinking") {
-      renderThinkingDomOnly(String(e.text || ""));
+      renderThinkingDomOnly(String(e.text || ""), e.ms);
     }
   }
 
@@ -449,7 +452,7 @@ export function mountDesignDomainAgentUi(opts) {
     suppressPersist = true;
     try {
       traceEl.innerHTML = "";
-      thinkingOpen = null;
+      clearThinkingState();
       lastPlanActivitySig = "";
       const chatFn = typeof renderDesignDomainChatRow === "function" ? renderDesignDomainChatRow : null;
       const rawChat = typeof getChatActivityLog === "function" ? getChatActivityLog() : [];
@@ -774,8 +777,10 @@ export function mountDesignDomainAgentUi(opts) {
     }
     el.appendChild(list);
   }
-  /** @type {{ row: HTMLElement; det: HTMLDetailsElement; sum: HTMLElement; pre: HTMLElement; t0: number } | null} */
+  /** @type {{ row: HTMLElement; det: HTMLDetailsElement; sum: HTMLElement; pre: HTMLElement; t0: number; hasThought: boolean; phase: string; tick: ReturnType<typeof setInterval> | null } | null} */
   let thinkingOpen = null;
+  /** @type {{ row: HTMLElement; el: HTMLElement; name: string; t0: number; tick: ReturnType<typeof setInterval> | null } | null} */
+  let execOpen = null;
 
   /** 与 applyDesignDomainStepUi 同频刷新时的 Plan 去重 */
   let lastPlanActivitySig = "";
@@ -928,22 +933,145 @@ export function mountDesignDomainAgentUi(opts) {
   }
 
   function formatThoughtDuration(ms) {
-    const s = Math.max(0, ms) / 1000;
+    const s = Math.max(0, Number(ms) || 0) / 1000;
     if (s < 10) return `${s.toFixed(1)}s`;
     return `${Math.round(s)}s`;
   }
 
+  function stopThinkingTicker() {
+    if (!thinkingOpen?.tick) return;
+    clearInterval(thinkingOpen.tick);
+    thinkingOpen.tick = null;
+  }
+
+  function clearThinkingState() {
+    stopThinkingTicker();
+    thinkingOpen = null;
+    stopExecTicker();
+    if (execOpen) {
+      try {
+        execOpen.row.remove();
+      } catch {
+        /* ignore */
+      }
+      execOpen = null;
+    }
+  }
+
+  function stopExecTicker() {
+    if (!execOpen?.tick) return;
+    clearInterval(execOpen.tick);
+    execOpen.tick = null;
+  }
+
+  function finalizeExecRow(ok) {
+    if (!execOpen || !traceEl) return;
+    const { row, el, name, t0 } = execOpen;
+    stopExecTicker();
+    const dt = Date.now() - t0;
+    el.className = `ddAgentExecLive ddAgentExecLive--done ${ok === false ? "ddAgentExecLive--err" : "ddAgentExecLive--ok"}`;
+    el.innerHTML =
+      `<span class="ddAgentExecMark" aria-hidden="true"></span>` +
+      `<span class="ddAgentExecLabel">${esc(name)} · 用时 ${formatThoughtDuration(dt)}</span>`;
+    row.classList.add("ddAgentLine--execDone");
+    execOpen = null;
+  }
+
+  function paintExecLive() {
+    if (!execOpen) return;
+    const { el, name, t0 } = execOpen;
+    const dt = Date.now() - t0;
+    el.innerHTML =
+      `<span class="ddAgentThoughtLive" aria-hidden="true">` +
+      `<span class="ddAgentThoughtOrb ddAgentThoughtOrb--exec"></span>` +
+      `<span class="ddAgentThoughtDots"><i></i><i></i><i></i></span>` +
+      `</span>` +
+      `<span class="ddAgentExecLabel ddAgentThoughtLabel--pulse">正在执行 · ${esc(name)} · ${formatThoughtDuration(dt)}</span>`;
+  }
+
+  function beginExecWait(name) {
+    if (!traceEl) return;
+    finalizeThinkingRow();
+    if (execOpen) {
+      stopExecTicker();
+      try {
+        execOpen.row.remove();
+      } catch {
+        /* ignore */
+      }
+      execOpen = null;
+    }
+    const row = document.createElement("div");
+    row.className = "ddAgentLine ddAgentLine--exec";
+    const el = document.createElement("div");
+    el.className = "ddAgentExecLive ddAgentExecLive--live";
+    row.appendChild(el);
+    traceEl.appendChild(row);
+    execOpen = { row, el, name: String(name || "tool"), t0: Date.now(), tick: null };
+    paintExecLive();
+    execOpen.tick = setInterval(paintExecLive, 120);
+    scrollAgentStreamToEnd(traceEl);
+  }
+
+  function phaseWaitLabel(phase, dt) {
+    const t = formatThoughtDuration(dt);
+    if (phase === "model") return `编排中 · 等待模型 · ${t}`;
+    return `Thought for ${t}`;
+  }
+
+  function paintThinkingSum(live) {
+    if (!thinkingOpen) return;
+    const { sum, t0, phase } = thinkingOpen;
+    const dt = Date.now() - t0;
+    const label = phaseWaitLabel(phase || "think", dt);
+    if (live) {
+      sum.innerHTML =
+        `<span class="ddAgentThoughtLive" aria-hidden="true">` +
+        `<span class="ddAgentThoughtOrb"></span>` +
+        `<span class="ddAgentThoughtDots"><i></i><i></i><i></i></span>` +
+        `</span>` +
+        `<span class="ddAgentThoughtLabel ddAgentThoughtLabel--pulse">${esc(label)}</span>` +
+        `<span class="ddAgentThoughtChev" aria-hidden="true"></span>`;
+    } else {
+      sum.innerHTML =
+        `<span class="ddAgentThoughtLabel">${esc(label)}</span>` +
+        `<span class="ddAgentThoughtChev" aria-hidden="true"></span>`;
+    }
+  }
+
+  function ensureThinkingTicker() {
+    if (!thinkingOpen || thinkingOpen.tick) return;
+    paintThinkingSum(true);
+    thinkingOpen.tick = setInterval(() => paintThinkingSum(true), 120);
+  }
+
   function finalizeThinkingRow() {
     if (!thinkingOpen || !traceEl) return;
-    const { row, det, sum, pre, t0 } = thinkingOpen;
+    const { row, det, sum, pre, t0, hasThought } = thinkingOpen;
+    stopThinkingTicker();
     const dt = Date.now() - t0;
+    // 仅等待、从未收到思考正文：被工具/回复打断时移除，避免刷 Thought for 0.0s
+    if (!hasThought) {
+      try {
+        row.remove();
+      } catch {
+        /* ignore */
+      }
+      thinkingOpen = null;
+      return;
+    }
     const label = `Thought for ${formatThoughtDuration(dt)}`;
     sum.innerHTML = `<span class="ddAgentThoughtLabel">${esc(label)}</span><span class="ddAgentThoughtChev" aria-hidden="true"></span>`;
+    det.classList.remove("ddAgentThinking--live");
     det.classList.add("ddAgentThinking--done");
     row.classList.add("ddAgentLine--thinkingDone");
     try {
       const thought = String(pre?.textContent || "").trim();
-      if (thought) timelinePush({ kind: "thinking", text: thought.slice(0, 12000), ms: dt });
+      timelinePush({
+        kind: "thinking",
+        text: thought.slice(0, 12000),
+        ms: dt,
+      });
     } catch {
       /* ignore */
     }
@@ -951,37 +1079,70 @@ export function mountDesignDomainAgentUi(opts) {
     scrollAgentStreamToEnd(traceEl);
   }
 
-  function openThinkingRow(text) {
+  /**
+   * 等待模型 / 思考：实时计时。phase=model 显示「编排中」；收到 thought 后切到 Thought。
+   */
+  function beginThinkingWait(phase = "model") {
     if (!traceEl) return;
-    finalizeThinkingRow();
+    if (thinkingOpen) {
+      if (phase === "think" && thinkingOpen.phase !== "think") {
+        thinkingOpen.phase = "think";
+      }
+      ensureThinkingTicker();
+      return;
+    }
     const row = document.createElement("div");
     row.className = "ddAgentLine ddAgentLine--thinking";
     const det = document.createElement("details");
-    det.className = "ddAgentThinking";
+    det.className = "ddAgentThinking ddAgentThinking--live";
     det.open = false;
     const sum = document.createElement("summary");
     sum.className = "ddAgentThinkingSum";
-    sum.innerHTML =
-      '<span class="ddAgentThoughtLabel ddAgentThoughtLabel--pulse">思考中…</span><span class="ddAgentThoughtChev" aria-hidden="true"></span>';
     const pre = document.createElement("pre");
     pre.className = "ddAgentThinkingPre mono";
-    pre.textContent = String(text || "");
+    pre.textContent = "";
     det.appendChild(sum);
     det.appendChild(pre);
     row.appendChild(det);
     traceEl.appendChild(row);
-    thinkingOpen = { row, det, sum, pre, t0: Date.now() };
+    thinkingOpen = {
+      row,
+      det,
+      sum,
+      pre,
+      t0: Date.now(),
+      hasThought: false,
+      phase: phase === "think" ? "think" : "model",
+      tick: null,
+    };
+    ensureThinkingTicker();
     scrollAgentStreamToEnd(traceEl);
+  }
+
+  function openThinkingRow(text) {
+    if (!traceEl) return;
+    const s = String(text || "");
+    if (thinkingOpen) {
+      thinkingOpen.pre.textContent = s;
+      if (s.trim()) {
+        thinkingOpen.hasThought = true;
+        thinkingOpen.phase = "think";
+      }
+      ensureThinkingTicker();
+      return;
+    }
+    beginThinkingWait(s.trim() ? "think" : "model");
+    if (thinkingOpen && s) {
+      thinkingOpen.pre.textContent = s;
+      thinkingOpen.hasThought = true;
+      thinkingOpen.phase = "think";
+    }
   }
 
   function appendThinking(text) {
     if (!traceEl) return;
     const s = String(text || "");
     bumpContext(s.length);
-    if (thinkingOpen) {
-      thinkingOpen.pre.textContent = s;
-      return;
-    }
     openThinkingRow(s);
   }
 
@@ -1006,7 +1167,8 @@ export function mountDesignDomainAgentUi(opts) {
 
   function appendActivityLine(text, kind = "") {
     if (!traceEl) return;
-    finalizeThinkingRow();
+    // 状态类活动不打断「等待模型」计时；已有思考正文时再定格
+    if (thinkingOpen?.hasThought) finalizeThinkingRow();
     bumpContext(String(text || "").length);
     const row = document.createElement("div");
     row.className = `ddAgentLine ddAgentLine--activity ddAgentLine--activity-${kind || "misc"}`;
@@ -1100,12 +1262,14 @@ export function mountDesignDomainAgentUi(opts) {
       name: String(name || ""),
       args: args && typeof args === "object" ? args : {},
     });
+    beginExecWait(String(name || "tool"));
     scrollAgentStreamToEnd(traceEl);
   }
 
   function appendToolResult(ev) {
     if (!traceEl) return;
     finalizeThinkingRow();
+    finalizeExecRow(Boolean(ev.ok));
     const ok = Boolean(ev.ok);
     const name = String(ev.name || "");
     const last = toolCallLog[toolCallLog.length - 1];
@@ -1304,11 +1468,22 @@ export function mountDesignDomainAgentUi(opts) {
       }
     } else if (t === "activity") {
       appendActivityLine(String(ev.text || ""), String(ev.kind || "misc"));
+    } else if (t === "thinking_start") {
+      // 模型开始推理：若上一轮思考已有正文则先定格，再开新的实时计时
+      if (thinkingOpen?.hasThought) finalizeThinkingRow();
+      beginThinkingWait("model");
     } else if (t === "thinking_delta") {
       const piece = String(ev.text || "");
       if (piece) appendThinking((thinkingOpen ? thinkingOpen.pre.textContent : "") + piece);
     } else if (t === "thinking") {
-      appendThinking(String(ev.text || ""));
+      const tx = String(ev.text || "");
+      if (tx) appendThinking(tx);
+      else beginThinkingWait("think");
+      // 收到思考事件即认定本轮有思考（即使正文为空），结束时保留时长
+      if (thinkingOpen) {
+        thinkingOpen.hasThought = true;
+        thinkingOpen.phase = "think";
+      }
     } else if (t === "plan_md_delta") {
       const piece = String(ev.text || "");
       if (piece) {
@@ -1369,6 +1544,8 @@ export function mountDesignDomainAgentUi(opts) {
     } else if (t === "tool_result") {
       appendToolResult(ev);
       if (ev.ok) onRefreshTree?.();
+      // 下一轮等待模型：显示「编排中」而非空 Thought
+      beginThinkingWait("model");
     } else if (t === "file") {
       const p = String(ev.path || "").trim();
       if (p) filePaths.add(p);
@@ -1379,9 +1556,15 @@ export function mountDesignDomainAgentUi(opts) {
     else if (t === "refresh_tree") onRefreshTree?.();
     else if (t === "done") {
       finalizeThinkingRow();
+      finalizeExecRow(Boolean(ev.ok));
       const ph = String(ev.phase || "");
       try {
-        onStreamPhaseDone?.(Boolean(ev.ok), { historyPath: ev.history_path, phase: ph });
+        onStreamPhaseDone?.(Boolean(ev.ok), {
+          historyPath: ev.history_path,
+          phase: ph,
+          force_direction: ev.force_direction,
+          open_preview: ev.open_preview,
+        });
       } catch {
         /* ignore */
       }
@@ -1444,7 +1627,12 @@ export function mountDesignDomainAgentUi(opts) {
         } else if (t === "done") {
           const ph = String(ev.phase || "");
           try {
-            onStreamPhaseDone?.(Boolean(ev.ok), { historyPath: ev.history_path, phase: ph });
+            onStreamPhaseDone?.(Boolean(ev.ok), {
+          historyPath: ev.history_path,
+          phase: ph,
+          force_direction: ev.force_direction,
+          open_preview: ev.open_preview,
+        });
           } catch {
             /* ignore */
           }
@@ -1549,6 +1737,7 @@ export function mountDesignDomainAgentUi(opts) {
         throw new Error(tx.slice(0, 800) || `HTTP ${resp.status}`);
       }
       appendActivityLine("流已连接，等待模型首包…", "misc");
+      beginThinkingWait();
       await consumeNdjsonStream(resp);
     } catch (e) {
       if (e?.name !== "AbortError") appendError(String(e?.message || e));
@@ -1615,9 +1804,13 @@ export function mountDesignDomainAgentUi(opts) {
         throw new Error(tx.slice(0, 800) || `HTTP ${resp.status}`);
       }
       appendActivityLine("Plan-Build 流已连接…", "plan");
+      beginThinkingWait();
       await consumeNdjsonStream(resp);
     } catch (e) {
-      if (e?.name !== "AbortError") appendError(String(e?.message || e));
+      if (e?.name !== "AbortError") {
+        appendError(String(e?.message || e));
+        throw e;
+      }
     } finally {
       statusRow?.remove();
       finalizeThinkingRow();
@@ -1635,16 +1828,28 @@ export function mountDesignDomainAgentUi(opts) {
     if (!sid) throw new Error("缺少会话");
     const base = String(normalizedBaseUrl?.() || "").replace(/\/+$/, "");
     const url = `${base}/api/oc4/design-domain/session/${encodeURIComponent(sid)}/agent/plan-draft/stream`;
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    });
-    if (!resp.ok) {
-      const tx = await resp.text();
-      throw new Error(tx.slice(0, 800) || `HTTP ${resp.status}`);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 45000);
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+        signal: ctrl.signal,
+      });
+      if (!resp.ok) {
+        const tx = await resp.text();
+        throw new Error(tx.slice(0, 800) || `HTTP ${resp.status}`);
+      }
+      await consumeNdjsonPlanDraftStream(resp);
+    } catch (e) {
+      if (e?.name === "AbortError") {
+        throw new Error("计划草稿生成超时（45s），已回退默认四步计划");
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
     }
-    await consumeNdjsonPlanDraftStream(resp);
   }
 
   function stop() {
@@ -1687,7 +1892,7 @@ export function mountDesignDomainAgentUi(opts) {
       timeline = [];
       timelineOrd = 0;
       lastPlanActivitySig = "";
-      thinkingOpen = null;
+      clearThinkingState();
       toolCount = 0;
       filePaths.clear();
       pathsListedTotal = 0;
@@ -1720,7 +1925,7 @@ export function mountDesignDomainAgentUi(opts) {
   return {
     clearTrace() {
       if (traceEl) traceEl.innerHTML = "";
-      thinkingOpen = null;
+      clearThinkingState();
       lastPlanActivitySig = "";
       timeline = [];
       timelineOrd = 0;
@@ -1744,6 +1949,8 @@ export function mountDesignDomainAgentUi(opts) {
       } catch {
         /* ignore */
       }
+      finalizeThinkingRow();
+      clearThinkingState();
       stop();
     },
   };

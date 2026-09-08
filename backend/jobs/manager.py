@@ -197,6 +197,17 @@ class JobManager:
                     "name": "resulting_states.vtk",
                 }
             )
+        for jname in ("parameters_summary.json", "measurements.json"):
+            if (run_dir / jname).is_file():
+                arts.append(
+                    {
+                        "type": "artifact",
+                        "kind": "json",
+                        "url": f"/runs/{job_id}/{jname}",
+                        "name": jname,
+                        "meta": {"group": "topology_reconstructed"},
+                    }
+                )
         return arts
 
     def _latest_vtk_url(self, job_id: str, run_dir: Path) -> Optional[str]:
@@ -444,6 +455,22 @@ class JobManager:
                 on_vtk=on_vtk,
                 on_artifact=on_artifact,
             )
+            # 安全网：若 BESO 钩子未写出参数汇总，Job 结束前再补一次
+            if not cancel_flag.is_set():
+                try:
+                    summary_path = run_dir / "parameters_summary.json"
+                    if not summary_path.is_file():
+                        from backend.tools.parameters_summary_export import maybe_export_after_beso
+
+                        on_log("[INFO] parameters_summary missing after BESO — retrying export")
+                        maybe_export_after_beso(
+                            run_dir,
+                            workspace_root=self._runs_root.parent,
+                            on_log=on_log,
+                            on_artifact=on_artifact,
+                        )
+                except Exception as ps_exc:  # noqa: BLE001
+                    on_log(f"[WARN] ensure parameters_summary failed: {ps_exc}")
             if cancel_flag.is_set():
                 self._set_status(job_id, JobStatus.cancelled)
             else:
