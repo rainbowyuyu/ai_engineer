@@ -259,6 +259,7 @@ def run_beso_job(
     on_log: Callable[[str], None],
     on_vtk: Callable[[str], None],
     on_artifact: Callable[[dict[str, Any]], None] | None = None,
+    continuation: dict[str, Any] | None = None,
 ) -> None:
     workspace_root = workspace_root.resolve()
     run_dir = run_dir.resolve()
@@ -269,6 +270,17 @@ def run_beso_job(
     inp_src = Path(inp_path).resolve()
     if not inp_src.exists():
         raise FileNotFoundError(inp_src)
+    checkpoint = None
+    if continuation is not None:
+        from backend.engineer_plus.topology_checkpoint import inspect_checkpoint
+        checkpoint = inspect_checkpoint(source_run=Path(continuation["source_run"]),
+                                        target_input=inp_src, workspace_root=workspace_root,
+                                        state1=Path(continuation["source_state1_path"]))
+        for key in ("input_sha256", "source_state1_sha256", "state_partition_sha256"):
+            if checkpoint[key] != continuation[key]:
+                raise ValueError("continuation evidence changed before solver startup")
+        if float(checkpoint["config"]["mass_goal_ratio"]) != float(mass_goal_ratio):
+            raise ValueError("continuation may not change the original mass target")
 
     manifest_path = run_dir / "task_manifest.json"
     manifest: dict[str, Any] = {}
@@ -386,6 +398,10 @@ def run_beso_job(
         mode = None
         for _ln in _probe.splitlines():
             _u = _ln.strip().upper()
+            # Abaqus/CalculiX comments may occur inside a keyword block;
+            # they must not terminate the preceding *CLOAD section.
+            if _u.startswith("**") or not _u:
+                continue
             if _u.startswith("*CLOAD"):
                 mode = "c"
                 continue
@@ -395,7 +411,11 @@ def run_beso_job(
             if mode == "c" and _ln.strip() and not _ln.strip().startswith("**"):
                 n_cload += 1
         has_bound = "*BOUNDARY" in _up
-        has_fixed = "FIXED_ZMIN" in _up or "NSET=FIXED" in _up.replace(" ", "")
+        has_fixed = (
+            "FIXED_ZMIN" in _up
+            or "NSET=FIXED" in _up.replace(" ", "")
+            or "CONSTRAINTFIXED" in _up.replace(" ", "")
+        )
         on_log(
             f"[INFO] INP 边界核对：*CLOAD 行数={n_cload}，*BOUNDARY={'有' if has_bound else '无'}，"
             f"固定集={'有' if has_fixed else '无'}；simple 滤波半径={fr_use:g}"
@@ -519,6 +539,17 @@ def run_beso_job(
         if n_lim:
             conf_path.write_text(new_lim, encoding="utf-8")
             on_log(f"[INFO] iterations_limit = {int(iter_lim_env)}（BESO_ITERATIONS_LIMIT）")
+
+    if checkpoint is not None:
+        # Apply this last so generic configuration generation, repair and
+        # environment defaults cannot silently replace the original physics.
+        from backend.engineer_plus.topology_checkpoint import install_checkpoint
+        evidence_path = install_checkpoint(checkpoint=checkpoint, run_dir=run_dir,
+                                           target_input=inp_dst, ccx_path=ccx_path,
+                                           iterations_limit=continuation.get("iteration_budget", "auto"))
+        on_log(f"[INFO] validated element-state continuation: {checkpoint['configured_elements']} elements; original input unchanged")
+        if on_artifact:
+            on_artifact({"kind": "manifest", "path": evidence_path.name, "name": evidence_path.name})
 
     # Run beso_main.py, ensuring it loads our config (same dir). Pick source set by task type.
     beso_src = _choose_beso_source_dir(workspace_root, manifest, inp_src)
@@ -934,4 +965,3 @@ def _strip_to_geometry(mesh: meshio.Mesh) -> meshio.Mesh:
         surface_cells = [(c.type, c.data) for c in mesh.cells]
 
     return meshio.Mesh(points=mesh.points, cells=surface_cells)
-

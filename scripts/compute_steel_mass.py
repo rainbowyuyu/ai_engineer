@@ -26,7 +26,7 @@ from backend.tools.mixed_platform_steel import (  # noqa: E402
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="混合平台用钢量计算（restruction4 模型）")
+    parser = argparse.ArgumentParser(description="混合平台用钢量计算（restruction6 模型）")
     parser.add_argument("input_json", type=Path, help="几何 JSON（如 parameters_summary.json）")
     parser.add_argument(
         "-o",

@@ -469,6 +469,7 @@ def step_start_beso_job(
     auto_start: bool = True,
     execution_mode: str | None = None,
     mass_goal_ratio: float | None = None,
+    continuation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     mode, probe = resolve_execution_mode(execution_mode)
     if mode == "preview":
@@ -557,6 +558,7 @@ def step_start_beso_job(
         filter_radius=filt,
         optimization_base=opt_base,
         save_every=save_every,
+        continuation=continuation,
     )
     write_job_context(
         Path(job.run_dir),

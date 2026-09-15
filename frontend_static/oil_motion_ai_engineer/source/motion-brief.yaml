@@ -9,35 +9,31 @@ gesture_policy:
   boundary: clamp
   programmatic_navigation: observe
 storyboard:
-  - K0 human multi-tool FOWT design chaos (no text)
-  - K1 requirements formalization as luminous structured lattice
-  - K2 design-domain translucent foundation volume + mesh
-  - K3 BESO topology evolution growing on foundation
-  - K4 verification-closed loop with layered replan beams
-  - K5 internal Automated Reviewer gate (abstract, no digits)
-  - K6 dawn FOWT deliverable path into chat
+  - K0 natural-language requirements resolve into a centered FOWT anchor
+  - K1 requirement signals converge on an LLM orchestration core
+  - K2 OC4 reference geometry becomes a meshed design/non-design volume
+  - K3 CalculiX–BESO iterates material into a load-bearing topology
+  - K4 dimension scaling and Zwind checks turn the topology into time-domain evidence
+  - K5 failure signals trigger a visible return path and closed-loop recovery
+  - K6 five-dimensional Automated Reviewer gate evaluates the candidate
+  - K7 drawings/report handoff opens a clear path into the workbench
 keyframes:
   - id: K0
-    file: source/keyframes_v2/K0.png
-    prompt_file: source/prompts_v2/K0.txt
+    file: source/keyframes_scroll/K0.png
   - id: K1
-    file: source/keyframes_v2/K1.png
-    prompt_file: source/prompts_v2/K1.txt
+    file: source/keyframes_scroll/K1.png
   - id: K2
-    file: source/keyframes_v2/K2.png
-    prompt_file: source/prompts_v2/K2.txt
+    file: source/keyframes_scroll/K2.png
   - id: K3
-    file: source/keyframes_v2/K3.png
-    prompt_file: source/prompts_v2/K3.txt
+    file: source/keyframes_scroll/K3.png
   - id: K4
-    file: source/keyframes_v2/K4.png
-    prompt_file: source/prompts_v2/K4.txt
+    file: source/keyframes_scroll/K4.png
   - id: K5
-    file: source/keyframes_v2/K5.png
-    prompt_file: source/prompts_v2/K5.txt
+    file: source/keyframes_scroll/K5.png
   - id: K6
-    file: source/keyframes_v2/K6.png
-    prompt_file: source/prompts_v2/K6.txt
+    file: source/keyframes_scroll/K6.png
+  - id: K7
+    file: source/keyframes_scroll/K7.png
 clip_chain:
   - K0→K1
   - K1→K2
@@ -45,14 +41,15 @@ clip_chain:
   - K3→K4
   - K4→K5
   - K5→K6
+  - K6→K7
 rest_state: K0
 loop: open
 anchor: center
-scene_continuity: FOWT center anchor; teal steel ocean; text-free; one semantic change per clip
+scene_continuity: FOWT anchor; deep sea/steel palette; process signals persist across stages
 frame_policy: native
 target_fps: 24
 quality_target: full-viewport, DPR<=2
 aspect_ratio: "16:9"
-pixel_dimensions: 1792x1024
-reduced_motion: hold K6 still + Enter chat CTA (HTML only, not burned in)
+pixel_dimensions: 1920x1080
+reduced_motion: hold K7 still + Enter chat CTA (HTML only, not burned in)
 one_shot_paradigm: architectural-cutaway / object-wipe along pipeline axis

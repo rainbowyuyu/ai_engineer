@@ -47,7 +47,11 @@ def _apply_overall_calibration(
 ) -> tuple[float, list[str]]:
     notes: list[str] = []
     source = metrics.steel_mass_t_source
-    if source in ("validation_overrides.steel_mass_t", "mixed_platform_steel_restruction4"):
+    if source in (
+        "validation_overrides.steel_mass_t",
+        "mixed_platform_steel_restruction4",
+        "mixed_platform_steel_restruction6",
+    ):
         return overall, notes
 
     if source == "shell_surface_model":
@@ -127,6 +131,7 @@ def score_design(
         "estimation_confidence_score": {
             "validation_overrides.steel_mass_t": 1.0,
             "mixed_platform_steel_restruction4": 0.95,
+            "mixed_platform_steel_restruction6": 0.95,
             "shell_surface_model": 0.62,
             "volume_proxy": 0.72,
             "missing_geometry": 0.0,

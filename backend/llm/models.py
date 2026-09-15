@@ -98,13 +98,15 @@ def messages_to_langchain(messages: list[dict[str, Any]]) -> list[Any]:
 
 def langchain_to_openai_response(ai_msg: Any) -> dict[str, Any]:
     content = getattr(ai_msg, "content", "") or ""
+    metadata = getattr(ai_msg, "response_metadata", {}) or {}
     return {
         "choices": [
             {
                 "index": 0,
                 "message": {"role": "assistant", "content": content},
-                "finish_reason": "stop",
+                "finish_reason": metadata.get("finish_reason"),
             }
         ],
-        "model": get_llm_settings().model,
+        "model": metadata.get("model_name") or metadata.get("model"),
+        "id": getattr(ai_msg, "id", None),
     }

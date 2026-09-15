@@ -723,7 +723,44 @@
                             <div class="topConsoleTracks" id="topConsoleTracks"></div>
                           </div>
                           <div class="topConsoleCol topConsoleCol--metrics">
-                            <div class="topConsoleSectionLabel">JS 堆内存 <span class="topConsoleHint">趋势</span></div>
+                            <div class="topConsoleMemoryHd">
+                              <div>
+                                <div class="topConsoleSectionLabel topConsoleSectionLabel--memory">内存监控 <span class="topConsoleHint">实时</span></div>
+                                <p class="topConsoleMemoryHint" id="topConsoleMemState">浏览器内存状态采样中…</p>
+                              </div>
+                              <button
+                                type="button"
+                                class="topConsoleMemoryClearBtn"
+                                id="topConsoleMemClear"
+                                title="清空前端临时采样和标签缓存，不删除 runs 工程成果"
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                  <path d="M4 7h16M9 7V4h6v3m-9 0 1 13h8l1-13M10 11v5m4-5v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                                </svg>
+                                <span>清理内存</span>
+                              </button>
+                            </div>
+                            <div class="topConsoleMemorySummary" aria-live="polite">
+                              <div class="topConsoleMemoryMetric">
+                                <span class="topConsoleMemoryMetricK">JS 堆已用</span>
+                                <strong class="topConsoleMemoryMetricV" id="topConsoleMemUsed">—</strong>
+                              </div>
+                              <div class="topConsoleMemoryMetric">
+                                <span class="topConsoleMemoryMetricK">峰值</span>
+                                <strong class="topConsoleMemoryMetricV" id="topConsoleMemPeak">—</strong>
+                              </div>
+                              <div class="topConsoleMemoryMetric">
+                                <span class="topConsoleMemoryMetricK">本地缓存</span>
+                                <strong class="topConsoleMemoryMetricV" id="topConsoleMemStorage">—</strong>
+                              </div>
+                            </div>
+                            <div class="topConsoleMemoryBar" aria-label="JS 堆占用率">
+                              <div class="topConsoleMemoryBarFill" id="topConsoleMemBar"></div>
+                            </div>
+                            <div class="topConsoleMemoryBarMeta">
+                              <span id="topConsoleMemPercent">占用率 —</span>
+                              <span>仅统计浏览器可见内存</span>
+                            </div>
                             <div class="topConsoleChartWrap">
                               <canvas id="topConsoleMemCanvas" width="560" height="140"></canvas>
                             </div>
@@ -2239,8 +2276,6 @@
       </div>
     </div>
 
-    <script type="module" src="./flow_main.oilIntro.js"></script>
     <script type="module" src="./flow_main.js"></script>
   </body>
 </html>
-

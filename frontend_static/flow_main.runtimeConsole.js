@@ -294,6 +294,13 @@ export function mountRuntimeConsole(ctx) {
   const tracksEl = refs.topConsoleTracks;
   const memCanvas = refs.topConsoleMemCanvas;
   const memLegend = refs.topConsoleMemLegend;
+  const memState = refs.topConsoleMemState;
+  const memUsedEl = refs.topConsoleMemUsed;
+  const memPeakEl = refs.topConsoleMemPeak;
+  const memStorageEl = refs.topConsoleMemStorage;
+  const memBar = refs.topConsoleMemBar;
+  const memPercentEl = refs.topConsoleMemPercent;
+  const memClearBtn = refs.topConsoleMemClear;
   const netEl = refs.topConsoleNet;
   const pulse = refs.topConsolePulseRing;
   const subEl = refs.topConsoleTriggerSub;
@@ -310,6 +317,7 @@ export function mountRuntimeConsole(ctx) {
 
   const memPoints = [];
   const MEM_CAP = 56;
+  let peakMemBytes = 0;
   let open = false;
   let lastRtt = /** @type {number | null} */ (null);
   let lastHealthOk = /** @type {boolean | null} */ (null);
@@ -512,8 +520,87 @@ export function mountRuntimeConsole(ctx) {
   function pushMemSample() {
     const m = sampleMem();
     if (!m) return;
+    peakMemBytes = Math.max(peakMemBytes, m.used);
     memPoints.push(m);
     while (memPoints.length > MEM_CAP) memPoints.shift();
+  }
+
+  function renderMemorySummary(m) {
+    const storage = scanLocalStorageBreakdown(getCachedTaskItems);
+    if (memStorageEl) memStorageEl.textContent = fmtBytes(storage.totalAll);
+    if (!m) {
+      if (memState) memState.textContent = "当前浏览器未暴露 JS 堆指标";
+      if (memUsedEl) memUsedEl.textContent = "不可用";
+      if (memPeakEl) memPeakEl.textContent = "不可用";
+      if (memBar) memBar.style.width = "0%";
+      if (memPercentEl) memPercentEl.textContent = "占用率 —";
+      return;
+    }
+    const pct = m.total > 0 ? Math.max(0, Math.min(100, Math.round((100 * m.used) / m.total))) : 0;
+    if (memState) {
+      memState.textContent = pct >= 85 ? "内存压力偏高，建议清理临时缓存" : pct >= 65 ? "内存占用正常，可继续观察" : "内存状态良好";
+    }
+    if (memUsedEl) memUsedEl.textContent = fmtBytes(m.used);
+    if (memPeakEl) memPeakEl.textContent = fmtBytes(peakMemBytes || m.used);
+    if (memBar) {
+      memBar.style.width = `${pct}%`;
+      memBar.classList.toggle("topConsoleMemoryBarFill--warn", pct >= 65);
+      memBar.classList.toggle("topConsoleMemoryBarFill--danger", pct >= 85);
+    }
+    if (memPercentEl) memPercentEl.textContent = `占用率 ${pct}% · 上限 ${fmtBytes(m.total)}`;
+  }
+
+  function collectTaskIds() {
+    return new Set(
+      (typeof getCachedTaskItems === "function" ? getCachedTaskItems() : [])
+        .map((item) => String(item?.task_id || "").trim())
+        .filter(Boolean),
+    );
+  }
+
+  function clearFrontendMemory() {
+    const beforePoints = memPoints.length;
+    memPoints.length = 0;
+    peakMemBytes = 0;
+    const taskIds = collectTaskIds();
+    let removedTabs = 0;
+    if (taskIds.size > 0) {
+      try {
+        const removable = [];
+        for (let i = 0; i < localStorage.length; i += 1) {
+          const key = localStorage.key(i);
+          if (!key || !key.startsWith("beso.dd.ideTabs.v1.t.")) continue;
+          const taskId = key.slice("beso.dd.ideTabs.v1.t.".length);
+          if (!taskIds.has(taskId)) removable.push(key);
+        }
+        removable.forEach((key) => {
+          localStorage.removeItem(key);
+          removedTabs += 1;
+        });
+      } catch {
+        /* localStorage may be unavailable in private/restricted contexts */
+      }
+    }
+    try {
+      performance.clearResourceTimings?.();
+    } catch {
+      /* optional browser API */
+    }
+    try {
+      window.gc?.();
+    } catch {
+      /* Chrome only exposes gc with a dev flag */
+    }
+    const current = sampleMem();
+    renderMemorySummary(current);
+    drawMemChart();
+    if (memState) {
+      memState.textContent = `已清理 ${beforePoints} 个采样点 · 释放 ${removedTabs} 个过期标签缓存`;
+    }
+    if (memClearBtn) {
+      memClearBtn.classList.add("topConsoleMemoryClearBtn--done");
+      window.setTimeout(() => memClearBtn.classList.remove("topConsoleMemoryClearBtn--done"), 1500);
+    }
   }
 
   function drawMemChart() {
@@ -627,6 +714,7 @@ export function mountRuntimeConsole(ctx) {
     pushMemSample();
     drawMemChart();
     const m = sampleMem();
+    renderMemorySummary(m);
     if (memLegend) {
       if (!m) {
         memLegend.textContent = "当前环境未暴露 performance.memory（可用 Chrome 桌面版查看 JS 堆曲线）。";
@@ -667,6 +755,7 @@ export function mountRuntimeConsole(ctx) {
   tracksEl?.addEventListener("click", onTracksClick);
   storageSeg?.addEventListener("click", onStorageSegClick);
   mainSeg?.addEventListener("click", onMainSegClick);
+  memClearBtn?.addEventListener("click", clearFrontendMemory);
 
   refreshSummary();
   void pingHealth().then(() => renderNet());
@@ -682,6 +771,7 @@ export function mountRuntimeConsole(ctx) {
       tracksEl?.removeEventListener("click", onTracksClick);
       storageSeg?.removeEventListener("click", onStorageSegClick);
       mainSeg?.removeEventListener("click", onMainSegClick);
+      memClearBtn?.removeEventListener("click", clearFrontendMemory);
       document.body.classList.remove("topConsoleOpen");
     },
   };

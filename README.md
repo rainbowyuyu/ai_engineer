@@ -183,6 +183,28 @@ GET  /api/rag/stats
 
 Swap `embed_fn` for OpenAI / sentence-transformers when you need denser embeddings; keep the same store API.
 
+### Automatic `runs/` cleanup
+
+The backend periodically removes stale tasks, sessions, uploads, and temporary artifacts under `WORKSPACE_ROOT/runs/`. The default retention is 30 days with a 24-hour cleanup interval. Running jobs, incomplete asynchronous conversions, and directories containing `.cleanup-keep` or `.keep` are protected. `runs/_archive`, `runs/_checkpoints`, and `runs/_surrogate_models` are retained by default.
+
+```powershell
+# Preview only
+.\.venv\Scripts\python scripts\cleanup_runs.py
+
+# Apply deletion
+.\.venv\Scripts\python scripts\cleanup_runs.py --apply --days 30
+```
+
+HTTP endpoints:
+
+```http
+GET  /api/runs-cleanup/status
+POST /api/runs-cleanup/preview
+POST /api/runs-cleanup/run
+```
+
+Configuration variables: `RUNS_CLEANUP_ENABLED`, `RUNS_CLEANUP_RETENTION_DAYS`, `RUNS_CLEANUP_INTERVAL_HOURS`, `RUNS_CLEANUP_STARTUP_DELAY_SECONDS`, `RUNS_CLEANUP_INCLUDE_ARCHIVES`, and `RUNS_CLEANUP_MAX_ITEMS`. Archives are only eligible when `RUNS_CLEANUP_INCLUDE_ARCHIVES=true` or when explicitly requested through the cleanup API/CLI.
+
 ---
 
 ## Repository layout

@@ -2,28 +2,33 @@ subject_count: 1
 subjects:
   - identity: >-
       Floating offshore wind turbine (FOWT) foundation as recurring center
-      visual anchor; teal–steel–ocean engineering light; no readable text
+      visual anchor; topology changes from reference geometry to optimized
+      structure while keeping the three-column silhouette readable
 style: >-
-      cinematic physical metaphor of closed-loop AI engineering; abstract
-      luminous process, not paper screenshots; no UI chrome, no typography
+  cinematic engineering explainer grounded in the paper workflow; deep
+  ocean-blue technical atmosphere with luminous process traces and restrained
+  data visualization; no screenshot panels or baked UI chrome
 motion_intent: >-
-      Scroll scrubs a one-shot film of The AI Engineer paper pipeline:
-      human multi-tool chaos → requirements formalization → design domain →
-      topology evolution → verification-closed replan → internal certifiable
-      gate → dawn deliverable inviting chat. No baked-in letters/numbers.
+  Scroll scrubs a one-shot film of the paper pipeline:
+  natural-language requirements → LLM orchestration → OC4 reference and
+  design/non-design domain → CalculiX–BESO topology evolution →
+  dimension upscaling and Zwind time-domain checks → autonomous replan →
+  five-dimension Automated Reviewer → drawings and report handoff
 background_owner: video
 scene: >-
-      Full-bleed 16:9 hero; cool teal key light; deep navy steel; soft ocean
-      haze; continuous forward dolly along FOWT optical center
+  Full-bleed 16:9 hero; cool teal key light, deep navy sea and steel,
+  cyan grid traces, orange topology signal, green certification signal;
+  continuous forward camera drift around the FOWT optical center
 driver: scroll
 input_semantics: continuous
 time_control: scrub
 navigation: continuous
 clip_continuity: chain
 continuity:
-  - FOWT / floating foundation silhouette as center anchor
-  - teal–steel–ocean palette
-  - absolutely no readable text, logos-as-words, UI labels, or digit overlays in frames
-  - no reuse of existing paper figure PNGs
+  - FOWT three-column foundation silhouette remains the visual anchor
+  - reference geometry becomes topology-optimized geometry across the chain
+  - teal/cyan engineering traces, orange optimization signal, green gate signal
+  - no readable text, logos-as-words, UI labels, or digit overlays in video frames
+  - no paper screenshot panels; paper meaning is carried by abstracted process visuals
 aspect_ratio: "16:9"
 destination: index.html sticky oil intro → #landingMain LLM chat

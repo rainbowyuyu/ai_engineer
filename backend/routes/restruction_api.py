@@ -228,8 +228,8 @@ def _run_static_bundle(
         "process": {
             "title": f"{AGENT_LABEL_ZH} · 静力尺寸",
             "detail": (
-                f"基型 {(prest.get('base_platform') or {}).get('name')} → "
-                f"min x³ / pitch≤{pitch_limit}° → x={prest.get('extra_scale_x')}"
+                f"restruction6 / { (prest.get('base_platform') or {}).get('name') } → "
+                f"min t/MW / pitch≤{pitch_limit}° → x={prest.get('extra_scale_x')}"
             ),
         },
     }

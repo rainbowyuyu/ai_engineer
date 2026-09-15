@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -70,6 +71,9 @@ from backend.routes.security_api import router as security_router
 from backend.routes.rag_api import router as rag_router
 from backend.routes.prism_design_api import router as prism_design_router
 from backend.routes.restruction_api import router as restruction_router
+from backend.routes.engineer_plus_api import router as engineer_plus_router
+from backend.routes.runs_cleanup_api import router as runs_cleanup_router
+from backend.runs_cleanup import scheduler_for
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +132,7 @@ def _effective_assistant_temperature(body: "AssistantChatRequest") -> float:
     return t
 
 
-WORKSPACE_ROOT = Path(os.environ.get("WORKSPACE_ROOT", r"D:\python_project\beso_ai")).resolve()
+WORKSPACE_ROOT = Path(os.environ.get("WORKSPACE_ROOT", str(_repo_root))).resolve()
 RUNS_ROOT = WORKSPACE_ROOT / "runs"
 RUNS_ROOT.mkdir(parents=True, exist_ok=True)
 TASKS_ROOT = RUNS_ROOT / "_tasks"
@@ -142,7 +146,18 @@ CAD_CONVERT_ROOT.mkdir(parents=True, exist_ok=True)
 _cad_convert_registry: dict[str, dict] = {}
 _cad_convert_registry_lock = threading.Lock()
 
-app = FastAPI(title="AI Engineer Web")
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    cleanup_scheduler = scheduler_for(RUNS_ROOT)
+    cleanup_scheduler.start()
+    try:
+        yield
+    finally:
+        cleanup_scheduler.stop()
+
+
+app = FastAPI(title="AI Engineer Web", lifespan=_lifespan)
 app.include_router(oc4_design_domain_router, prefix="/api/oc4/design-domain")
 app.include_router(validation_router, prefix="/api/validation")
 app.include_router(design_requirements_router, prefix="/api/design-requirements")
@@ -158,6 +173,8 @@ app.include_router(security_router, prefix="/api/security")
 app.include_router(rag_router, prefix="/api/rag")
 app.include_router(prism_design_router, prefix="/api/prism-design")
 app.include_router(restruction_router, prefix="/api/restruction")
+app.include_router(engineer_plus_router, prefix="/api/plus")
+app.include_router(runs_cleanup_router, prefix="/api/runs-cleanup")
 
 app.add_middleware(
     CORSMiddleware,

@@ -83,10 +83,10 @@ def build_assistant_langchain_tools(
         _wrap("commit_preview_to_session", "Commit results-viewer preview into design-domain session."),
         _wrap("start_beso_job", "Start live CalculiX–BESO job from session or inp."),
         _wrap("get_job_status", "Poll BESO job status."),
-        _wrap("run_sizing", "Steel sizing / scale optimization for target MW (includes platform_restruction)."),
+        _wrap("run_sizing", "Steel sizing / scale optimization for target MW (restruction6)."),
         _wrap(
             "run_platform_restruction",
-            "Platform-DB scale optimize (OC4/DTU/VolturnUS); opens 尺寸时域分析 UI.",
+            "Fixed-draft horizontal scale (restruction6); pitch≤5°, min t/MW; opens 尺寸时域分析 UI.",
         ),
         _wrap(
             "run_zwind_eval",

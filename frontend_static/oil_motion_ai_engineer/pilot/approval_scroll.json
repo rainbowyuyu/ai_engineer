@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "passed": true,
+  "approvedAt": "2026-09-14T03:38:18.465408+00:00",
+  "reviewer": "Codex + oil-motion",
+  "continuityMode": "chain",
+  "notes": "Pilot for the paper-grounded cinematic scroll chain: requirements → orchestration → design domain → BESO → Zwind → replan → review → deliverable.",
+  "artifacts": {
+    "conceptContract": {
+      "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\source\\concept-contract.yaml",
+      "bytes": 1692,
+      "sha256": "8b0c1a6ca44ed95b330a17306db1062f5672de76597d949264ece3235aab1291"
+    },
+    "firstFrame": {
+      "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\source\\keyframes_scroll\\K0.png",
+      "bytes": 1250458,
+      "sha256": "8623cd64819c5974e5ac1e6f7db70e9d6e8dc9daf33e7359a8cf668fda67a145"
+    },
+    "lastFrame": {
+      "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\source\\keyframes_scroll\\K1.png",
+      "bytes": 346100,
+      "sha256": "79e1068a0d1bebd28f4e75a02b8de2e0e1226b0eeea1044c8dcc3bb39dde2de8"
+    },
+    "pilotVideo": {
+      "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\pilot\\source_master_scroll.mp4",
+      "bytes": 72786899,
+      "sha256": "051e6e3e37a5228201bc9b0888690cbbca6441af7a4c736b406008739e3d78b0"
+    },
+    "pageEvidence": {
+      "path": "D:\\python_project\\beso_ai\\frontend_static\\oil_motion_ai_engineer\\pilot\\page-evidence.md",
+      "bytes": 695,
+      "sha256": "ec57b0fe766891e4a3232478757902a8ef54a0f3c37348ec661c3680b06a7360"
+    }
+  }
+}

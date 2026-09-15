@@ -6,6 +6,7 @@ import re
 import threading
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
 
@@ -32,6 +33,7 @@ class JobManager:
         save_every: int,
         generated_code_files: Optional[list[str]] = None,
         selected_inputs: Optional[dict[str, Any]] = None,
+        continuation: Optional[dict[str, Any]] = None,
     ) -> Job:
         job_id = uuid.uuid4().hex
         job_dir = (self._runs_root / job_id).resolve()
@@ -53,6 +55,7 @@ class JobManager:
             artifacts=[],
             generated_code_files=generated_code_files or [],
             selected_inputs=selected_inputs,
+            continuation=continuation,
         )
         with self._lock:
             self._jobs[job_id] = job
@@ -124,6 +127,18 @@ class JobManager:
         return mass_goal_ratio, filter_radius, optimization_base, save_every
 
     def _infer_status_from_disk(self, run_dir: Path, logs: List[str]) -> JobStatus:
+        status_file = run_dir / "status.json"
+        if status_file.is_file():
+            try:
+                raw = json.loads(status_file.read_text(encoding="utf-8"))
+                persisted = str(raw.get("status") or "").strip().lower()
+                if persisted in {item.value for item in JobStatus}:
+                    return JobStatus(persisted)
+            except (OSError, json.JSONDecodeError, ValueError):
+                pass
+        failure = run_dir / "failure.json"
+        if failure.is_file():
+            return JobStatus.failed
         tail = "\n".join(logs[-160:]) if logs else ""
         low = tail.lower()
         if "[error]" in tail or "traceback" in low:
@@ -132,7 +147,11 @@ class JobManager:
             return JobStatus.completed
         if "optimization finished" in low or ("beso" in low and "finished" in low):
             return JobStatus.completed
-        return JobStatus.completed
+        # A directory containing only an input deck is a created/incomplete
+        # job, never evidence that optimization finished.
+        if (run_dir / "task_manifest.json").is_file() or (run_dir / "03_for_beso.inp").is_file():
+            return JobStatus.created
+        return JobStatus.created
 
     def _artifacts_from_disk(self, job_id: str, run_dir: Path) -> List[dict[str, Any]]:
         arts: List[dict[str, Any]] = []
@@ -156,6 +175,14 @@ class JobManager:
                         "meta": {"group": "generated"},
                     }
                 )
+        for name, kind in (("status.json", "status"), ("failure.json", "failure"),
+                           ("replan_suggestion.json", "replan")):
+            if (run_dir / name).is_file():
+                arts.append({
+                    "type": "artifact", "kind": kind,
+                    "url": f"/runs/{job_id}/{name}", "name": name,
+                    "meta": {"group": "audit"},
+                })
         for p in sorted(run_dir.glob("*.py")):
             if p.name in skip_py:
                 continue
@@ -320,6 +347,15 @@ class JobManager:
         t = threading.Thread(target=self._run_job_thread, args=(job_id,), daemon=True)
         with self._lock:
             self._jobs[job_id] = model_copy_update(job, {"status": JobStatus.running})
+        try:
+            (Path(job.run_dir) / "status.json").write_text(
+                json.dumps({"job_id": job_id, "status": JobStatus.running.value,
+                            "time": datetime.now(timezone.utc).isoformat()},
+                           ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
         t.start()
         self._emit(job_id, {"type": "status", "status": "running"})
 
@@ -394,6 +430,18 @@ class JobManager:
         with self._lock:
             job = self._jobs[job_id]
             self._jobs[job_id] = model_copy_update(job, {"status": status})
+            run_dir = Path(job.run_dir)
+        try:
+            (run_dir / "status.json").write_text(
+                json.dumps({"job_id": job_id, "status": status.value,
+                            "time": datetime.now(timezone.utc).isoformat()},
+                           ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError:
+            # Status is still available in memory; artifact persistence must
+            # not turn a completed solver run into a failed run.
+            pass
         self._emit(job_id, {"type": "status", "status": status.value})
 
     def _run_job_thread(self, job_id: str) -> None:
@@ -454,6 +502,7 @@ class JobManager:
                 on_log=on_log,
                 on_vtk=on_vtk,
                 on_artifact=on_artifact,
+                continuation=job.continuation,
             )
             # 安全网：若 BESO 钩子未写出参数汇总，Job 结束前再补一次
             if not cancel_flag.is_set():
@@ -477,9 +526,22 @@ class JobManager:
                 self._set_status(job_id, JobStatus.completed)
         except Exception as e:
             self._append_log(job_id, f"[ERROR] {e}")
+            # Persist the failure boundary so a process restart cannot turn a
+            # failed/partial run into an apparently completed run with no
+            # auditable solver evidence.
+            failure_payload = {
+                "job_id": job_id,
+                "status": "failed",
+                "error_type": type(e).__name__,
+                "error": str(e),
+                "input_path": job.inp_path,
+                "run_dir": str(run_dir),
+                "time": datetime.now(timezone.utc).isoformat(),
+            }
             try:
                 suggestion = self._suggest_solver_replan(job_id, run_dir, str(e))
                 if suggestion:
+                    failure_payload["replan_suggestion"] = suggestion
                     self._append_log(
                         job_id,
                         f"[REPLAN] solver 建议参数已写入 replan_suggestion.json "
@@ -487,7 +549,15 @@ class JobManager:
                     )
                     self._emit(job_id, {"type": "replan", **suggestion})
             except Exception as re_err:
+                failure_payload["replan_error"] = str(re_err)
                 self._append_log(job_id, f"[REPLAN] 生成建议失败: {re_err}")
+            try:
+                (run_dir / "failure.json").write_text(
+                    json.dumps(failure_payload, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            except Exception as persist_err:
+                self._append_log(job_id, f"[ERROR] failure.json 写入失败: {persist_err}")
             self._set_status(job_id, JobStatus.failed)
 
     def _suggest_solver_replan(self, job_id: str, run_dir: Path, err: str) -> dict[str, Any] | None:
@@ -591,8 +661,8 @@ class JobManager:
 def _default_runs_root() -> Path:
     import os
 
-    return Path(os.environ.get("WORKSPACE_ROOT", r"D:\python_project\beso_ai")).resolve() / "runs"
+    repo_root = Path(__file__).resolve().parents[2]
+    return Path(os.environ.get("WORKSPACE_ROOT", str(repo_root))).resolve() / "runs"
 
 
 jobs = JobManager(_default_runs_root())
-

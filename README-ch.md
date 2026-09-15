@@ -184,6 +184,28 @@ GET  /api/rag/stats
 
 需要更强语义时，替换 `embed_fn`（OpenAI / sentence-transformers）即可，存储 API 不变。
 
+### runs 自动清理
+
+后端启动后会在后台定期清理 `WORKSPACE_ROOT/runs/` 中超过保留期的任务、会话、上传文件和临时产物。默认保留 30 天、每 24 小时检查一次。正在运行的任务、未完成的异步转换、带 `.cleanup-keep` / `.keep` 标记的目录不会被清理；`runs/_archive`、`runs/_checkpoints`、`runs/_surrogate_models` 默认永久保留。
+
+```powershell
+# 预览待清理内容（不删除）
+.\.venv\Scripts\python scripts\cleanup_runs.py
+
+# 执行清理
+.\.venv\Scripts\python scripts\cleanup_runs.py --apply --days 30
+```
+
+也可以通过 API 操作：
+
+```http
+GET  /api/runs-cleanup/status
+POST /api/runs-cleanup/preview
+POST /api/runs-cleanup/run
+```
+
+配置项：`RUNS_CLEANUP_ENABLED`、`RUNS_CLEANUP_RETENTION_DAYS`、`RUNS_CLEANUP_INTERVAL_HOURS`、`RUNS_CLEANUP_STARTUP_DELAY_SECONDS`、`RUNS_CLEANUP_INCLUDE_ARCHIVES`、`RUNS_CLEANUP_MAX_ITEMS`。归档只有在显式设置 `RUNS_CLEANUP_INCLUDE_ARCHIVES=true` 或手动调用时才会参与清理。
+
 ---
 
 ## 仓库结构

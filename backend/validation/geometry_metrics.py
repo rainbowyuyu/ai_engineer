@@ -210,18 +210,18 @@ def _estimate_steel_mass_t(
             steel = report["steel_summary"]
             comp = report["computation"]
             assumptions.append(
-                f"用钢量：restruction4 混合平台模型（静倾≤{comp['pitch_limit_deg']}°），"
+                f"用钢量：restruction6 混合平台模型（静倾≤{comp['pitch_limit_deg']}°），"
                 f"水平缩放 {comp['final_horizontal_scale_factor']:.2f}，"
                 f"结构钢 {steel['struct_mass_t']:.0f} t，"
                 f"钢耗 {steel['steel_intensity_t_per_MW']:.1f} t/MW"
             )
             return (
                 float(steel["struct_mass_t"]),
-                "mixed_platform_steel_restruction4",
+                "mixed_platform_steel_restruction6",
                 assumptions,
             )
         except Exception as exc:
-            assumptions.append(f"restruction4 计算失败，回退壳体估算：{exc}")
+            assumptions.append(f"restruction6 计算失败，回退壳体估算：{exc}")
 
     plate_wall = float(opt.get("top_plate_wall_m") or wall_thickness_m)
 

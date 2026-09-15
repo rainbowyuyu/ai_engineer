@@ -1,52 +1,66 @@
 {
   "schemaVersion": 1,
-  "fps": 23.94,
-  "frameDuration": 0.04177109440267335,
-  "frameCount": 744,
-  "duration": 31.08,
+  "fps": 24,
+  "frameDuration": 0.041666666666666664,
+  "frameCount": 668,
+  "duration": 27.833333333333332,
   "initialState": "K0",
   "states": [
     {
       "id": "K0",
-      "hold": 0.259,
-      "title": "Human Engineer",
-      "caption": "多工具碎片化 · 人工反复试错"
+      "start": 0.0,
+      "hold": 2.7083333333333335,
+      "title": "Natural-language requirements",
+      "caption": "业主意图 · 场址约束 · 规范条款"
     },
     {
       "id": "K1",
-      "hold": 5.138228905597327,
-      "title": "Verification-closed",
-      "caption": "LLM 编排确定性工程后端 · 验证闭环"
+      "start": 3.5833333333333335,
+      "hold": 6.291666666666667,
+      "title": "LLM orchestration",
+      "caption": "把自然语言编排成可执行工程任务"
     },
     {
       "id": "K2",
-      "hold": 10.318228905597326,
-      "title": "End-to-end pipeline",
-      "caption": "需求 → 设计域 → BESO → 尺寸 → 评审交付"
+      "start": 7.166666666666667,
+      "hold": 9.875,
+      "title": "Reference → design domain",
+      "caption": "OC4 参考几何 · 设计/非设计域 · 网格/载荷"
     },
     {
       "id": "K3",
-      "hold": 15.498228905597326,
-      "title": "Design domain",
-      "caption": "几何边界 · 可优化设计空间 · 网格/载荷"
+      "start": 10.75,
+      "hold": 13.458333333333334,
+      "title": "CalculiX–BESO",
+      "caption": "柔度–体积迭代 · 拓扑逐步生长"
     },
     {
       "id": "K4",
-      "hold": 20.678228905597326,
-      "title": "The AI Engineer",
-      "caption": "失败分层重规划 · 闭环可恢复"
+      "start": 14.333333333333334,
+      "hold": 17.041666666666668,
+      "title": "Scaling → Zwind",
+      "caption": "参数升尺度 · PSO 尺寸优化 · FOWT 时域校核"
     },
     {
       "id": "K5",
-      "hold": 25.858228905597326,
-      "title": "Certifiable gate",
-      "caption": "Automated Reviewer · S≥85 · AIP 外校准"
+      "start": 17.916666666666668,
+      "hold": 20.625,
+      "title": "Autonomous replan",
+      "caption": "失败分层诊断 · 回到设计域 · 恢复闭环"
     },
     {
       "id": "K6",
-      "hold": 31.038228905597325,
-      "title": "Enter chat",
-      "caption": "滚至底部，进入大模型工作台"
+      "start": 21.5,
+      "hold": 24.208333333333332,
+      "title": "Automated Reviewer",
+      "caption": "承载力 · 钢耗 · 造价 · 可建造性 · 疲劳"
+    },
+    {
+      "id": "K7",
+      "start": 25.083333333333332,
+      "hold": 27.791666666666668,
+      "title": "Certifiable deliverable",
+      "caption": "图纸与报告 · 内部门禁通过 · 进入工作台"
     }
   ],
   "segments": [
@@ -55,8 +69,8 @@
       "from": "K0",
       "to": "K1",
       "start": 0.0,
-      "hold": 5.138228905597327,
-      "endExclusive": 5.18,
+      "hold": 2.7083333333333335,
+      "endExclusive": 2.75,
       "curve": {
         "type": "constant",
         "rate": 1
@@ -66,9 +80,9 @@
       "id": "s02",
       "from": "K1",
       "to": "K2",
-      "start": 5.18,
-      "hold": 10.318228905597326,
-      "endExclusive": 10.36,
+      "start": 3.5833333333333335,
+      "hold": 6.291666666666667,
+      "endExclusive": 6.333333333333333,
       "curve": {
         "type": "constant",
         "rate": 1
@@ -78,9 +92,9 @@
       "id": "s03",
       "from": "K2",
       "to": "K3",
-      "start": 10.36,
-      "hold": 15.498228905597326,
-      "endExclusive": 15.54,
+      "start": 7.166666666666667,
+      "hold": 9.875,
+      "endExclusive": 9.916666666666666,
       "curve": {
         "type": "constant",
         "rate": 1
@@ -90,9 +104,9 @@
       "id": "s04",
       "from": "K3",
       "to": "K4",
-      "start": 15.54,
-      "hold": 20.678228905597326,
-      "endExclusive": 20.72,
+      "start": 10.75,
+      "hold": 13.458333333333334,
+      "endExclusive": 13.5,
       "curve": {
         "type": "constant",
         "rate": 1
@@ -102,9 +116,9 @@
       "id": "s05",
       "from": "K4",
       "to": "K5",
-      "start": 20.72,
-      "hold": 25.858228905597326,
-      "endExclusive": 25.9,
+      "start": 14.333333333333334,
+      "hold": 17.041666666666668,
+      "endExclusive": 17.083333333333332,
       "curve": {
         "type": "constant",
         "rate": 1
@@ -114,9 +128,21 @@
       "id": "s06",
       "from": "K5",
       "to": "K6",
-      "start": 25.9,
-      "hold": 31.038228905597325,
-      "endExclusive": 31.08,
+      "start": 17.916666666666668,
+      "hold": 20.625,
+      "endExclusive": 20.666666666666668,
+      "curve": {
+        "type": "constant",
+        "rate": 1
+      }
+    },
+    {
+      "id": "s07",
+      "from": "K6",
+      "to": "K7",
+      "start": 21.5,
+      "hold": 24.208333333333332,
+      "endExclusive": 24.25,
       "curve": {
         "type": "constant",
         "rate": 1
@@ -124,17 +150,14 @@
     }
   ],
   "media": {
-    "desktop": "./oil_motion_ai_engineer/final/desktop.mp4",
-    "mobile": "./oil_motion_ai_engineer/final/mobile.mp4",
-    "poster": "./oil_motion_ai_engineer/final/poster.png"
+    "desktop": "./oil_motion_ai_engineer/final/desktop_scroll.mp4",
+    "mobile": "./oil_motion_ai_engineer/final/mobile_scroll.mp4",
+    "poster": "./oil_motion_ai_engineer/final/poster_scroll.png"
   },
-  "style": "zenmux-minimax-chain-from-project-keyframes",
-  "clips": [
-    "pilot\\clips\\s01_K0_K1.mp4",
-    "pilot\\clips\\s02_K1_K2.mp4",
-    "pilot\\clips\\s03_K2_K3.mp4",
-    "pilot\\clips\\s04_K3_K4.mp4",
-    "pilot\\clips\\s05_K4_K5.mp4",
-    "pilot\\clips\\s06_K5_K6.mp4"
+  "style": "paper-grounded-cinematic-engineering-scroll",
+  "sourceAssets": [
+    "./docs/assets/ai_sea.png",
+    "./docs/assets/ai.png",
+    "./docs/assets/ai_2.png"
   ]
 }

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 import tempfile
 import uuid
 from pathlib import Path
@@ -52,9 +51,9 @@ def test_write_job_context_task_and_checklist(tmp_path: Path):
     assert data["task_id"] == "t1"
 
 
-def test_maybe_commit_live_replan_version():
+def test_maybe_commit_live_replan_version(monkeypatch):
     with tempfile.TemporaryDirectory() as td:
-        os.environ["WORKSPACE_ROOT"] = td
+        monkeypatch.setenv("WORKSPACE_ROOT", td)
         Path(td, "runs").mkdir(parents=True, exist_ok=True)
         eid = uuid.uuid4().hex
         ev_dir = Path(td) / "runs" / "_replan" / eid

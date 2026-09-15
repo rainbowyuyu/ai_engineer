@@ -33,4 +33,4 @@ class Job(BaseModel):
     artifacts: List[dict[str, Any]]
     generated_code_files: List[str]
     selected_inputs: dict[str, Any] | None = None
-
+    continuation: dict[str, Any] | None = None

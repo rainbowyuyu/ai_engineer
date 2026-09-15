@@ -1,7 +1,7 @@
 # Oil Motion · The AI Engineer
 
-Scroll-scrub baked-video homepage for BESO / The AI Engineer.
-At the end of the scrub, the landing LLM chat workbench takes over.
+Archived scroll-scrub cinematic paper workflow for BESO / The AI Engineer.
+The production landing page no longer mounts this opening animation.
 
 ## Four facts
 
@@ -15,33 +15,25 @@ At the end of the scrub, the landing LLM chat workbench takes over.
 ## Reproduce
 
 ```bash
-# Proxy (蓝海加速 · 规则模式常见本地端口)
-export HTTPS_PROXY=http://127.0.0.1:7897
-export HTTP_PROXY=http://127.0.0.1:7897
+# Compile paper-grounded keyframes and the all-intra scrub master.
+python scripts/bake_oil_intro_project_video.py
 
-OIL_MOTION="$HOME/.cursor/skills/oil-motion"   # Windows: %USERPROFILE%\.cursor\skills\oil-motion
-python "$OIL_MOTION/scripts/oil_motion_config.py" status
-
-# Keyframes 16:9
-python "$OIL_MOTION/scripts/image_job.py" --prompt-file source/prompts/K0.txt \
-  --output source/keyframes/K0.png --size 1792x1024 --no-transparent --force
-# … K1–K6 …
+# The compiler uses the paper-associated FOWT renders in docs/assets and
+# writes content-only frames to source/keyframes_scroll/.
 
 # Budget
 python "$OIL_MOTION/scripts/motion_budget.py" \
-  --frames 315 --display 1440x810 --dpr 2 \
+  --frames 668 --display 1440x810 --dpr 1 \
   --driver scroll --parameter-space linear --time-control scrub \
   --access sequential --background-owner video \
-  --scroll-pages 6 --frames-per-page 45 \
+  --scroll-pages 6.2 --frames-per-page 24 \
   --report build/motion-budget.json --strict --json
 ```
 
-Pilot master: `pilot/source_master.mp4` (all-intra H.264 from keyframe holds + crossfades).  
-Final: `final/desktop.mp4`, `final/mobile.mp4`, `final/poster.png`.
+Pilot master: `pilot/source_master_scroll.mp4` (all-intra H.264 from keyframe holds + crossfades).
+Final: `final/desktop_scroll.mp4`, `final/mobile_scroll.mp4`, `final/poster_scroll.png`.
 
 ## Runtime
 
-`frontend_static/flow_main.oilIntro.js` mounts before `.app`, scrub-maps scroll → `video.currentTime`, then focuses `#landingComposerDock`.
-
-- Skip: `?intro=0`
-- Force: `?intro=1`
+The original runtime controller has been removed from the landing page. The
+project files remain here only as an archive for reproducibility.

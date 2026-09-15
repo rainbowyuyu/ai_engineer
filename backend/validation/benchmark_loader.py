@@ -526,6 +526,7 @@ def enrich_benchmark_metrics(
     confidence = {
         "validation_overrides.steel_mass_t": 1.0,
         "mixed_platform_steel_restruction4": 0.95,
+        "mixed_platform_steel_restruction6": 0.95,
         "shell_surface_model": 0.62,
         "volume_proxy": 0.72,
         "missing_geometry": 0.0,

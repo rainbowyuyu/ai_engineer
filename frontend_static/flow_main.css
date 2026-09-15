@@ -828,6 +828,140 @@ body.topConsoleOpen .topConsoleChevron{
     border-bottom: 1px solid rgba(15,23,42,.06);
   }
 }
+.topConsoleMemoryHd{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.topConsoleSectionLabel--memory{
+  margin-bottom: 4px;
+}
+.topConsoleMemoryHint{
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #64748b;
+}
+.topConsoleMemoryClearBtn{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 32px;
+  padding: 7px 10px;
+  border: 1px solid rgba(37,99,235,.18);
+  border-radius: 9px;
+  background: rgba(239,246,255,.9);
+  color: #1d4ed8;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 750;
+  cursor: pointer;
+  transition: background .22s ease, border-color .22s ease, color .22s ease, transform .22s ease;
+}
+.topConsoleMemoryClearBtn:hover{
+  background: #dbeafe;
+  border-color: rgba(37,99,235,.34);
+  color: #1e40af;
+  transform: translateY(-1px);
+}
+.topConsoleMemoryClearBtn:active{
+  transform: translateY(0);
+}
+.topConsoleMemoryClearBtn:focus-visible{
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.2);
+}
+.topConsoleMemoryClearBtn--done{
+  border-color: rgba(16,185,129,.35);
+  background: #ecfdf5;
+  color: #047857;
+}
+.topConsoleMemorySummary{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  margin-bottom: 10px;
+}
+.topConsoleMemoryMetric{
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(15,23,42,.07);
+  border-radius: 10px;
+  background: rgba(255,255,255,.78);
+}
+.topConsoleMemoryMetricK{
+  display: block;
+  margin-bottom: 4px;
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .04em;
+}
+.topConsoleMemoryMetricV{
+  display: block;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topConsoleMemoryBar{
+  height: 7px;
+  margin-bottom: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148,163,184,.2);
+}
+.topConsoleMemoryBarFill{
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #60a5fa, #2563eb 60%, #10b981);
+  transition: width .45s cubic-bezier(.22,1,.36,1), background .25s ease;
+}
+.topConsoleMemoryBarFill--warn{
+  background: linear-gradient(90deg, #fbbf24, #f59e0b);
+}
+.topConsoleMemoryBarFill--danger{
+  background: linear-gradient(90deg, #fb7185, #dc2626);
+}
+.topConsoleMemoryBarMeta{
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 9px;
+  color: #94a3b8;
+  font-size: 10px;
+  line-height: 1.35;
+}
+@media (max-width: 420px){
+  .topConsoleMemoryHd{
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .topConsoleMemoryClearBtn{
+    width: 100%;
+  }
+  .topConsoleMemorySummary{
+    gap: 5px;
+  }
+  .topConsoleMemoryMetric{
+    padding: 8px;
+  }
+  .topConsoleMemoryMetricV{
+    font-size: 13px;
+  }
+  .topConsoleMemoryBarMeta{
+    flex-direction: column;
+    gap: 2px;
+  }
+}
 .topConsoleStoragePane{
   flex: 1;
   min-height: 0;
@@ -14733,295 +14867,3 @@ body.beso7OverviewCollapsed .beso7FloatDock.beso7FloatDock--centered.is-focus {
   transition: background 0.15s ease;
 }
 .restructionJsonLink:hover { background: rgba(14, 116, 144, 0.14); }
-
-/* —— Oil Motion scroll intro (The AI Engineer) —— */
-body.besoOilIntroActive{
-  overflow-x: hidden;
-}
-/* Hide chat shell while scrubbing so only the pinned stage is perceived */
-body.besoOilIntroActive .app{
-  visibility: hidden;
-  pointer-events: none;
-  height: 0 !important;
-  min-height: 0 !important;
-  max-height: 0 !important;
-  overflow: hidden !important;
-  margin: 0 !important;
-  padding: 0 !important;
-}
-body.besoOilIntroActive .app .top{
-  opacity: 0;
-  pointer-events: none;
-}
-.besoOilIntro{
-  position: relative;
-  z-index: 80;
-  width: 100%;
-}
-.besoOilIntro.besoOilIntro--done{
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.55s cubic-bezier(0.22, 1, 0.36, 1);
-}
-/* IMPORTANT: do NOT set overflow:hidden on the track — it kills position:sticky */
-.besoOilIntroTrack{
-  height: 620vh;
-  position: relative;
-  transition: height 0.55s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.besoOilIntroSticky{
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  width: 100%;
-  overflow: hidden;
-  z-index: 1;
-}
-.besoOilIntroStage{
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(900px 520px at 18% 12%, rgba(15, 118, 110, 0.22), transparent 58%),
-    radial-gradient(800px 480px at 88% 18%, rgba(14, 116, 144, 0.16), transparent 55%),
-    linear-gradient(165deg, #0b1220 0%, #122033 48%, #0f172a 100%);
-}
-.besoOilIntroStage--product{
-  background:
-    radial-gradient(900px 600px at 15% 10%, rgba(37, 99, 235, 0.12), transparent 60%),
-    radial-gradient(900px 700px at 85% 15%, rgba(16, 185, 129, 0.10), transparent 55%),
-    linear-gradient(180deg, #f7f8fb, #ffffff);
-}
-.besoOilIntroVideo{
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  object-position: center;
-  display: block;
-  background:
-    radial-gradient(900px 600px at 15% 10%, rgba(37, 99, 235, 0.12), transparent 60%),
-    radial-gradient(900px 700px at 85% 15%, rgba(16, 185, 129, 0.10), transparent 55%),
-    linear-gradient(180deg, #f7f8fb, #ffffff);
-  z-index: 0;
-}
-.besoOilIntroVideo--assist{
-  opacity: 0;
-  pointer-events: none;
-  z-index: 0;
-}
-.besoOilIntroFrames{
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-}
-.besoOilIntroFrame{
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center;
-  opacity: 0;
-  will-change: opacity;
-  filter: saturate(1.05) contrast(1.04);
-}
-.besoOilIntroChrome{
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  pointer-events: none;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: clamp(16px, 3vh, 28px) clamp(16px, 4vw, 40px);
-}
-.besoOilIntroChromeTop{
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  max-width: min(520px, 92vw);
-  padding: 10px 14px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.88);
-  border: 1px solid rgba(15, 23, 42, 0.10);
-  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
-  backdrop-filter: blur(10px);
-}
-.besoOilIntroMark{
-  width: 28px;
-  height: 28px;
-  border-radius: 9px;
-  flex: 0 0 auto;
-}
-.besoOilIntroChromeBrand{
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.besoOilIntroChromeBrand strong{
-  font-size: 14px;
-  color: #0f172a;
-  letter-spacing: 0.01em;
-}
-.besoOilIntroChromeBrand span{
-  font-size: 12px;
-  color: #6b7280;
-}
-.besoOilIntroVeil{
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(180deg, rgba(8, 15, 28, 0.55) 0%, rgba(8, 15, 28, 0.18) 38%, rgba(8, 15, 28, 0.72) 100%);
-  pointer-events: none;
-}
-.besoOilIntroCopy{
-  position: absolute;
-  left: clamp(20px, 6vw, 72px);
-  bottom: clamp(72px, 12vh, 140px);
-  right: clamp(20px, 28vw, 420px);
-  z-index: 2;
-  color: #f8fafc;
-  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.35);
-}
-.besoOilIntroHud{
-  margin-top: auto;
-  max-width: min(420px, 92vw);
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(15, 23, 42, 0.10);
-  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
-  pointer-events: none;
-}
-.besoOilIntroHud .besoOilIntroBar{
-  width: 100%;
-  margin-bottom: 8px;
-  background: rgba(37, 99, 235, 0.14);
-}
-.besoOilIntroHud .besoOilIntroHint{
-  color: #64748b;
-  margin: 0;
-}
-.besoOilIntroBrand{
-  margin: 0 0 8px;
-  font-size: 12px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  font-weight: 700;
-  color: #99f6e4;
-}
-.besoOilIntroTitle{
-  margin: 0 0 10px;
-  font-size: clamp(28px, 4.2vw, 48px);
-  font-weight: 780;
-  line-height: 1.12;
-  letter-spacing: -0.02em;
-  font-family: "Segoe UI Semibold", "PingFang SC", "Microsoft YaHei", sans-serif;
-}
-.besoOilIntroCopy--product .besoOilIntroTitle{
-  font-size: clamp(22px, 2.6vw, 32px);
-  margin-bottom: 6px;
-}
-.besoOilIntroText{
-  margin: 0 0 18px;
-  font-size: clamp(15px, 1.6vw, 18px);
-  line-height: 1.55;
-  color: rgba(248, 250, 252, 0.9);
-  max-width: 36em;
-}
-.besoOilIntroCopy--product .besoOilIntroText{
-  color: #6b7280;
-  margin-bottom: 12px;
-  font-size: 14px;
-}
-.besoOilIntroBar{
-  width: min(280px, 70vw);
-  height: 3px;
-  border-radius: 999px;
-  background: rgba(148, 163, 184, 0.28);
-  overflow: hidden;
-  margin-bottom: 12px;
-}
-.besoOilIntroCopy--product .besoOilIntroBar{
-  background: rgba(37, 99, 235, 0.14);
-}
-.besoOilIntroBar > i{
-  display: block;
-  height: 100%;
-  width: 0%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #2563eb, #10b981);
-}
-.besoOilIntroHint{
-  margin: 0;
-  font-size: 13px;
-  color: rgba(226, 232, 240, 0.78);
-}
-.besoOilIntroCopy--product .besoOilIntroHint{
-  color: #64748b;
-}
-.besoOilIntroSkip,
-.besoOilIntroEnter{
-  position: absolute;
-  z-index: 3;
-  appearance: none;
-  cursor: pointer;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(10px);
-  color: #0f172a;
-  border-radius: 999px;
-  font-weight: 650;
-  transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
-  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
-}
-.besoOilIntroSkip{
-  top: 18px;
-  right: 18px;
-  font-size: 12px;
-  padding: 8px 14px;
-}
-.besoOilIntroEnter{
-  left: 50%;
-  bottom: 28px;
-  transform: translateX(-50%);
-  font-size: 14px;
-  padding: 12px 22px;
-  border-color: rgba(37, 99, 235, 0.28);
-  background: linear-gradient(155deg, #4f8ff7 0%, #2563eb 48%, #1d4ed8 100%);
-  color: #fff;
-  box-shadow: 0 12px 36px rgba(37, 99, 235, 0.28);
-}
-.besoOilIntroSkip:hover{
-  border-color: rgba(37, 99, 235, 0.35);
-  background: #fff;
-}
-.besoOilIntroEnter:hover{
-  filter: brightness(1.04);
-}
-.besoOilIntroEnter:active{
-  transform: translateX(-50%) scale(0.98);
-}
-.besoOilIntroEnter.hidden{
-  display: none;
-}
-@media (max-width: 720px){
-  .besoOilIntroCopy{
-    right: 20px;
-    bottom: 110px;
-  }
-  .besoOilIntroTitle{
-    font-size: 26px;
-  }
-  .besoOilIntroChromeTop{
-    max-width: calc(100% - 110px);
-  }
-}
-@media (prefers-reduced-motion: reduce){
-  .besoOilIntroTrack{
-    height: 100vh;
-  }
-}
-
